@@ -41,3 +41,8 @@ coverage/
 
 # OMC ephemeral state (session caches, runtime checkpoints) — plans/ kept
 .omc/state/
+
+# Local curl evidence for Veo model dispatch — referenced by flow_sdk.py
+# comments as source-of-truth, but contains raw OAuth bearer tokens.
+# Keep on disk; never commit.
+/video_model*.md
