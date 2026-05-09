@@ -1310,6 +1310,103 @@ function EditableTextBody({
   );
 }
 
+// ── Storyboard ────────────────────────────────────────────────────────────
+// Plan: .omc/plans/storyboard-image-node.md §5 Phase 4.
+// Renders a horizontal strip of up to 8 tiles. Continuation tiles show
+// a `↩j` badge pointing at their parent shot. Blocked tiles (parent
+// failed) show a lock + the parent index. Failed tiles expose a Retry
+// button that re-dispatches just that shot via retryStoryboardShot.
+
+function StoryboardBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
+  const shots = Array.isArray(data.shots) ? data.shots : [];
+  const isProcessing = data.status === "queued" || data.status === "running";
+  const cols = Math.min(Math.max(shots.length || 1, 1), 4);
+
+  if (shots.length === 0) {
+    return (
+      <div className="storyboard-empty">
+        <span style={{ opacity: 0.6 }}>
+          Click Generate to plan {data.shotCount ?? 4} narrative shots.
+        </span>
+      </div>
+    );
+  }
+
+  function onRetry(idx: number) {
+    useGenerationStore.getState().retryStoryboardShot(rfId, idx);
+  }
+
+  return (
+    <div
+      className="thumbnail-grid"
+      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+    >
+      {shots.map((shot) => {
+        const tileProcessing =
+          isProcessing &&
+          (shot.status === "queued" || shot.status === "running");
+        const isError = shot.status === "error";
+        const isBlocked = shot.status === "blocked";
+        const onClick = shot.mediaId
+          ? () =>
+              useGenerationStore.getState().openResultViewer(rfId, shot.idx)
+          : undefined;
+        return (
+          <div key={shot.idx} className="storyboard-tile-wrap">
+            <ImageTile
+              rfId={rfId}
+              mediaId={shot.mediaId}
+              isProcessing={tileProcessing}
+              alt={`Shot ${shot.idx + 1}`}
+              onClick={onClick}
+            />
+            {/* Continuation badge: shows parent index when this shot
+                edits from another shot. Roots have no badge. */}
+            {shot.parentShotIdx !== null && shot.parentShotIdx !== undefined && (
+              <span
+                className="storyboard-badge storyboard-badge--cont"
+                title={`Continues from shot ${shot.parentShotIdx + 1}`}
+              >
+                ↩{shot.parentShotIdx + 1}
+              </span>
+            )}
+            {/* Blocked: parent failed, can't dispatch until parent retried. */}
+            {isBlocked && (
+              <span
+                className="storyboard-badge storyboard-badge--blocked"
+                title={shot.error || "blocked"}
+              >
+                🔒
+              </span>
+            )}
+            {/* Error: tile shows a tiny Retry button so the user doesn't
+                have to leave the canvas to recover. */}
+            {isError && !tileProcessing && (
+              <button
+                type="button"
+                className="storyboard-retry-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry(shot.idx);
+                }}
+                title={shot.error ? `Retry: ${shot.error}` : "Retry shot"}
+              >
+                ↻
+              </button>
+            )}
+            {/* Shot index pill (always shown) — small bottom-left label
+                so the narrative order stays readable even when tiles are
+                skeletons. */}
+            <span className="storyboard-badge storyboard-badge--idx">
+              {shot.idx + 1}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   switch (data.type) {
     case "character":
@@ -1324,6 +1421,8 @@ function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
       return <EditableTextBody rfId={rfId} data={data} variant="note" />;
     case "visual_asset":
       return <VisualAssetBody rfId={rfId} data={data} />;
+    case "Storyboard":
+      return <StoryboardBody rfId={rfId} data={data} />;
   }
 }
 
@@ -1335,7 +1434,7 @@ function downloadExt(type: string): string {
 export function NodeCard(props: NodeProps<FlowNode>) {
   const data = props.data;
   const isNote = data.type === "note";
-  const isGenerable = ["image", "prompt", "video", "visual_asset", "character"].includes(data.type);
+  const isGenerable = ["image", "prompt", "video", "visual_asset", "character", "Storyboard"].includes(data.type);
   const isRunning = data.status === "running";
   const llmBusy = isLLMBusy(data);
   const downloadable = !!data.mediaId && data.type !== "prompt" && data.type !== "note";

@@ -148,12 +148,17 @@ export function GenerationDialog() {
   const openDialog = useGenerationStore((s) => s.openDialog);
   const closeGenerationDialog = useGenerationStore((s) => s.closeGenerationDialog);
   const dispatchGeneration = useGenerationStore((s) => s.dispatchGeneration);
+  const dispatchStoryboard = useGenerationStore((s) => s.dispatchStoryboard);
   const nodes = useBoardStore((s) => s.nodes);
 
   const [prompt, setPrompt] = useState(openDialog.prompt);
   const [aspectRatio, setAspectRatio] = useState<AspectKey>("IMAGE_ASPECT_RATIO_LANDSCAPE");
   const [variants, setVariants] = useState(1);
   const [camera, setCamera] = useState<CameraKey>("static");
+  // Storyboard shot count (1..8). Independent from `variants` because
+  // the storyboard request maps to a continuity tree, not pose-distinct
+  // variants of one image. Default 4 (one Phase A batch, no Phase B).
+  const [shotCount, setShotCount] = useState(4);
 
   // Character builder state — only used when targetType === "character".
   const [charGender, setCharGender] = useState<GenderKey | null>(null);
@@ -189,6 +194,7 @@ export function GenerationDialog() {
   const targetType = node?.data.type ?? "image";
   const isVideo = targetType === "video";
   const isCharacter = targetType === "character";
+  const isStoryboard = targetType === "Storyboard";
 
   // Find upstream source image for video nodes. When the upstream has
   // multiple variants, we batch-i2v one video per variant — `sourceMediaIds`
@@ -421,6 +427,20 @@ export function GenerationDialog() {
       node?.data.autoPromptStatus === "pending"
       || node?.data.aiBriefStatus === "pending"
     ) {
+      return;
+    }
+    if (isStoryboard) {
+      // For Storyboard, the prompt textarea is the narrative seed
+      // ("đi du lich + show off áo", "unbox + try-on at home", …).
+      // The planner LLM expands it into N per-shot beats with
+      // continuity hints. Empty seed is allowed — planner will improvise
+      // from upstream refs alone.
+      dispatchStoryboard(rfId, {
+        shotCount,
+        narrativeSeed: prompt,
+        aspectRatio,
+      });
+      closeGenerationDialog();
       return;
     }
     if (isCharacter) {
@@ -926,8 +946,9 @@ export function GenerationDialog() {
           </div>
         )}
 
-        {/* Variants stepper — image only */}
-        {!isVideo && (
+        {/* Variants stepper — image only (not storyboard, which has its own
+            Shots stepper below). */}
+        {!isVideo && !isStoryboard && (
           <div className="gen-dialog__field">
             <span className="gen-dialog__label">Variants</span>
             <div className="variants-stepper">
@@ -949,6 +970,36 @@ export function GenerationDialog() {
                 +
               </button>
               <span className="variants-stepper__hint">1–4 images per request</span>
+            </div>
+          </div>
+        )}
+
+        {/* Shots stepper — storyboard only. 1..8 covers the continuity-tree
+            range; planner decides how many roots vs continuations. */}
+        {isStoryboard && (
+          <div className="gen-dialog__field">
+            <span className="gen-dialog__label">Shots</span>
+            <div className="variants-stepper">
+              <button
+                type="button"
+                disabled={shotCount <= 1}
+                aria-label="Decrease shot count"
+                onClick={() => setShotCount((v) => Math.max(1, v - 1))}
+              >
+                −
+              </button>
+              <span>{shotCount}</span>
+              <button
+                type="button"
+                disabled={shotCount >= 8}
+                aria-label="Increase shot count"
+                onClick={() => setShotCount((v) => Math.min(8, v + 1))}
+              >
+                +
+              </button>
+              <span className="variants-stepper__hint">
+                1–8 narrative beats (planner picks roots vs continuations)
+              </span>
             </div>
           </div>
         )}
