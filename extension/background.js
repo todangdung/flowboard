@@ -96,18 +96,23 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     flowKey = token;
     metrics.tokenCapturedAt = Date.now();
     chrome.storage.local.set({ flowKey, metrics });
-    console.log('[Flowboard] Bearer token captured');
 
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'token_captured', flowKey }));
-    }
-
-    // Resolve the user's identity (email/name/picture) once per token —
-    // saves the popup + AccountPanel from showing "Connected via
-    // extension" placeholders. The token already has the userinfo.email
-    // + userinfo.profile scopes Flow needs anyway, so this is a free
-    // call. Errors are non-fatal and silent.
+    // Only emit on the WS when the token actually rotated. The listener
+    // fires on EVERY outbound aisandbox-pa request — and the agent's
+    // own poll loops generate dozens per minute. Re-sending the same
+    // string each time pushed the agent into an effective infinite
+    // /v1/credits refresh loop (one credits GET per poll). The agent
+    // side has a defensive dedupe too, but quiet at the source first.
     if (tokenChanged) {
+      console.log('[Flowboard] Bearer token captured');
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'token_captured', flowKey }));
+      }
+      // Resolve the user's identity (email/name/picture) once per token —
+      // saves the popup + AccountPanel from showing "Connected via
+      // extension" placeholders. The token already has the userinfo.email
+      // + userinfo.profile scopes Flow needs anyway, so this is a free
+      // call. Errors are non-fatal and silent.
       fetchAndPushUserInfo(token);
     }
   },

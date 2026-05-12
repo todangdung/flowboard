@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 # need to plumb it through from the extension on every call.
 _FLOW_API_KEY = "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY"
 _FLOW_CREDITS_URL = "https://aisandbox-pa.googleapis.com/v1/credits"
+# Minimum gap between paygate-tier refreshes when the same Bearer token
+# is re-delivered. Tier rarely changes; 60 s is fine for AccountPanel
+# freshness and tames the credits-fetch storm an old extension can
+# induce by re-emitting `token_captured` on every outbound request.
+_TIER_REFRESH_MIN_INTERVAL_S = 60.0
 
 
 class FlowClient:
@@ -54,6 +59,13 @@ class FlowClient:
         # In-memory only; cleared on extension disconnect. NOT logged
         # anywhere — see fetch_paygate_tier() for the only consumer.
         self._flow_key: Optional[str] = None
+        # Last time we hit /v1/credits — guards against the extension
+        # emitting `token_captured` on every outbound aisandbox-pa
+        # request (polls fire dozens per minute during video gen). The
+        # extension was patched to only emit on rotation, but we keep
+        # this dedupe so older installs don't spam the credits endpoint.
+        self._last_tier_fetch_at: Optional[float] = None
+        self._last_logged_key: Optional[str] = None
         # Profile pushed by the extension after it resolves the Bearer
         # token via Google's userinfo endpoint. Stays in-memory only —
         # if the agent restarts the extension will replay it on the
@@ -189,14 +201,26 @@ class FlowClient:
             self._token_captured_at = time.time()
             flow_key = data.get("flowKey")
             if isinstance(flow_key, str) and flow_key:
+                key_changed = flow_key != self._flow_key
                 self._flow_key = flow_key
-                logger.info("token_captured (len=%d)", len(flow_key))
-                # Authoritative tier resolution — fetch /v1/credits in
-                # the background so the AccountPanel sees a real tier
-                # within an HTTP RTT instead of waiting for the user's
-                # Flow tab to emit a request the passive sniffer can
-                # see. Don't await: WS handler must stay responsive.
-                asyncio.create_task(self.fetch_paygate_tier())
+                # Defensive dedupe — see _last_tier_fetch_at field comment.
+                # Skip the log + credits refetch when the token hasn't
+                # rotated and we already fetched within the rate-limit
+                # window. Without this, an older extension re-sending the
+                # same token on every poll trips one /v1/credits per poll.
+                now = time.time()
+                last = self._last_tier_fetch_at or 0.0
+                if key_changed or (now - last) > _TIER_REFRESH_MIN_INTERVAL_S:
+                    if flow_key != self._last_logged_key:
+                        logger.info("token_captured (len=%d)", len(flow_key))
+                        self._last_logged_key = flow_key
+                    self._last_tier_fetch_at = now
+                    # Authoritative tier resolution — fetch /v1/credits in
+                    # the background so the AccountPanel sees a real tier
+                    # within an HTTP RTT instead of waiting for the user's
+                    # Flow tab to emit a request the passive sniffer can
+                    # see. Don't await: WS handler must stay responsive.
+                    asyncio.create_task(self.fetch_paygate_tier())
             return
         if t == "user_info":
             info = data.get("userInfo")
