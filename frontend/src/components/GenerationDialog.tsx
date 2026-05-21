@@ -200,6 +200,10 @@ export function GenerationDialog() {
   // Hooks MUST be called unconditionally on every render — pull
   // videoModel out first, derive the boolean after.
   const videoModelFamily = useSettingsStore((s) => s.videoModel);
+  const omniFlashDuration = useSettingsStore((s) => s.omniFlashDuration);
+  const setOmniFlashDuration = useSettingsStore(
+    (s) => s.setOmniFlashDuration,
+  );
 
   const targetType = node?.data.type ?? "image";
   const isVideo = targetType === "video";
@@ -1031,17 +1035,14 @@ export function GenerationDialog() {
             <span className="gen-dialog__label">Duration (Omni Flash)</span>
             <div className="aspect-chip-row">
               {OMNI_FLASH_DURATIONS.map((d) => {
-                const active =
-                  useSettingsStore.getState().omniFlashDuration === d;
+                const active = omniFlashDuration === d;
                 return (
                   <button
                     key={d}
                     type="button"
                     className={`aspect-chip${active ? " aspect-chip--active" : ""}`}
                     onClick={() =>
-                      useSettingsStore
-                        .getState()
-                        .setOmniFlashDuration(d as OmniFlashDuration)
+                      setOmniFlashDuration(d as OmniFlashDuration)
                     }
                     title={`${d}s — ${OMNI_FLASH_CREDIT_COST[d]} credits`}
                   >
