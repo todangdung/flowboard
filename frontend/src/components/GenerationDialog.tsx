@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useGenerationStore } from "../store/generation";
 import { useBoardStore, type StoryboardGrid } from "../store/board";
-import { buildStoryboardPrompt } from "../lib/storyboardPrompt";
+import {
+  buildStoryboardPrompt,
+  buildStoryboardVideoPrompt,
+} from "../lib/storyboardPrompt";
 import {
   useSettingsStore,
   OMNI_FLASH_CREDIT_COST,
@@ -24,7 +27,14 @@ import {
   type VibeKey,
 } from "../constants/character";
 
-const REF_SOURCE_TYPES = new Set(["character", "image", "visual_asset"]);
+const REF_SOURCE_TYPES = new Set([
+  "character",
+  "image",
+  "visual_asset",
+  // Storyboard outputs are first-class refs — they're composite images
+  // that can feed downstream image / Omni-video / character nodes.
+  "Storyboard",
+]);
 
 function buildCharacterPrompt(
   gender: GenderKey | null,
@@ -225,6 +235,23 @@ export function GenerationDialog() {
   // legacy single-source path.
   const sourceEdge = isVideo ? edges.find((e) => e.target === rfId) : undefined;
   const sourceNode = sourceEdge ? nodes.find((n) => n.id === sourceEdge.source) : undefined;
+
+  // Storyboard → video: when ANY upstream node is a Storyboard composite,
+  // the motion prompt MUST follow a fixed template that asks Flow to
+  // animate the panels in order. 3x3 → frames 1→9; 2x2 → frames 1→4.
+  // Other refs (character / location / visual_asset) still flow as
+  // normal — the prompt itself is what's locked. Pick the first
+  // storyboard upstream's grid (multi-storyboard edges are an edge
+  // case we don't optimize for).
+  const storyboardUpstream = isVideo
+    ? edges
+        .filter((e) => e.target === rfId)
+        .map((e) => nodes.find((n) => n.id === e.source))
+        .find((n) => n?.data.type === "Storyboard")
+    : undefined;
+  const hasStoryboardUpstream = !!storyboardUpstream;
+  const storyboardUpstreamGrid =
+    storyboardUpstream?.data.storyboardGrid === "2x2" ? "2x2" : "3x3";
   const sourceMediaId = sourceNode?.data.mediaId ?? null;
   // Drop null placeholders from the upstream variant list — partial-
   // batch results may carry them, but downstream dispatch needs a
@@ -307,9 +334,26 @@ export function GenerationDialog() {
   // Reset form when dialog opens for a different node
   useEffect(() => {
     if (rfId !== null) {
-      setPrompt(openDialog.prompt);
+      // Default: whatever prompt the caller seeded (last-saved on the node,
+      // or empty for a fresh gen). Storyboard→video overrides this below
+      // with the locked motion template.
+      let initialPrompt = openDialog.prompt;
       const openNode = nodes.find((n) => n.id === rfId);
       const openNodeType = openNode?.data.type ?? "image";
+      if (openNodeType === "video") {
+        const sb = useBoardStore
+          .getState()
+          .edges.filter((e) => e.target === rfId)
+          .map((e) =>
+            useBoardStore.getState().nodes.find((n) => n.id === e.source),
+          )
+          .find((n) => n?.data.type === "Storyboard");
+        if (sb) {
+          const g = sb.data.storyboardGrid === "2x2" ? "2x2" : "3x3";
+          initialPrompt = buildStoryboardVideoPrompt(g);
+        }
+      }
+      setPrompt(initialPrompt);
       // Character → always 1:1 portrait headshot (its own opinionated
       // default; ignores upstream aspect because character is the source).
       // Image / video → match upstream aspect when available; fall back to
@@ -736,7 +780,22 @@ export function GenerationDialog() {
                   : "Bỏ trống để tự generate prompt từ upstream nodes ✨"
               }
               disabled={isWorking}
+              readOnly={hasStoryboardUpstream}
+              title={
+                hasStoryboardUpstream
+                  ? "Locked: storyboard motion template (animates panels in order)"
+                  : undefined
+              }
             />
+            {hasStoryboardUpstream && (
+              <p className="gen-dialog__hint gen-dialog__hint--locked">
+                🎬 <strong>Storyboard motion template</strong> — locked because an
+                upstream Storyboard node is feeding this video. Flow animates
+                the composite panels in order (frame 1 →
+                {" "}{storyboardUpstreamGrid === "2x2" ? "4" : "9"}). Other refs
+                (character / location / visual_asset) still flow through normally.
+              </p>
+            )}
             {isWorking && (
               <p className="gen-dialog__hint">
                 {node?.data.aiBriefStatus === "pending"

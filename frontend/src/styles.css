@@ -3154,6 +3154,19 @@ button:disabled {
   line-height: 1.5;
 }
 
+/* Locked-prompt banner — video target sees this when its upstream is a
+   Storyboard composite and the motion prompt is forced to the template. */
+.gen-dialog__hint--locked {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(120, 80, 200, 0.12);
+  border: 1px solid rgba(120, 80, 200, 0.35);
+  color: var(--text, #e5e7eb);
+}
+.gen-dialog__hint--locked strong {
+  color: var(--accent, #a78bfa);
+}
+
 .gen-dialog__auto-badge {
   display: inline-block;
   margin-left: 8px;
