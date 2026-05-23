@@ -22,6 +22,9 @@ let metrics = {
 };
 
 const flowUrls = ['https://labs.google/fx/tools/flow*', 'https://labs.google/fx/*/tools/flow*'];
+const chatgptUrls = ['https://chatgpt.com/*'];
+const CHATGPT_HOME_URL = 'https://chatgpt.com/';
+let _openingChatGPTTab = false;
 
 // ─── URL → Log Type Classifier ─────────────────────────────
 
@@ -228,6 +231,8 @@ function connectToAgent() {
         await handleApiRequest(msg);
       } else if (msg.method === 'trpc_request') {
         await handleTrpcRequest(msg);
+      } else if (msg.method === 'chatgpt_request') {
+        await handleChatGPTRequest(msg);
       } else if (msg.method === 'get_status') {
         sendToAgent({
           id: msg.id,
@@ -617,6 +622,126 @@ async function handleTrpcRequest(msg) {
     sendToAgent({ id, error: e.message || 'TRPC_FETCH_FAILED' });
   } finally {
     setState('idle');
+  }
+}
+
+// ─── ChatGPT Request Proxy ──────────────────────────────────
+
+/**
+ * Route a `chatgpt_request` from the agent to a chatgpt.com tab.
+ *
+ * Mirrors `solveCaptcha`/`handleTrpcRequest`: ensures a chatgpt.com tab
+ * exists (spawning one in background if needed), revives discarded tabs,
+ * and forwards CHATGPT_GEN into the content script. The content script
+ * relays into the MAIN world (injected_chatgpt.js) where window.fetch
+ * inherits cookies + Cloudflare context — that's the only place the
+ * `/backend-api/conversation` POST succeeds reliably on Plus accounts.
+ *
+ * Result shape from the content script:
+ *   { requestId, text, asset_pointers, conversation_id, error? }
+ */
+async function handleChatGPTRequest(msg) {
+  const { id, params } = msg;
+  const prompt = params?.prompt;
+  const model = params?.model || null;
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    sendToAgent({ id, error: 'MISSING_PROMPT' });
+    return;
+  }
+
+  setState('running');
+  try {
+    // Find or spawn a chatgpt.com tab. Auto-open is background only — we
+    // never steal focus from the user's current tab; UI surfaces a hint
+    // if the spawn is slow.
+    let tabs = await chrome.tabs.query({ url: chatgptUrls });
+    if (!tabs.length) {
+      if (_openingChatGPTTab) {
+        sendToAgent({ id, error: 'CHATGPT_TAB_OPENING' });
+        return;
+      }
+      _openingChatGPTTab = true;
+      try {
+        await chrome.tabs.create({ url: CHATGPT_HOME_URL, active: false });
+        await sleep(3000);
+      } catch (e) {
+        sendToAgent({ id, error: e?.message || 'CHATGPT_TAB_OPEN_FAILED' });
+        return;
+      } finally {
+        _openingChatGPTTab = false;
+      }
+      tabs = await chrome.tabs.query({ url: chatgptUrls });
+    }
+
+    // Iterate candidates, revive discarded, skip dead. First successful
+    // round-trip wins. Hard cap on attempts so we don't loop forever
+    // across a pool of half-dead tabs.
+    const errors = [];
+    for (const tab of tabs.slice(0, 4)) {
+      const live = await reviveTabIfNeeded(tab);
+      if (!live) continue;
+      try {
+        const result = await sendChatGPTToTab(live.id, id, prompt, model);
+        if (result?.error) {
+          // Surface the content-script error (e.g. RATE_LIMITED) up to
+          // the agent verbatim — the worker maps it to a clean error code.
+          sendToAgent({ id, error: result.error, data: { retry_after: result.retry_after ?? null } });
+          return;
+        }
+        sendToAgent({
+          id,
+          status: 200,
+          data: {
+            text: result?.text ?? '',
+            asset_pointers: result?.asset_pointers ?? [],
+            conversation_id: result?.conversation_id ?? null,
+          },
+        });
+        return;
+      } catch (err) {
+        const errMsg = err?.message || String(err);
+        // Tab died between query and sendMessage — try the next one.
+        if (errMsg.includes('No current window') || errMsg.includes('No tab with id')) {
+          errors.push(errMsg);
+          continue;
+        }
+        sendToAgent({ id, error: errMsg });
+        return;
+      }
+    }
+    sendToAgent({ id, error: errors.length ? errors[0] : 'NO_LIVE_CHATGPT_TAB' });
+  } finally {
+    setState('idle');
+  }
+}
+
+async function sendChatGPTToTab(tabId, requestId, prompt, model) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, {
+      type: 'CHATGPT_GEN',
+      requestId,
+      prompt,
+      model,
+    });
+  } catch (error) {
+    const msg = error?.message || '';
+    const shouldInject =
+      msg.includes('Receiving end does not exist') ||
+      msg.includes('Could not establish connection');
+    if (!shouldInject) throw error;
+    // Re-inject content script if Chrome dropped it (rare for chatgpt.com
+    // which stays active, but the discarded-tab path needs this too).
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content_chatgpt.js'],
+    });
+    await sleep(200);
+    return await chrome.tabs.sendMessage(tabId, {
+      type: 'CHATGPT_GEN',
+      requestId,
+      prompt,
+      model,
+    });
   }
 }
 

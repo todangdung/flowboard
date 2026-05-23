@@ -376,6 +376,33 @@ class FlowClient:
             timeout=timeout,
         )
 
+    async def chatgpt_request(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        timeout: Optional[float] = 150.0,
+    ) -> dict:
+        """Proxy a ChatGPT generation through the extension's chatgpt.com tab.
+
+        The MAIN-world script POSTs to ``/backend-api/conversation`` with the
+        page's session cookies — that's the only path that works on Plus
+        accounts (HAR replay broke per gpt4free #2354, and service-worker
+        fetches trip Cloudflare's anti-bot fingerprint check).
+
+        Returns the WS envelope. On success the response payload sits under
+        ``["data"]`` with ``text``, ``asset_pointers`` (M2), and
+        ``conversation_id``. On failure the WS envelope has ``["error"]``.
+
+        The 150 s default timeout exceeds the content script's 120 s cap
+        (extension/content_chatgpt.js) so the inner timeout wins and the
+        caller sees a structured error rather than a bare ``timeout``.
+        """
+        return await self._send(
+            "chatgpt_request",
+            {"prompt": prompt, "model": model},
+            timeout=timeout,
+        )
+
     # ── observability ─────────────────────────────────────────────────────
     @property
     def ws_stats(self) -> dict:

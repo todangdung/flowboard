@@ -94,6 +94,15 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   // missing (true for fresh nodes + legacy pre-1.2.15 nodes whose
   // multi-shot data is now ignored).
   storyboardGrid?: StoryboardGrid;
+  // ChatGPT-only fields. `responseText` is the assistant's text body
+  // streamed back from `/backend-api/conversation`. `assetPointers` are
+  // raw `file-service://file-XXXX` ids surfaced from the SSE deltas;
+  // M2 resolves them into `mediaIds[]`. `conversationId` is OpenAI's
+  // conversation id for the ChatGPT chat — surfaced for debugging only;
+  // we always start fresh chats so this is informational.
+  responseText?: string;
+  assetPointers?: string[];
+  conversationId?: string;
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -142,6 +151,7 @@ const TYPE_TITLE: Record<NodeType, string> = {
   note: "Note",
   visual_asset: "Visual asset",
   Storyboard: "Storyboard",
+  chatgpt: "ChatGPT",
 };
 
 // ── Persisted active-board id ─────────────────────────────────────────────

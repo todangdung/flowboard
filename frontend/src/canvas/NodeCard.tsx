@@ -17,6 +17,7 @@ const ICON: Record<string, string> = {
   prompt: "✦",
   note: "✎",
   visual_asset: "◇",
+  chatgpt: "✨",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -1453,6 +1454,108 @@ function StoryboardBody({ rfId, data }: { rfId: string; data: FlowboardNodeData 
   );
 }
 
+// ── ChatGPT body ───────────────────────────────────────────────────────────
+// The ChatGPT node is structurally simpler than Image/Video: prompt input
+// at the top (editable like the Prompt node), response text below the
+// prompt once generation completes. M1 is text only; M2 will render a
+// tile grid of generated images below the text (driven by `data.mediaIds`,
+// same convention as ImageBody).
+function ChatGPTBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(data.prompt ?? "");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(data.prompt ?? "");
+      requestAnimationFrame(() => {
+        const ta = taRef.current;
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+      });
+    }
+  }, [editing]);
+
+  function save() {
+    const next = draft;
+    if (next !== (data.prompt ?? "")) {
+      useBoardStore.getState().updateNodeData(rfId, { prompt: next });
+      const dbId = parseInt(rfId, 10);
+      if (!isNaN(dbId)) {
+        patchNode(dbId, { data: { prompt: next } }).catch(() => {});
+      }
+    }
+    setEditing(false);
+  }
+
+  const responseText = data.responseText ?? "";
+  const errorText = data.error ?? "";
+
+  return (
+    <div className="node-body node-body--chatgpt">
+      {editing ? (
+        <textarea
+          ref={taRef}
+          className="prompt-editor"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              save();
+            }
+          }}
+          placeholder="Prompt for ChatGPT — e.g. 'Mô tả con mèo cute và vẽ ảnh nó'"
+        />
+      ) : (
+        <pre
+          className="prompt-text"
+          onDoubleClick={() => setEditing(true)}
+          title="Double-click to edit"
+        >
+          {data.prompt || "Double-click to add prompt…"}
+        </pre>
+      )}
+      {responseText && (
+        <pre className="chatgpt-response">{responseText}</pre>
+      )}
+      {(data.mediaIds && data.mediaIds.length > 0) && (
+        <div className="chatgpt-image-grid">
+          {data.mediaIds.filter((m): m is string => typeof m === "string" && m.length > 0).map((mid, i) => (
+            <img
+              key={mid}
+              className={`chatgpt-image-tile${data.mediaId === mid ? " chatgpt-image-tile--active" : ""}`}
+              src={mediaUrl(mid)}
+              alt={`ChatGPT image ${i + 1}`}
+              draggable={false}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Switch the active variant — same convention as Image
+                // node so downstream `collectUpstreamRefMediaIds` picks
+                // up the user's pick when wiring to a downstream node.
+                useBoardStore.getState().updateNodeData(rfId, { mediaId: mid });
+                const dbId = parseInt(rfId, 10);
+                if (!isNaN(dbId)) {
+                  patchNode(dbId, { data: { mediaId: mid } }).catch(() => {});
+                }
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {errorText && !responseText && (
+        <pre className="chatgpt-error">⚠ {errorText}</pre>
+      )}
+    </div>
+  );
+}
+
 function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   switch (data.type) {
     case "character":
@@ -1469,6 +1572,8 @@ function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
       return <VisualAssetBody rfId={rfId} data={data} />;
     case "Storyboard":
       return <StoryboardBody rfId={rfId} data={data} />;
+    case "chatgpt":
+      return <ChatGPTBody rfId={rfId} data={data} />;
   }
 }
 
@@ -1480,7 +1585,7 @@ function downloadExt(type: string): string {
 export function NodeCard(props: NodeProps<FlowNode>) {
   const data = props.data;
   const isNote = data.type === "note";
-  const isGenerable = ["image", "prompt", "video", "visual_asset", "character", "Storyboard"].includes(data.type);
+  const isGenerable = ["image", "prompt", "video", "visual_asset", "character", "Storyboard", "chatgpt"].includes(data.type);
   const isRunning = data.status === "running";
   const llmBusy = isLLMBusy(data);
   const downloadable = !!data.mediaId && data.type !== "prompt" && data.type !== "note";

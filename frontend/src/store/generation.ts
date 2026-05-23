@@ -29,7 +29,7 @@ interface GenerationState {
       prompt: string;
       aspectRatio?: string;
       paygateTier?: string;
-      kind?: "image" | "video";
+      kind?: "image" | "video" | "chatgpt";
       sourceMediaId?: string;
       // Multi-source-image i2v: when the upstream image has N variants
       // we generate one video per variant. Backend sends N items in the
@@ -148,7 +148,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     prompt: string;
     aspectRatio?: string;
     paygateTier?: string;
-    kind?: "image" | "video";
+    kind?: "image" | "video" | "chatgpt";
     sourceMediaId?: string;
     sourceMediaIds?: string[];
     variantCount?: number;
@@ -157,23 +157,24 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     const projectId = await get().ensureProjectId();
     if (projectId === null) return;
 
-    // Pre-flight: refuse to dispatch if the paygate tier is unknown.
-    // The backend would reject with `paygate_tier_unknown` anyway (since
-    // Phase 1 stopped silently defaulting to Pro), but bailing here gives
-    // the user a clearer hint without spending a captcha round-trip and
-    // without leaving a `failed` request row in the DB. The
-    // AccountPanel's "Tier unknown — Open Flow" banner is the recovery
-    // path.
-    const knownTier = opts.paygateTier ?? get().paygateTier;
-    if (!knownTier) {
-      set({
-        error: "Open Flow once so the extension can detect your plan, then retry. (See the Tier-unknown banner in the bottom-left.)",
-      });
-      useBoardStore.getState().updateNodeData(rfId, {
-        status: "error",
-        error: "paygate_tier_unknown",
-      });
-      return;
+    // Pre-flight: refuse to dispatch if the paygate tier is unknown —
+    // EXCEPT for ChatGPT, which doesn't talk to Google Flow at all and
+    // therefore has no tier dependency. The Flow paygate check would
+    // otherwise lock free / no-tier users out of ChatGPT generation,
+    // which has its own auth path (chatgpt.com session cookies).
+    const kind = opts.kind ?? "image";
+    if (kind !== "chatgpt") {
+      const knownTier = opts.paygateTier ?? get().paygateTier;
+      if (!knownTier) {
+        set({
+          error: "Open Flow once so the extension can detect your plan, then retry. (See the Tier-unknown banner in the bottom-left.)",
+        });
+        useBoardStore.getState().updateNodeData(rfId, {
+          status: "error",
+          error: "paygate_tier_unknown",
+        });
+        return;
+      }
     }
 
     // Cancel existing poll for this node if any
@@ -195,11 +196,22 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     });
 
     // Create request
-    const kind = opts.kind ?? "image";
     let reqDto;
     try {
       const nodeDbId = parseInt(rfId, 10);
-      if (kind === "video") {
+      if (kind === "chatgpt") {
+        // ChatGPT path: NO Flow project, NO paygate tier, NO refs. The
+        // extension's MAIN-world bridge on chatgpt.com talks to OpenAI
+        // directly using the user's session cookies. Only the prompt
+        // (and optional model override) cross the wire.
+        reqDto = await createRequest({
+          type: "gen_chatgpt",
+          node_id: isNaN(nodeDbId) ? undefined : nodeDbId,
+          params: {
+            prompt: opts.prompt,
+          },
+        });
+      } else if (kind === "video") {
         const settings = useSettingsStore.getState();
         const isOmni = settings.videoModel === "omni_flash";
 
@@ -339,6 +351,55 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             }));
             scheduleNextPoll();
           } else if (req.status === "done") {
+            // ChatGPT result shape is different: no Flow media_ids
+            // (M1 = text only; M2 will populate mediaIds[] from
+            // asset_pointers). Stamp the text body directly and skip
+            // the Flow-specific persistence path.
+            if (req.type === "gen_chatgpt") {
+              const text = (req.result["text"] as string | undefined) ?? "";
+              const assetPointers = (req.result["asset_pointers"] as string[] | undefined) ?? [];
+              const conversationId = (req.result["conversation_id"] as string | null | undefined) ?? null;
+              // M2: image media_ids resolved by the worker via
+              // ingest_inline_bytes. Stamp them onto the node so the
+              // ChatGPT tile grid renders, and pin the first as the
+              // active variant (mediaId) for downstream ref-wiring.
+              const cgMediaIds = (req.result["media_ids"] as string[] | undefined) ?? [];
+              const cgPrimaryId = cgMediaIds.find((m): m is string => typeof m === "string" && m.length > 0);
+              useBoardStore.getState().updateNodeData(rfId, {
+                status: "done",
+                responseText: text,
+                assetPointers,
+                conversationId: conversationId ?? undefined,
+                mediaIds: cgMediaIds,
+                mediaId: cgPrimaryId,
+                renderedAt: new Date().toISOString(),
+                error: undefined,
+              });
+              const dbIdC = parseInt(rfId, 10);
+              if (!isNaN(dbIdC)) {
+                patchNode(dbIdC, {
+                  status: "done",
+                  data: {
+                    prompt: opts.prompt,
+                    responseText: text,
+                    assetPointers,
+                    conversationId: conversationId ?? null,
+                    mediaIds: cgMediaIds,
+                    mediaId: cgPrimaryId,
+                    renderedAt: new Date().toISOString(),
+                    error: null,
+                  },
+                }).catch(() => {});
+              }
+              const entry = get().active[rfId];
+              if (entry?.timerId !== null && entry?.timerId !== undefined) clearTimeout(entry.timerId);
+              set((s) => {
+                const next = { ...s.active };
+                delete next[rfId];
+                return { active: next };
+              });
+              return;
+            }
             // `media_ids` may contain `null` placeholders for variants
             // the backend marked as partial-failures (e.g. Veo content
             // filter blocked one of 4 i2v clips while the other 3

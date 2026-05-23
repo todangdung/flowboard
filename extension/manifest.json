@@ -7,6 +7,8 @@
   "host_permissions": [
     "https://aisandbox-pa.googleapis.com/*",
     "https://labs.google/*",
+    "https://chatgpt.com/*",
+    "https://files.oaiusercontent.com/*",
     "http://127.0.0.1:8101/*",
     "http://localhost:8101/*"
   ],
@@ -25,12 +27,21 @@
       ],
       "js": ["content.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content_chatgpt.js"],
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
       "resources": ["injected.js"],
       "matches": ["https://labs.google/*"]
+    },
+    {
+      "resources": ["injected_chatgpt.js"],
+      "matches": ["https://chatgpt.com/*"]
     }
   ],
   "declarative_net_request": {
