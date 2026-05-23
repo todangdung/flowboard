@@ -814,14 +814,13 @@ export function GenerationDialog() {
                   </span>
                 )}
               </label>
-              <span className="gen-dialog__char-count">{prompt.length}/500</span>
+              <span className="gen-dialog__char-count">{prompt.length}</span>
             </div>
             <textarea
               id="gen-prompt"
               ref={firstFocusRef}
               className="gen-dialog__textarea"
               rows={5}
-              maxLength={500}
               value={prompt}
               onChange={(e) => {
                 setPrompt(e.target.value);

@@ -614,7 +614,11 @@ async def auto_prompt(node_id: int, *, camera: Optional[str] = None) -> str:
         text = (text or "").strip().strip('"').strip("'")
         if not text:
             raise PromptSynthError("empty response from auto-prompt provider")
-        if len(text) > 500:
-            text = text[:500].rstrip() + "…"
+        # Hard truncation removed — trust the LLM hints in the system
+        # prompt (280 / 400 / 540 chars depending on case). If the model
+        # overshoots, Flow / Veo will either accept the full text (newer
+        # diffusion + Veo encoders take ~2000 chars) or truncate at its
+        # own CLIP boundary. Either way, the user sees the full prompt
+        # in the dialog and can edit before re-dispatching.
         activity.set_result({"prompt": text})
         return text
