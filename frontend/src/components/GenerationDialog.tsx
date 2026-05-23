@@ -27,6 +27,7 @@ import {
   patchEdge,
   patchNode,
 } from "../api/client";
+import { findVideoRecipe, REF_ROLE_OPTIONS, VIDEO_RECIPES } from "../lib/videoRecipes";
 import {
   CHARACTER_GENDERS,
   CHARACTER_COUNTRIES,
@@ -110,33 +111,6 @@ const CAMERA_MOVEMENTS = [
 ] as const;
 
 type CameraKey = (typeof CAMERA_MOVEMENTS)[number]["key"];
-
-const VIDEO_RECIPES: readonly { key: "auto" | VideoRecipeId; label: string }[] = [
-  { key: "auto", label: "Auto" },
-  { key: "fashion_fit_check", label: "Fashion fit check" },
-  { key: "mirror_selfie", label: "Mirror selfie" },
-  { key: "unbox", label: "Unbox" },
-  { key: "product_demo", label: "Product demo" },
-  { key: "ugc_review", label: "UGC review" },
-  { key: "skincare_tvc", label: "Skincare TVC" },
-  { key: "before_after", label: "Before / after" },
-  { key: "dance", label: "Dance" },
-  { key: "storyboard_sequence", label: "Storyboard sequence" },
-];
-
-const REF_ROLE_OPTIONS: readonly { key: "" | RefRole; label: string }[] = [
-  { key: "", label: "Auto role" },
-  { key: "first_frame", label: "First frame" },
-  { key: "last_frame", label: "Last frame" },
-  { key: "character_ref", label: "Character" },
-  { key: "product_ref", label: "Product" },
-  { key: "package_ref", label: "Package" },
-  { key: "background_ref", label: "Background" },
-  { key: "style_ref", label: "Style" },
-  { key: "storyboard_ref", label: "Storyboard" },
-  { key: "storyboard_panel", label: "Panel" },
-  { key: "ingredient", label: "Ingredient" },
-];
 
 // Video model picker shown in the dialog — mirrors the unified list from
 // SettingsPanel so the user can override the model per-dispatch without
@@ -469,21 +443,24 @@ export function GenerationDialog() {
           nextAspect = "IMAGE_ASPECT_RATIO_LANDSCAPE";
         }
       }
-      setAspectRatio(nextAspect);
-      setVariants(1);
-      setCamera("static");
-      // Hydrate storyboard grid from existing node data when reopening.
-      // Fresh nodes + legacy values ("3x3" from 1.2.15-1.2.18) → "2x2".
       const openNodeData = useBoardStore
         .getState()
         .nodes.find((n) => n.id === rfId)?.data;
-      setStoryboardGrid(normaliseStoryboardGrid(openNodeData?.storyboardGrid));
       const savedRecipe = openNodeData?.videoRecipeId;
-      setVideoRecipe(
-        VIDEO_RECIPES.some((r) => r.key === savedRecipe)
-          ? (savedRecipe as "auto" | VideoRecipeId)
-          : "auto",
-      );
+      const savedRecipeKey = VIDEO_RECIPES.some((r) => r.key === savedRecipe)
+        ? (savedRecipe as "auto" | VideoRecipeId)
+        : "auto";
+      const savedRecipeConfig = findVideoRecipe(savedRecipeKey);
+      if (openNodeType === "video" && savedRecipeConfig?.defaultAspectRatio) {
+        nextAspect = savedRecipeConfig.defaultAspectRatio;
+      }
+      setAspectRatio(nextAspect);
+      setVariants(1);
+      setCamera(savedRecipeConfig?.defaultCamera ?? "static");
+      // Hydrate storyboard grid from existing node data when reopening.
+      // Fresh nodes + legacy values ("3x3" from 1.2.15-1.2.18) → "2x2".
+      setStoryboardGrid(normaliseStoryboardGrid(openNodeData?.storyboardGrid));
+      setVideoRecipe(savedRecipeKey);
       setCharGender(null);
       setCharCountry(null);
       setCharVibe("clean");
@@ -622,6 +599,17 @@ export function GenerationDialog() {
       useGenerationStore.setState({
         error: `Couldn't set reference role: ${err instanceof Error ? err.message : String(err)}`,
       });
+    }
+  }
+
+  function applyVideoRecipe(nextRecipe: "auto" | VideoRecipeId) {
+    setVideoRecipe(nextRecipe);
+    const recipe = findVideoRecipe(nextRecipe);
+    if (recipe?.defaultCamera) {
+      setCamera(recipe.defaultCamera);
+    }
+    if (recipe?.defaultAspectRatio) {
+      setAspectRatio(recipe.defaultAspectRatio);
     }
   }
 
@@ -943,7 +931,7 @@ export function GenerationDialog() {
             <select
               className="gen-dialog__select"
               value={videoRecipe}
-              onChange={(e) => setVideoRecipe(e.target.value as "auto" | VideoRecipeId)}
+              onChange={(e) => applyVideoRecipe(e.target.value as "auto" | VideoRecipeId)}
               disabled={isWorking}
             >
               {VIDEO_RECIPES.map((r) => (

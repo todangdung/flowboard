@@ -1160,11 +1160,14 @@ button:disabled {
   z-index: 10;
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 4px;
+  max-width: min(1040px, calc(100vw - 280px));
   padding: 4px 8px;
   background: var(--panel-higher);
   border: 1px solid var(--border);
-  border-radius: 9999px;
+  border-radius: 14px;
 }
 
 .add-node-plus {
@@ -1193,6 +1196,25 @@ button:disabled {
 .add-node-chip:hover {
   background: var(--panel-high);
   color: var(--text);
+}
+
+.add-node-chip--recipe {
+  width: 126px;
+  color: var(--text);
+  border: 1px solid rgba(124, 92, 255, 0.26);
+  background: rgba(124, 92, 255, 0.08);
+}
+
+.add-node-chip--recipe:hover {
+  border-color: rgba(124, 92, 255, 0.55);
+  background: rgba(124, 92, 255, 0.15);
+}
+
+.add-node-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 3px;
+  background: var(--border);
 }
 
 /* ── Node Card ───────────────────────────────────────────────────────────── */

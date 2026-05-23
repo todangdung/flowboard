@@ -1,6 +1,7 @@
 import { useReactFlow } from "@xyflow/react";
 import { useBoardStore } from "../store/board";
-import type { NodeType } from "../store/board";
+import type { NodeType, VideoRecipeId } from "../store/board";
+import { FLOW_SCAFFOLD_RECIPES } from "../lib/videoRecipes";
 
 interface Chip {
   type: NodeType;
@@ -21,6 +22,7 @@ const CHIPS: Chip[] = [
 export function AddNodePalette() {
   const { screenToFlowPosition } = useReactFlow();
   const addNodeOfType = useBoardStore((s) => s.addNodeOfType);
+  const addFlowFromRecipe = useBoardStore((s) => s.addFlowFromRecipe);
 
   function handleAdd(type: NodeType) {
     const position = screenToFlowPosition({
@@ -28,6 +30,14 @@ export function AddNodePalette() {
       y: window.innerHeight / 2,
     });
     addNodeOfType(type, position);
+  }
+
+  function handleRecipe(recipeId: VideoRecipeId) {
+    const position = screenToFlowPosition({
+      x: window.innerWidth / 2 - 360,
+      y: window.innerHeight / 2 - 140,
+    });
+    addFlowFromRecipe(recipeId, position);
   }
 
   return (
@@ -42,6 +52,19 @@ export function AddNodePalette() {
         >
           <span aria-hidden="true">{chip.icon}</span>
           {chip.label}
+        </button>
+      ))}
+      <span className="add-node-divider" aria-hidden="true" />
+      {FLOW_SCAFFOLD_RECIPES.map((recipe) => (
+        <button
+          key={recipe.key}
+          className="add-node-chip add-node-chip--recipe"
+          aria-label={`Create ${recipe.label} flow`}
+          onClick={() => handleRecipe(recipe.key)}
+          title={`Create ${recipe.label} flow`}
+        >
+          <span aria-hidden="true">▱</span>
+          {recipe.label}
         </button>
       ))}
     </div>

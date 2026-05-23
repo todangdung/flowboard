@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flowboard.services import prompt_synth
+from flowboard.services.video_recipes import list_video_recipes
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,15 @@ class AutoPromptBody(BaseModel):
 class AutoPromptResponse(BaseModel):
     node_id: int
     prompt: str
+
+
+class VideoRecipeCatalogResponse(BaseModel):
+    recipes: list[dict]
+
+
+@router.get("/video-recipes", response_model=VideoRecipeCatalogResponse)
+def video_recipes() -> VideoRecipeCatalogResponse:
+    return VideoRecipeCatalogResponse(recipes=list_video_recipes())
 
 
 @router.post("/auto", response_model=AutoPromptResponse)

@@ -564,6 +564,28 @@ export interface AutoPromptBatchResponse {
   prompts: string[];
 }
 
+export interface VideoRecipeDTO {
+  id: VideoRecipeId;
+  label: string;
+  required_roles: RefRole[];
+  optional_roles: RefRole[];
+  default_camera: "static" | "dynamic";
+  default_aspect_ratio: string;
+  prompt_contract: string;
+}
+
+export interface VideoRecipeCatalogResponse {
+  recipes: VideoRecipeDTO[];
+}
+
+export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
+  const res = await fetch("/api/prompt/video-recipes");
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<VideoRecipeCatalogResponse>;
+}
+
 export async function autoPromptBatch(
   nodeId: number,
   count: number,

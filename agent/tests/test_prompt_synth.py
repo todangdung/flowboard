@@ -1092,6 +1092,25 @@ def test_route_passes_recipe_id_arg_through(client, monkeypatch):
     assert captured["recipe_id"] == "product_demo"
 
 
+def test_route_lists_video_recipe_catalog(client):
+    r = client.get("/api/prompt/video-recipes")
+    assert r.status_code == 200, r.text
+    recipes = r.json()["recipes"]
+    by_id = {recipe["id"]: recipe for recipe in recipes}
+
+    for recipe_id in ("fashion_fit_check", "mirror_selfie", "product_demo"):
+        assert recipe_id in by_id
+        assert by_id[recipe_id]["label"]
+        assert isinstance(by_id[recipe_id]["required_roles"], list)
+        assert by_id[recipe_id]["default_camera"] in ("static", "dynamic")
+        assert by_id[recipe_id]["default_aspect_ratio"].startswith("VIDEO_ASPECT_RATIO_")
+        assert "video_prompt" in by_id[recipe_id]["prompt_contract"].lower()
+
+    assert "product_ref" in by_id["product_demo"]["required_roles"]
+    assert "first_frame" in by_id["product_demo"]["required_roles"]
+    assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
+
+
 @pytest.mark.asyncio
 async def test_auto_prompt_batch_returns_distinct_prompts(client, monkeypatch):
     """Batch mode asks Claude for a JSON array of N pose-distinct prompts
