@@ -27,14 +27,32 @@ export function NodeContextMenu({ x, y, nodeId, onClose }: Props) {
       if (e.key === "Escape") onClose();
     };
     const onOutside = (e: MouseEvent) => {
+      // mousedown covers both left- and right-click; right-clicking on
+      // another node will then reopen the menu at the new location via
+      // Board.tsx's onNodeContextMenu after this close fires.
       const t = e.target as HTMLElement | null;
       if (t && !t.closest(".node-context-menu")) onClose();
     };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onOutside);
+    // Scroll / canvas zoom don't bubble as mousedown — ReactFlow eats the
+    // wheel event internally. Close the menu on any wheel so it doesn't
+    // float in place while the canvas pans away beneath it.
+    const onWheel = (e: WheelEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && t.closest(".node-context-menu")) return;
+      onClose();
+    };
+    // Capture phase so ReactFlow's internal stopPropagation on its panel
+    // can't swallow these events before we see them — the bubble-phase
+    // listener (the obvious choice) silently misses canvas pans / wheel
+    // zooms entirely. The menu button's own onClick still fires after
+    // because we early-return when the target is inside .node-context-menu.
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("mousedown", onOutside, true);
+    document.addEventListener("wheel", onWheel, { capture: true, passive: true });
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("mousedown", onOutside, true);
+      document.removeEventListener("wheel", onWheel, true);
     };
   }, [onClose]);
 
