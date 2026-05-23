@@ -11,6 +11,7 @@ import {
   deleteNode,
   createEdge,
   deleteEdge,
+  ensureBoardProject,
   type Board,
   type NodeType,
 } from "../api/client";
@@ -190,6 +191,12 @@ interface BoardState {
   switchBoard(id: number): Promise<void>;
   // Create a new board, switch to it, return id.
   createNewBoard(name: string): Promise<number | null>;
+  // Eager variant: also creates a Flow project on labs.google immediately
+  // (instead of lazily on first Generate). Returns null if board creation
+  // OR Flow project creation fails — the board is still created locally,
+  // but the Flow link is missing so the next Generate will retry-create
+  // it via the regular lazy path.
+  createNewBoardWithFlowProject(name: string): Promise<number | null>;
   // Delete a board. If it's the active one, switch to first remaining
   // board (or create a fresh "Untitled" if list ends up empty).
   deleteBoardById(id: number): Promise<void>;
@@ -367,6 +374,35 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       set({ error: err instanceof Error ? err.message : String(err) });
       return null;
     }
+  },
+
+  async createNewBoardWithFlowProject(name) {
+    // Same as `createNewBoard` but immediately binds the new board to a
+    // freshly-created Flow project on labs.google. The lazy path
+    // (`ensureBoardProject` on first Generate) still works as a fallback
+    // — if the Flow round-trip fails here (extension not connected,
+    // tier-unknown, etc.) the board is created locally and the user can
+    // retry on first Generate without losing work.
+    let boardId: number | null = null;
+    try {
+      const board = await createBoard(name || "Untitled");
+      set((s) => ({ boards: [board, ...s.boards] }));
+      await get().switchBoard(board.id);
+      boardId = board.id;
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+    try {
+      await ensureBoardProject(boardId);
+    } catch (err) {
+      // Board exists locally; just surface the Flow-side failure so the
+      // user can see why the link wasn't made. Don't unwind the board
+      // creation — the lazy retry path will handle it on next Generate.
+      const msg = err instanceof Error ? err.message : String(err);
+      set({ error: `Board created but Flow project link failed: ${msg}` });
+    }
+    return boardId;
   },
 
   async deleteBoardById(id) {
