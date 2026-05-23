@@ -166,6 +166,15 @@ function connectToAgent() {
     console.log('[Flowboard] Connected to agent');
     chrome.alarms.clear('reconnect');
     setState('idle');
+    // Clear stale `lastError` left over from the disconnect we just
+    // recovered from. Without this, the popup keeps showing
+    // `WS_ERROR` after a successful reconnect (e.g. uvicorn `--reload`
+    // restarts the agent for a few seconds during code edits) even
+    // though the WS is now healthy.
+    if (metrics.lastError === 'WS_ERROR') {
+      metrics.lastError = null;
+      chrome.storage.local.set({ metrics });
+    }
 
     const tokenAge = flowKey && metrics.tokenCapturedAt
       ? Date.now() - metrics.tokenCapturedAt
