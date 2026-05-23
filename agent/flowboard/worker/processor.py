@@ -118,6 +118,31 @@ async def _handle_gen_image(params: dict) -> tuple[dict, Optional[str]]:
     if not isinstance(image_model, str) or not image_model.strip():
         image_model = None
     low_priority = bool(params.get("low_priority"))
+
+    # Cross-project ref sync — see _handle_gen_video_omni for the
+    # rationale. Refs that originated in another project must be
+    # re-uploaded here before dispatch or Flow returns 404 NOT_FOUND.
+    if ref_media_ids:
+        from flowboard.services.media_project_sync import (
+            MediaSyncError,
+            ensure_media_ids_in_project,
+        )
+        try:
+            synced_refs, sync_failures = await ensure_media_ids_in_project(
+                ref_media_ids, project_id
+            )
+        except MediaSyncError as exc:
+            return {}, f"sync_failed: {exc}"[:200]
+        if not synced_refs:
+            first = sync_failures[0][1] if sync_failures else "no_refs_synced"
+            return ({"sync_failures": sync_failures}, f"sync_failed: {first}"[:200])
+        if sync_failures:
+            logger.warning(
+                "gen_image: %d ref(s) failed to sync, proceeding with %d",
+                len(sync_failures), len(synced_refs),
+            )
+        ref_media_ids = synced_refs
+
     resp = await get_flow_sdk().gen_image(
         prompt=prompt.strip(),
         project_id=project_id,
@@ -212,13 +237,53 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
     if bool(params.get("low_priority")) and video_quality is None:
         video_quality = "lite_relaxed"
 
+    # ── Cross-project start-media sync ────────────────────────────────
+    # Flow scopes mediaIds to the project they were uploaded in. When
+    # the upstream image was generated under another board's project
+    # (cross-board chaining, OR a board recreated after a tier/account
+    # change), Flow returns 404 NOT_FOUND on the i2v call because the
+    # asset is unknown in this project. Mirror the pattern already used
+    # by gen_video_omni: re-upload bytes from the local cache and
+    # substitute the project-local id before dispatch.
+    from flowboard.services.media_project_sync import (
+        MediaSyncError,
+        ensure_media_ids_in_project,
+    )
+
+    sources_to_sync: list[str] = []
+    if start_media_ids:
+        sources_to_sync.extend(start_media_ids)
+    elif isinstance(start_media_id, str) and start_media_id.strip():
+        sources_to_sync.append(start_media_id.strip())
+    try:
+        synced_sources, sync_failures = await ensure_media_ids_in_project(
+            sources_to_sync, project_id
+        )
+    except MediaSyncError as exc:
+        return {}, f"sync_failed: {exc}"[:200]
+    if not synced_sources:
+        first = sync_failures[0][1] if sync_failures else "no_sources_synced"
+        return ({"sync_failures": sync_failures}, f"sync_failed: {first}"[:200])
+    if sync_failures:
+        logger.warning(
+            "gen_video: %d source(s) failed to sync, proceeding with %d",
+            len(sync_failures), len(synced_sources),
+        )
+    # Substitute the project-local ids back into the dispatch args. If
+    # we started from `start_media_ids`, write the list back. Otherwise
+    # use the first synced id as the single start frame.
+    if start_media_ids:
+        start_media_ids = synced_sources
+        start_media_id = None
+    else:
+        start_media_id = synced_sources[0]
+        start_media_ids = None
+
     sdk = get_flow_sdk()
     dispatch = await sdk.gen_video(
         prompt=prompt.strip(),
         project_id=project_id,
-        start_media_id=start_media_id.strip()
-        if isinstance(start_media_id, str) and start_media_id.strip()
-        else None,
+        start_media_id=start_media_id,
         start_media_ids=start_media_ids,
         aspect_ratio=aspect,
         paygate_tier=tier,
@@ -427,11 +492,40 @@ async def _handle_edit_image(params: dict) -> tuple[dict, Optional[str]]:
         image_model = None
     low_priority = bool(params.get("low_priority"))
 
+    # Cross-project sync — both source_media_id (BASE_IMAGE) and ref_ids
+    # (REFERENCE entries) must exist in the target Flow project. Re-upload
+    # bytes from local cache if they originated elsewhere.
+    from flowboard.services.media_project_sync import (
+        MediaSyncError,
+        ensure_media_ids_in_project,
+    )
+    to_sync: list[str] = [source_media_id.strip()]
+    if ref_ids:
+        to_sync.extend(ref_ids)
+    try:
+        synced, sync_failures = await ensure_media_ids_in_project(
+            to_sync, project_id
+        )
+    except MediaSyncError as exc:
+        return {}, f"sync_failed: {exc}"[:200]
+    if not synced:
+        first = sync_failures[0][1] if sync_failures else "no_media_synced"
+        return ({"sync_failures": sync_failures}, f"sync_failed: {first}"[:200])
+    if sync_failures:
+        logger.warning(
+            "edit_image: %d media failed to sync, proceeding with %d",
+            len(sync_failures), len(synced),
+        )
+    # First synced id is the base image (we put it at index 0 above);
+    # the rest are the refs preserving original order.
+    synced_source = synced[0]
+    synced_refs = synced[1:] if len(synced) > 1 else None
+
     resp = await get_flow_sdk().edit_image(
         prompt=prompt.strip(),
         project_id=project_id,
-        source_media_id=source_media_id.strip(),
-        ref_media_ids=ref_ids,
+        source_media_id=synced_source,
+        ref_media_ids=synced_refs,
         aspect_ratio=aspect,
         paygate_tier=tier,
         image_model=image_model,
