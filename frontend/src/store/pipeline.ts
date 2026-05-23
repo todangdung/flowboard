@@ -1,13 +1,21 @@
 import { create } from "zustand";
-import { runPlan as apiRunPlan, getPipelineRun, type PipelineRunDTO } from "../api/client";
+import {
+  runPlan as apiRunPlan,
+  rerunFromNode as apiRerunFromNode,
+  getPipelineRun,
+  type PipelineRunDTO,
+  type RunPlanOptions,
+} from "../api/client";
 import { useBoardStore } from "./board";
+import { useChatStore } from "./chat";
 
 interface PipelineState {
   activeRun: PipelineRunDTO | null;
   pollTimer: ReturnType<typeof setTimeout> | null;
   error: string | null;
 
-  startRun(planId: number): Promise<void>;
+  startRun(planId: number, opts?: RunPlanOptions): Promise<void>;
+  rerunFromNode(nodeId: number): Promise<void>;
   stopPolling(): void;
   clearError(): void;
 }
@@ -19,17 +27,29 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   pollTimer: null,
   error: null,
 
-  async startRun(planId: number) {
+  async startRun(planId: number, opts?: RunPlanOptions) {
     if (get().activeRun !== null) return;
     try {
-      const run = await apiRunPlan(planId);
-      set({ activeRun: run });
+      const run = await apiRunPlan(planId, opts);
+      set({ activeRun: run, error: null });
       // Pull the freshly materialised nodes onto the canvas immediately so the
       // user sees the layout before the first generation completes.
       await useBoardStore.getState().refreshBoardState();
       schedulePoll(get, set, run.id);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "failed to start plan" });
+    }
+  },
+
+  async rerunFromNode(nodeId: number) {
+    if (get().activeRun !== null) return;
+    try {
+      const run = await apiRerunFromNode(nodeId);
+      set({ activeRun: run, error: null });
+      await useBoardStore.getState().refreshBoardState();
+      schedulePoll(get, set, run.id);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "failed to rerun" });
     }
   },
 
@@ -57,6 +77,9 @@ function schedulePoll(
       // and freshly-arrived mediaId values land on the canvas during the run.
       await useBoardStore.getState().refreshBoardState();
       if (run.status === "done" || run.status === "failed") {
+        // Sync the chat-sidebar's cached plan.status so the Run button
+        // relabels to "Re-run ↻" instead of staying stuck on "Run".
+        useChatStore.getState().setPlanStatus(run.plan_id, run.status);
         set({
           activeRun: null,
           error: run.status === "failed" ? run.error ?? "pipeline failed" : null,

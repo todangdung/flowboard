@@ -437,8 +437,36 @@ export function getPlan(planId: number) {
   return api<PlanDTO>(`/api/plans/${planId}`);
 }
 
-export function runPlan(planId: number) {
-  return api<PipelineRunDTO>(`/api/plans/${planId}/run`, { method: "POST" });
+export interface RunPlanOptions {
+  fromNodeId?: number;
+  force?: boolean;
+}
+
+export function runPlan(
+  planId: number,
+  opts?: RunPlanOptions,
+): Promise<PipelineRunDTO> {
+  // Body is optional (FastAPI handler accepts None) — only include keys
+  // when the caller actually set them so legacy first-time runs send the
+  // exact same wire shape as before.
+  const body: Record<string, unknown> = {};
+  if (opts?.fromNodeId !== undefined) body.from_node_id = opts.fromNodeId;
+  if (opts?.force) body.force = true;
+  const init: RequestInit = { method: "POST" };
+  if (Object.keys(body).length > 0) {
+    init.body = JSON.stringify(body);
+  }
+  return api<PipelineRunDTO>(`/api/plans/${planId}/run`, init);
+}
+
+/**
+ * Convenience endpoint for the canvas context menu: the backend finds
+ * which plan materialised the node and reruns from it. Always forces.
+ */
+export function rerunFromNode(nodeId: number): Promise<PipelineRunDTO> {
+  return api<PipelineRunDTO>(`/api/nodes/${nodeId}/rerun-from-here`, {
+    method: "POST",
+  });
 }
 
 export function getPipelineRun(runId: number) {

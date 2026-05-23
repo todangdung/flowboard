@@ -136,6 +136,108 @@ def _normalise_endpoint(raw: Any) -> Optional[str]:
 _VALID_NODE_TYPES = {"character", "image", "video", "prompt", "note", "Storyboard"}
 
 
+# ── Rerun helpers ─────────────────────────────────────────────────────────
+
+
+def collect_downstream_subgraph(
+    session, plan_id: int, start_node_id: int
+) -> set[int]:
+    """BFS forward over edges from ``start_node_id``, clamped to the plan's
+    materialised node set.
+
+    Returns the set of node ids that should be re-executed: the start node
+    plus every node reachable from it via forward edges, intersected with
+    the plan's own nodes (so edges crossing into other plans / loose canvas
+    nodes don't pull them in).
+
+    Raises ``ValueError`` if the plan has no materialised nodes or if
+    ``start_node_id`` is not one of them.
+    """
+    plan = session.get(Plan, plan_id)
+    if plan is None:
+        raise ValueError(f"plan {plan_id} not found")
+    spec = plan.spec or {}
+    materialised = spec.get("_materialized_node_ids") or []
+    plan_nodes: set[int] = {int(n) for n in materialised if isinstance(n, int)}
+    if not plan_nodes:
+        raise ValueError(f"plan {plan_id} has no materialised nodes")
+    if start_node_id not in plan_nodes:
+        raise ValueError(
+            f"node {start_node_id} is not part of plan {plan_id}"
+        )
+
+    # Load every edge whose source is inside the plan; forward adjacency.
+    edges = list(
+        session.exec(
+            select(Edge).where(Edge.source_id.in_(plan_nodes))  # type: ignore[attr-defined]
+        ).all()
+    )
+    forward: dict[int, list[int]] = defaultdict(list)
+    for e in edges:
+        if e.source_id in plan_nodes and e.target_id in plan_nodes:
+            forward[e.source_id].append(e.target_id)
+
+    seen: set[int] = {start_node_id}
+    queue: list[int] = [start_node_id]
+    while queue:
+        cur = queue.pop(0)
+        for nxt in forward.get(cur, ()):
+            if nxt in plan_nodes and nxt not in seen:
+                seen.add(nxt)
+                queue.append(nxt)
+    return seen
+
+
+def reset_nodes_for_rerun(session, node_ids: set[int]) -> None:
+    """Clear ephemeral execution state on the given nodes so the executor
+    runs them fresh.
+
+    Sets ``status="idle"`` and drops ``mediaId``/``mediaIds``/``error`` from
+    ``data``. Media files on storage are NOT deleted — they're still
+    addressable by id, only the node's pointer is cleared.
+
+    We replace ``n.data`` with a new dict (rather than mutating in place)
+    so SQLAlchemy's JSON-change detection fires.
+    """
+    if not node_ids:
+        return
+    rows = list(
+        session.exec(select(Node).where(Node.id.in_(node_ids))).all()  # type: ignore[attr-defined]
+    )
+    for n in rows:
+        n.status = "idle"
+        merged = dict(n.data or {})
+        for k in ("mediaId", "mediaIds", "error"):
+            merged.pop(k, None)
+        n.data = merged
+        session.add(n)
+
+
+def find_plan_id_for_node(session, node_id: int) -> Optional[int]:
+    """Look up which Plan materialised this node.
+
+    Plans don't have a direct FK from Node — membership is tracked via
+    ``Plan.spec._materialized_node_ids``. Scans plans on the same board
+    (most recent first) and returns the first match.
+    """
+    node = session.get(Node, node_id)
+    if node is None:
+        return None
+    plans = list(
+        session.exec(
+            select(Plan)
+            .where(Plan.board_id == node.board_id)
+            .order_by(Plan.created_at.desc())  # type: ignore[attr-defined]
+        ).all()
+    )
+    for p in plans:
+        spec = p.spec or {}
+        ids = spec.get("_materialized_node_ids") or []
+        if any(int(x) == node_id for x in ids if isinstance(x, int)):
+            return p.id
+    return None
+
+
 def materialize_plan(session, plan_id: int) -> dict:
     """Create Node + Edge rows for ``plan.spec``. Returns a summary dict.
 
@@ -302,8 +404,14 @@ async def run_pipeline(
     *,
     request_timeout_s: float = _DEFAULT_REQUEST_TIMEOUT_S,
     poll_interval_s: float = _REQUEST_POLL_INTERVAL_S,
+    scope_node_ids: Optional[set[int]] = None,
 ) -> None:
-    """Execute the plan attached to PipelineRun[run_id]. Long-running."""
+    """Execute the plan attached to PipelineRun[run_id]. Long-running.
+
+    When ``scope_node_ids`` is provided, only those nodes are executed —
+    upstream nodes outside the scope are still loaded so the executor can
+    read their ``data.mediaId`` as inputs, but they are not re-run.
+    """
     logger.info("pipeline run %s: starting", run_id)
 
     # Load run + plan + materialised nodes/edges.
@@ -331,8 +439,8 @@ async def run_pipeline(
         s.refresh(run)
         s.refresh(plan)
 
-        node_ids: list[int] = list(plan.spec.get("_materialized_node_ids") or [])
-        if not node_ids:
+        all_plan_node_ids: list[int] = list(plan.spec.get("_materialized_node_ids") or [])
+        if not all_plan_node_ids:
             run.status = "failed"
             run.error = "no_materialized_nodes"
             run.finished_at = datetime.now(timezone.utc)
@@ -343,8 +451,10 @@ async def run_pipeline(
             return
 
         # Pull the snapshot we need before releasing the session.
+        # Always load every plan node — upstreams outside ``scope_node_ids``
+        # are needed for their ``data.mediaId`` even when we don't re-run them.
         nodes = list(
-            s.exec(select(Node).where(Node.id.in_(node_ids))).all()  # type: ignore[attr-defined]
+            s.exec(select(Node).where(Node.id.in_(all_plan_node_ids))).all()  # type: ignore[attr-defined]
         )
         node_by_id = {n.id: n for n in nodes}
         board_id = plan.board_id
@@ -352,20 +462,37 @@ async def run_pipeline(
             s.exec(
                 select(Edge).where(
                     Edge.board_id == board_id,
-                    Edge.source_id.in_(node_ids) | Edge.target_id.in_(node_ids),  # type: ignore[attr-defined]
+                    Edge.source_id.in_(all_plan_node_ids) | Edge.target_id.in_(all_plan_node_ids),  # type: ignore[attr-defined]
                 )
             ).all()
         )
 
-    # Build adjacency limited to nodes within this plan.
+    # Determine which nodes to (re)execute. When a scope is supplied (rerun
+    # from a node), it's the downstream subgraph; otherwise the whole plan.
+    if scope_node_ids:
+        exec_node_ids = [nid for nid in all_plan_node_ids if nid in scope_node_ids]
+    else:
+        exec_node_ids = list(all_plan_node_ids)
+
+    # Build adjacency: incoming entries only for nodes we'll execute, so the
+    # topo sort doesn't try to schedule upstream-only nodes. Sources can
+    # still be outside ``exec_node_ids`` — we read their state via node_by_id.
     incoming: dict[int, list[int]] = defaultdict(list)
     outgoing: dict[int, list[int]] = defaultdict(list)
+    exec_set = set(exec_node_ids)
     for e in edges:
         if e.source_id in node_by_id and e.target_id in node_by_id:
-            incoming[e.target_id].append(e.source_id)
+            if e.target_id in exec_set:
+                incoming[e.target_id].append(e.source_id)
             outgoing[e.source_id].append(e.target_id)
 
-    order = _topo_sort(node_ids, incoming)
+    # Topo sort only needs in-degree counts for exec nodes — upstream sources
+    # outside the scope are "already done" from the executor's POV.
+    incoming_for_topo: dict[int, list[int]] = {
+        nid: [s for s in incoming.get(nid, []) if s in exec_set]
+        for nid in exec_node_ids
+    }
+    order = _topo_sort(exec_node_ids, incoming_for_topo)
     failed_nodes: set[int] = set()
 
     for nid in order:

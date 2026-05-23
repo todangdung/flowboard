@@ -54,15 +54,17 @@ function PlanPreviewCard({ plan }: { plan: PlanDTO }) {
 
   const isThisPlanRunning = activeRun?.plan_id === plan.id;
   const otherPlanRunning = activeRun !== null && !isThisPlanRunning;
-  const alreadyExecuted = plan.status === "done" || plan.status === "running";
+  // After a successful or failed run we relabel the button to "Re-run ↻"
+  // and pass force=true on click so the backend allows the re-execution.
+  // plan.status reflects the latest poll-driven refresh.
+  const isCompleted = plan.status === "done" || plan.status === "failed";
 
   let runLabel: string;
   if (isThisPlanRunning) runLabel = activeRun?.status === "pending" ? "Queued…" : "Running…";
-  else if (plan.status === "done") runLabel = "Done";
-  else if (plan.status === "failed") runLabel = "Failed";
+  else if (isCompleted) runLabel = "Re-run ↻";
   else runLabel = "Run";
 
-  const disabled = isThisPlanRunning || otherPlanRunning || alreadyExecuted;
+  const disabled = isThisPlanRunning || otherPlanRunning;
 
   return (
     <div className="plan-preview-card">
@@ -79,13 +81,14 @@ function PlanPreviewCard({ plan }: { plan: PlanDTO }) {
           className="plan-preview-card__review-btn"
           disabled={disabled}
           onClick={() => {
-            if (!disabled) startRun(plan.id);
+            if (disabled) return;
+            startRun(plan.id, isCompleted ? { force: true } : undefined);
           }}
           title={
             otherPlanRunning
               ? "Another plan is currently running"
-              : alreadyExecuted
-              ? "This plan has already been executed"
+              : isCompleted
+              ? "Re-run the entire pipeline from the start"
               : "Materialise plan onto canvas and run generation"
           }
         >
