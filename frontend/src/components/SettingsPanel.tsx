@@ -95,6 +95,8 @@ export function SettingsPanel({ open, onClose, onLogout, logoutPending }: Settin
   const setVideoQuality = useSettingsStore((s) => s.setVideoQuality);
   const videoModel = useSettingsStore((s) => s.videoModel);
   const setVideoModel = useSettingsStore((s) => s.setVideoModel);
+  const lowPriority = useSettingsStore((s) => s.lowPriority);
+  const setLowPriority = useSettingsStore((s) => s.setLowPriority);
 
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -170,6 +172,29 @@ export function SettingsPanel({ open, onClose, onLogout, logoutPending }: Settin
         </div>
       </div>
 
+      <div className="settings-panel__section">
+        <div className="settings-panel__label">Low-priority queue</div>
+        <label className="settings-panel__radio">
+          <input
+            type="checkbox"
+            checked={lowPriority}
+            onChange={(e) => setLowPriority(e.target.checked)}
+          />
+          <div>
+            <div className="settings-panel__radio-label">
+              Free-tier compatible
+            </div>
+            <div className="settings-panel__radio-hint">
+              Routes every generation (image, edit, video, Omni Flash) through
+              Flow's 0-credit low-priority queue. Required for free / trial
+              Google Flow plans — Veo i2v defaults to the Lite Low Priority
+              model. Slower turnaround when Flow is busy. Pro and Ultra users
+              can leave OFF to keep paid-queue priority.
+            </div>
+          </div>
+        </label>
+      </div>
+
       {/* Single unified Video model picker — flat list of every option
           (Veo tiers + Omni Flash). Selecting a Veo row stamps both
           videoModel="veo" + the matching quality; selecting Omni Flash
@@ -179,7 +204,14 @@ export function SettingsPanel({ open, onClose, onLogout, logoutPending }: Settin
         <div className="settings-panel__label">Video model</div>
         <div className="settings-panel__radio-group">
           {VIDEO_QUALITIES.map((q) => {
-            const locked = q.ultraOnly && tier !== "PAYGATE_TIER_TWO";
+            // `lite_relaxed` unlocks on any tier when the Low-priority
+            // toggle is ON — the backend rewrites the envelope to TIER_TWO
+            // for that quality, which is the only thing Flow actually
+            // checks. `fast_relaxed` stays Ultra-only: flowkit hasn't
+            // verified it works on non-Ultra accounts.
+            const liteRelaxedOk = q.key === "lite_relaxed" && lowPriority;
+            const locked =
+              q.ultraOnly && tier !== "PAYGATE_TIER_TWO" && !liteRelaxedOk;
             const checked = videoModel === "veo" && videoQuality === q.key;
             return (
               <label

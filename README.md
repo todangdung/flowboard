@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/React%20Flow-12-8A2BE2?logo=react&logoColor=white" alt="React Flow"/>
   <img src="https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white" alt="Chrome MV3"/>
   <img src="https://img.shields.io/badge/Veo%203.1-i2v-FF6F00?logo=google&logoColor=white" alt="Veo 3.1"/>
-  <img src="https://img.shields.io/badge/Flow-Pro%20%2F%20Ultra%20only-EA4335?logo=google&logoColor=white" alt="Flow Pro / Ultra only"/>
+  <img src="https://img.shields.io/badge/Flow-Free%20%C2%B7%20Pro%20%C2%B7%20Ultra-EA4335?logo=google&logoColor=white" alt="Flow Free / Pro / Ultra (free uses low-priority queue)"/>
   <img src="https://img.shields.io/badge/LLM-Claude%20%C2%B7%20Gemini%20%C2%B7%20Codex-D97757" alt="Claude / Gemini / OpenAI Codex"/>
   <img src="https://img.shields.io/badge/Tests-333%20passing-success?logo=pytest&logoColor=white" alt="333 passing"/>
   <img src="https://img.shields.io/badge/Status-personal%20local--only-orange" alt="Status"/>
@@ -60,11 +60,16 @@
 
 > **⚠ Hard requirements — read this before cloning:**
 >
-> 1. **Google Flow plan: `Pro` or `Ultra` only.** Veo 3.1 i2v + GEM_PIX_2
->    are gated to paid tiers. The free tier and trial accounts cannot
->    drive video generation, so Flowboard cannot work on them. Confirm
->    your plan at [labs.google/fx](https://labs.google/fx/tools/flow)
->    before installing.
+> 1. **Google Flow plan: `Free`, `Pro`, or `Ultra`.** Pro and Ultra users
+>    keep the existing paid-queue defaults (Veo 3.1 Fast / Quality,
+>    GEM_PIX_2). **Free / trial users must enable
+>    `Settings → Low-priority queue (free-tier compatible)`** —
+>    everything (image, edit, video, Omni Flash) then routes through
+>    Flow's 0-credit low-priority queue and the Veo i2v model auto-switches
+>    to `veo_3_1_i2v_lite_low_priority` (Lite Low Priority). Expect
+>    slower turnarounds when Flow is busy. Confirm your plan at
+>    [labs.google/fx](https://labs.google/fx/tools/flow) before
+>    installing.
 > 2. **Chrome extension is mandatory.** All generation requests are
 >    proxied through `extension/` (Chrome MV3) so the agent can ride
 >    your authenticated Flow session + reCAPTCHA token. Without the
@@ -373,7 +378,7 @@ matching vocab from the system prompt.
 | **Node 20+** | Frontend dev server (Vite) |
 | **Chrome / Chromium** | **Mandatory** — hosts the MV3 extension that proxies every Google Flow API call. The agent has zero direct path to Flow without it. |
 | **One LLM CLI** on `PATH` | Vision describe + auto-prompt + planner. Pick one — defaults to **Claude Code** ([`@anthropic-ai/claude-code`](https://docs.claude.com/claude-code/install)); also supports **Gemini CLI** ([`@google/gemini-cli`](https://github.com/google-gemini/gemini-cli)) and **OpenAI Codex** ([`@openai/codex`](https://github.com/openai/codex), provider implemented but not yet smoke-tested). All use OAuth against your existing AI subscription — no API key needed. |
-| **Google Flow `Pro` or `Ultra` plan** at [`labs.google/fx/tools/flow`](https://labs.google/fx/tools/flow) | **Free tier and trial accounts will not work.** Veo 3.1 i2v + GEM_PIX_2 image gen are gated to paid plans. |
+| **Google Flow plan** at [`labs.google/fx/tools/flow`](https://labs.google/fx/tools/flow) | **Free / Pro / Ultra all supported.** Pro and Ultra use the standard paid queues by default. Free / trial accounts must enable `Settings → Low-priority queue (free-tier compatible)` — every dispatch then routes through Flow's 0-credit low-priority queue (i2v uses `veo_3_1_i2v_lite_low_priority`, image gen still uses GEM_PIX_2 with the TIER_TWO envelope). Slower turnaround, but unblocks Flowboard end-to-end on the free tier. |
 
 > **Windows:** Use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install). All commands assume a Unix shell.
 
@@ -599,19 +604,24 @@ storage/                Local cache + SQLite (gitignored)
 
 ## Status
 
-Personal local-only tool. **333 / 333 tests passing** (agent), tsc
+Personal local-only tool. **377 / 377 tests passing** (agent), tsc
 clean (frontend). Caveats:
 
-- ⚠ **Google Flow plan must be `Pro` or `Ultra`.** Free tier and trial
-  accounts have no access to Veo 3.1 i2v / GEM_PIX_2 — every generation
-  call will fail.
+- ⚠ **Google Flow plan: free / Pro / Ultra all supported.** Pro and
+  Ultra users keep paid-queue defaults. Free / trial users must enable
+  `Settings → Low-priority queue (free-tier compatible)` — every
+  dispatch then routes through Flow's 0-credit low-priority queue and
+  Veo i2v auto-switches to Lite Low Priority. Free-tier support is
+  best-effort and rate-limited by Flow's low-priority queue policy
+  (slower turnaround when Flow is busy, occasional `quota_exceeded`).
 - ⚠ **Chrome extension must be loaded and connected.** The agent does
   not talk to Flow directly — all i2v / image / edit requests are
   proxied through `extension/` over a localhost WebSocket. No
   extension → no generation.
 - ⚠ HMAC-secured WS (`X-Callback-Secret` per agent boot) — single
   loopback only, not multi-user.
-- ⚠ Google Flow rate limits still apply within your paid tier.
+- ⚠ Google Flow rate limits still apply on every tier (paid quota for
+  Pro / Ultra; low-priority queue depth for free).
 - ⚠ Veo / Imagen content filters
   (`PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED`,
   `PUBLIC_ERROR_AUDIO_FILTERED`) — surfaced verbatim in the activity

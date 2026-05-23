@@ -171,11 +171,21 @@ class FlowClient:
             return False
         tier = data.get("userPaygateTier")
         if tier not in ("PAYGATE_TIER_ONE", "PAYGATE_TIER_TWO"):
+            # Free / trial Google Flow accounts return either a missing
+            # `userPaygateTier` field or a value outside the paid enum
+            # (e.g. `SERVICE_TIER_ADVANCED`). flowkit's reference client
+            # coerces this to `PAYGATE_TIER_ONE` with a warning so the
+            # free-tier dispatch path (enable Settings → "Low-priority
+            # queue") works end-to-end. Refusing to set a tier here
+            # would leave the frontend permanently stuck on the
+            # "tier-unknown" banner. Pro / Ultra accounts always return
+            # one of the two paid enums and never hit this branch.
             logger.warning(
-                "fetch_paygate_tier: response missing userPaygateTier (got %r)",
-                tier,
+                "fetch_paygate_tier: non-paid userPaygateTier=%r, coercing to "
+                "PAYGATE_TIER_ONE (free / trial path — keys=%r)",
+                tier, sorted(data.keys()) if isinstance(data, dict) else None,
             )
-            return False
+            tier = "PAYGATE_TIER_ONE"
         self._paygate_tier = tier
         sku = data.get("sku")
         if isinstance(sku, str):

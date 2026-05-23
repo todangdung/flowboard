@@ -224,11 +224,15 @@ async def test_fetch_paygate_tier_handles_expired_token(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fetch_paygate_tier_rejects_unknown_tier_value(monkeypatch):
-    """Defensive — Flow API contract change that returns an unknown
-    tier value (e.g. PAYGATE_TIER_THREE in the future) must NOT
-    silently set the cache to that string. Returns False, leaves
-    cache untouched."""
+async def test_fetch_paygate_tier_coerces_unknown_tier_to_tier_one(monkeypatch):
+    """Free / trial Google Flow accounts return `userPaygateTier` values
+    outside the paid enum (e.g. `SERVICE_TIER_ADVANCED`) or omit the
+    field entirely. Pre-v1.x this would leave the cache at `None`
+    forever and lock the user behind the 'tier-unknown' banner. Match
+    flowkit's behaviour: coerce to `PAYGATE_TIER_ONE` with a warning so
+    the free-tier dispatch path (Settings → Low-priority queue) works
+    end-to-end. Pro / Ultra accounts always return the paid enums and
+    don't hit this branch."""
     import httpx
     flow_client._flow_key = "ya29.fake"
     flow_client._paygate_tier = None
@@ -236,7 +240,7 @@ async def test_fetch_paygate_tier_rejects_unknown_tier_value(monkeypatch):
     class _MockResponse:
         status_code = 200
         def json(self):
-            return {"userPaygateTier": "PAYGATE_TIER_FUTURE", "credits": 100}
+            return {"userPaygateTier": "SERVICE_TIER_ADVANCED", "credits": 0}
 
     class _MockClient:
         def __init__(self, *args, **kwargs): pass
@@ -247,8 +251,8 @@ async def test_fetch_paygate_tier_rejects_unknown_tier_value(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", _MockClient)
     ok = await flow_client.fetch_paygate_tier()
-    assert ok is False
-    assert flow_client.paygate_tier is None
+    assert ok is True
+    assert flow_client.paygate_tier == "PAYGATE_TIER_ONE"
 
 
 def test_logout_clears_cached_identity_and_tier(client):

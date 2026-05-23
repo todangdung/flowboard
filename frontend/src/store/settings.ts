@@ -54,27 +54,56 @@ interface SettingsState {
   videoQuality: VideoQuality;
   videoModel: VideoModelFamily;
   omniFlashDuration: OmniFlashDuration;
+  // When ON, every dispatch (gen_image, edit_image, gen_video,
+  // gen_video_omni) routes through Flow's 0-credit low-priority queue —
+  // the only path that works on the free Google Flow tier. The backend
+  // rewrites the envelope userPaygateTier to TIER_TWO for these dispatches
+  // (Flow gates the low-priority models behind the TIER_TWO envelope value
+  // regardless of the caller's actual SKU). OFF by default so Pro/Ultra
+  // users keep their existing paid-queue behaviour.
+  lowPriority: boolean;
   setImageModel(model: ImageModelKey): void;
   setVideoQuality(q: VideoQuality): void;
   setVideoModel(m: VideoModelFamily): void;
   setOmniFlashDuration(d: OmniFlashDuration): void;
+  setLowPriority(v: boolean): void;
 }
 
-const STORAGE_KEY = "flowboard.settings.v1";
+const STORAGE_KEY = "flowboard.settings.v2";
+const STORAGE_KEY_V1 = "flowboard.settings.v1";
 
 interface PersistShape {
   imageModel?: ImageModelKey;
   videoQuality?: VideoQuality;
   videoModel?: VideoModelFamily;
   omniFlashDuration?: OmniFlashDuration;
+  lowPriority?: boolean;
 }
 
 function loadPersisted(): PersistShape {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? parsed : {};
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === "object" && parsed !== null ? parsed : {};
+    }
+    // One-shot migration: copy v1 fields, default lowPriority off, drop v1.
+    const legacy = localStorage.getItem(STORAGE_KEY_V1);
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      const migrated: PersistShape =
+        typeof parsed === "object" && parsed !== null
+          ? { ...(parsed as PersistShape), lowPriority: false }
+          : {};
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+        localStorage.removeItem(STORAGE_KEY_V1);
+      } catch {
+        // Quota/disabled — fine to skip; we still return the migrated state.
+      }
+      return migrated;
+    }
+    return {};
   } catch {
     return {};
   }
@@ -100,6 +129,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       : "fast",
   videoModel: persisted.videoModel ?? "veo",
   omniFlashDuration: persisted.omniFlashDuration ?? 4,
+  lowPriority: persisted.lowPriority ?? false,
   setImageModel(model) {
     set({ imageModel: model });
     persist({
@@ -107,6 +137,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       videoQuality: get().videoQuality,
       videoModel: get().videoModel,
       omniFlashDuration: get().omniFlashDuration,
+      lowPriority: get().lowPriority,
     });
   },
   setVideoQuality(q) {
@@ -116,6 +147,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       videoQuality: q,
       videoModel: get().videoModel,
       omniFlashDuration: get().omniFlashDuration,
+      lowPriority: get().lowPriority,
     });
   },
   setVideoModel(m) {
@@ -125,6 +157,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       videoQuality: get().videoQuality,
       videoModel: m,
       omniFlashDuration: get().omniFlashDuration,
+      lowPriority: get().lowPriority,
     });
   },
   setOmniFlashDuration(d) {
@@ -134,6 +167,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       videoQuality: get().videoQuality,
       videoModel: get().videoModel,
       omniFlashDuration: d,
+      lowPriority: get().lowPriority,
+    });
+  },
+  setLowPriority(v) {
+    set({ lowPriority: v });
+    persist({
+      imageModel: get().imageModel,
+      videoQuality: get().videoQuality,
+      videoModel: get().videoModel,
+      omniFlashDuration: get().omniFlashDuration,
+      lowPriority: v,
     });
   },
 }));

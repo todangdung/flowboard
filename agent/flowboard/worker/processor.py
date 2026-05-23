@@ -117,6 +117,7 @@ async def _handle_gen_image(params: dict) -> tuple[dict, Optional[str]]:
     image_model = params.get("image_model")
     if not isinstance(image_model, str) or not image_model.strip():
         image_model = None
+    low_priority = bool(params.get("low_priority"))
     resp = await get_flow_sdk().gen_image(
         prompt=prompt.strip(),
         project_id=project_id,
@@ -126,6 +127,7 @@ async def _handle_gen_image(params: dict) -> tuple[dict, Optional[str]]:
         variant_count=variant_count,
         prompts=per_variant_prompts,
         image_model=image_model,
+        low_priority=low_priority,
     )
     if resp.get("error"):
         return resp, str(resp["error"])[:200]
@@ -203,6 +205,12 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
     video_quality = params.get("video_quality")
     if not isinstance(video_quality, str) or not video_quality.strip():
         video_quality = None
+    # When the user has flipped the global "low-priority queue" toggle but
+    # hasn't pinned a specific quality on this dispatch, route them to the
+    # 0-credit lite_relaxed path automatically. A caller-stamped explicit
+    # quality wins so power users keep control.
+    if bool(params.get("low_priority")) and video_quality is None:
+        video_quality = "lite_relaxed"
 
     sdk = get_flow_sdk()
     dispatch = await sdk.gen_video(
@@ -417,6 +425,7 @@ async def _handle_edit_image(params: dict) -> tuple[dict, Optional[str]]:
     image_model = params.get("image_model")
     if not isinstance(image_model, str) or not image_model.strip():
         image_model = None
+    low_priority = bool(params.get("low_priority"))
 
     resp = await get_flow_sdk().edit_image(
         prompt=prompt.strip(),
@@ -426,6 +435,7 @@ async def _handle_edit_image(params: dict) -> tuple[dict, Optional[str]]:
         aspect_ratio=aspect,
         paygate_tier=tier,
         image_model=image_model,
+        low_priority=low_priority,
     )
     if resp.get("error"):
         return resp, str(resp["error"])[:200]
@@ -522,6 +532,7 @@ async def _handle_gen_video_omni(params: dict) -> tuple[dict, Optional[str]]:
         duration_s=duration_s,
         aspect_ratio=aspect,
         paygate_tier=tier,
+        low_priority=bool(params.get("low_priority")),
     )
     if dispatch.get("error"):
         return dispatch, str(dispatch["error"])[:200]

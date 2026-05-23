@@ -108,21 +108,27 @@ def resolve_image_model(key: Optional[str]) -> str:
 #   - Tier 2 Fast naming pattern: Tier 1 Fast key + `_ultra` suffix
 #     (e.g. `veo_3_1_i2v_s_fast` → `veo_3_1_i2v_s_fast_ultra`,
 #     `veo_3_1_i2v_s_fast_portrait` → `veo_3_1_i2v_s_fast_portrait_ultra`).
-#   - Tier 2 "low priority" 0-credit models (Ultra-only fallback when the
-#     user wants to keep their daily credit budget): Lite uses the
-#     `_low_priority` suffix (`veo_3_1_i2v_lite_low_priority`); Fast uses
-#     the `_relaxed` suffix on the ultra family (`veo_3_1_i2v_s_fast_ultra_relaxed`).
-#     Verified from ULTRA PLAN curls. PORTRAIT keys for these are not yet
+#   - "low priority" 0-credit models: Lite uses the `_low_priority` suffix
+#     (`veo_3_1_i2v_lite_low_priority`) — verified by flowkit on free /
+#     Pro / Ultra accounts when the envelope `userPaygateTier` is forced
+#     to `PAYGATE_TIER_TWO`. We expose `lite_relaxed` under BOTH tiers and
+#     pair it with an envelope override in `_effective_paygate_tier` so
+#     free-tier users can drive i2v at 0 credits via the low-priority queue.
+#     Fast uses the `_relaxed` suffix on the ultra family
+#     (`veo_3_1_i2v_s_fast_ultra_relaxed`) — verified from ULTRA PLAN
+#     curls only; we keep it Ultra-only because flowkit hasn't validated
+#     it on free / Pro. PORTRAIT keys for relaxed models are not yet
 #     observed — we reuse the LANDSCAPE key for both aspects (Lite is
 #     genuinely multi-aspect; Fast Relaxed portrait will need a real curl
 #     to confirm, but Flow's portrait variants typically follow the
 #     `_portrait` suffix convention if separate keys are required).
 VIDEO_MODEL_KEYS: dict[str, dict[str, dict[str, str]]] = {
-    # Tier 1 (Pro) — three quality levels, all verified from real PRO
-    # PLAN curls (see video_model.md). Lite shares `veo_3_1_i2v_lite`
+    # Tier 1 (Pro) — four quality levels. Lite shares `veo_3_1_i2v_lite`
     # with Tier 2; Quality shares `veo_3_1_i2v_s` with Tier 2 — paygate
-    # tier in clientContext drives any per-tier difference. No 0-credit
-    # low-priority option here — that's a Tier 2 (Ultra) perk.
+    # tier in clientContext drives any per-tier difference. `lite_relaxed`
+    # routes to the 0-credit low-priority queue; envelope is rewritten to
+    # `PAYGATE_TIER_TWO` in `_effective_paygate_tier` because Flow gates
+    # the model behind the Tier 2 envelope value (not the actual SKU).
     "PAYGATE_TIER_ONE": {
         "lite": {
             "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite",
@@ -135,6 +141,10 @@ VIDEO_MODEL_KEYS: dict[str, dict[str, dict[str, str]]] = {
         "quality": {
             "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s",
             "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_portrait",
+        },
+        "lite_relaxed": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
         },
     },
     # Tier 2 (Ultra) — five quality levels:
@@ -486,7 +496,7 @@ class FlowSDK:
             return {"raw": None, "error": "missing_start_media_id"}
 
         ts = int(time.time() * 1000)
-        ctx = _client_context(project_id, paygate_tier)
+        ctx = _client_context(project_id, _effective_paygate_tier(paygate_tier, video_quality))
         items: list[dict[str, Any]] = []
         for i, mid in enumerate(sources):
             items.append({
@@ -540,6 +550,7 @@ class FlowSDK:
         aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
         paygate_tier: Optional[str] = None,
         seed: Optional[int] = None,
+        low_priority: bool = False,
     ) -> dict[str, Any]:
         """Kick off Omni Flash video generation. Distinct from Veo i2v —
         uses /video:batchAsyncGenerateVideoReferenceImages with a
@@ -572,7 +583,8 @@ class FlowSDK:
 
         ts = int(time.time() * 1000)
         used_seed = seed if seed is not None else ts % 1_000_000
-        ctx = _client_context(project_id, paygate_tier)
+        envelope_tier = "PAYGATE_TIER_TWO" if low_priority else paygate_tier
+        ctx = _client_context(project_id, envelope_tier)
         request_item = {
             "aspectRatio": aspect_ratio,
             "textInput": {"structuredPrompt": {"parts": [{"text": prompt}]}},
@@ -807,6 +819,7 @@ class FlowSDK:
         character_media_ids: Optional[list[str]] = None,  # legacy alias
         prompts: Optional[list[str]] = None,
         image_model: Optional[str] = None,
+        low_priority: bool = False,
     ) -> dict[str, Any]:
         """Generate ``variant_count`` images (1-4). When ``ref_media_ids`` is
         provided, every request item is augmented with ``imageInputs`` so Flow
@@ -824,7 +837,8 @@ class FlowSDK:
             raise ValueError("paygate_tier is required — caller must resolve before dispatch")
         n = max(1, min(int(variant_count), MAX_VARIANT_COUNT))
         ts = int(time.time() * 1000)
-        ctx = _client_context(project_id, paygate_tier)
+        envelope_tier = "PAYGATE_TIER_TWO" if low_priority else paygate_tier
+        ctx = _client_context(project_id, envelope_tier)
         model_name = resolve_image_model(image_model)
         # Accept the legacy `character_media_ids` kwarg as a fallback.
         merged_refs = ref_media_ids if ref_media_ids is not None else character_media_ids
@@ -894,6 +908,7 @@ class FlowSDK:
         aspect_ratio: str = "IMAGE_ASPECT_RATIO_LANDSCAPE",
         paygate_tier: Optional[str] = None,
         image_model: Optional[str] = None,
+        low_priority: bool = False,
     ) -> dict[str, Any]:
         """Refine an existing image with an optional list of reference media.
 
@@ -905,7 +920,8 @@ class FlowSDK:
         if paygate_tier is None:
             raise ValueError("paygate_tier is required — caller must resolve before dispatch")
         ts = int(time.time() * 1000)
-        ctx = _client_context(project_id, paygate_tier)
+        envelope_tier = "PAYGATE_TIER_TWO" if low_priority else paygate_tier
+        ctx = _client_context(project_id, envelope_tier)
         model_name = resolve_image_model(image_model)
 
         image_inputs: list[dict[str, Any]] = [
@@ -1008,6 +1024,20 @@ def _extract_project_id(resp: Any) -> Optional[str]:
 
 
 _VALID_TIERS = {"PAYGATE_TIER_ONE", "PAYGATE_TIER_TWO"}
+
+# Qualities that route through Flow's 0-credit low-priority queue. Flow gates
+# these models behind the Tier 2 envelope value regardless of the caller's
+# actual SKU (verified by flowkit on free / Pro / Ultra accounts), so we
+# rewrite `clientContext.userPaygateTier` to TIER_TWO whenever one of these
+# qualities is in flight. The user's REAL tier (from /v1/credits) is still
+# used to resolve the model key — only the envelope field is overridden.
+_LOW_PRIORITY_QUALITIES = {"lite_relaxed", "fast_relaxed"}
+
+
+def _effective_paygate_tier(requested: str, quality: Optional[str]) -> str:
+    if (quality or "").lower() in _LOW_PRIORITY_QUALITIES:
+        return "PAYGATE_TIER_TWO"
+    return requested
 
 
 def _extract_uploaded_media_id(resp: Any) -> Optional[str]:

@@ -263,10 +263,12 @@ def test_resolve_video_model_routes_by_tier_quality_aspect():
         "PAYGATE_TIER_ONE", "VIDEO_ASPECT_RATIO_PORTRAIT", "quality"
     ) == "veo_3_1_i2v_s_portrait"
 
-    # Lite Relaxed — Ultra-only 0-credit low-priority queue. Verified
-    # LANDSCAPE key from ULTRA PLAN curl in video_model_ultra.md;
-    # portrait reuses the same key (multi-aspect, same as plain lite).
-    # Tier 1 has no `lite_relaxed` mapping → falls back to Tier 1 fast.
+    # Lite Relaxed — 0-credit low-priority queue. Verified LANDSCAPE key
+    # from ULTRA PLAN curl in video_model_ultra.md; portrait reuses the
+    # same key (multi-aspect, same as plain lite). Available on BOTH
+    # tiers — flowkit confirms the model works on free / Pro / Ultra
+    # when the envelope userPaygateTier is set to TIER_TWO (which the
+    # SDK does automatically via `_effective_paygate_tier`).
     assert resolve_video_model(
         "PAYGATE_TIER_TWO", "VIDEO_ASPECT_RATIO_LANDSCAPE", "lite_relaxed"
     ) == "veo_3_1_i2v_lite_low_priority"
@@ -275,7 +277,10 @@ def test_resolve_video_model_routes_by_tier_quality_aspect():
     ) == "veo_3_1_i2v_lite_low_priority"
     assert resolve_video_model(
         "PAYGATE_TIER_ONE", "VIDEO_ASPECT_RATIO_LANDSCAPE", "lite_relaxed"
-    ) == "veo_3_1_i2v_s_fast"
+    ) == "veo_3_1_i2v_lite_low_priority"
+    assert resolve_video_model(
+        "PAYGATE_TIER_ONE", "VIDEO_ASPECT_RATIO_PORTRAIT", "lite_relaxed"
+    ) == "veo_3_1_i2v_lite_low_priority"
 
     # Fast Relaxed — Ultra-only 0-credit low-priority queue. Verified
     # LANDSCAPE key from ULTRA PLAN curl in video_model_ultra.md;

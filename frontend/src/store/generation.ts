@@ -237,6 +237,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                 opts.aspectRatio ?? "VIDEO_ASPECT_RATIO_PORTRAIT",
               paygate_tier:
                 opts.paygateTier ?? get().paygateTier ?? "PAYGATE_TIER_ONE",
+              low_priority: settings.lowPriority,
             },
           });
         } else {
@@ -261,6 +262,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               opts.paygateTier ?? get().paygateTier ?? "PAYGATE_TIER_ONE",
             // Backend resolves [tier][quality][aspect] → Flow model key.
             video_quality: settings.videoQuality,
+            low_priority: settings.lowPriority,
           };
           if (hasMulti) {
             videoParams.start_media_ids = opts.sourceMediaIds;
@@ -285,6 +287,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
           // User's image model preference from the Settings panel.
           // Backend resolves the nickname → real Flow model identifier.
           image_model: useSettingsStore.getState().imageModel,
+          low_priority: useSettingsStore.getState().lowPriority,
         };
         if (refMediaIds.length > 0) {
           params.ref_media_ids = refMediaIds;
@@ -549,6 +552,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
           aspect_ratio: opts.aspectRatio ?? "IMAGE_ASPECT_RATIO_LANDSCAPE",
           paygate_tier: get().paygateTier ?? "PAYGATE_TIER_ONE",
           image_model: useSettingsStore.getState().imageModel,
+          low_priority: useSettingsStore.getState().lowPriority,
         },
       });
     } catch (err) {
