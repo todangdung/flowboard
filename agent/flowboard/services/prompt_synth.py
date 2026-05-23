@@ -197,6 +197,120 @@ _MULTI_SUBJECT_VIDEO_CLAUSE = (
     "their own direction."
 )
 
+_VIDEO_RECIPE_CLAUSES: dict[str, str] = {
+    "fashion_fit_check": (
+        "\n\nFASHION FIT CHECK RECIPE — Flowkit-style contract: the scene "
+        "prompt locks the source frame and outfit references; the "
+        "video_prompt describes only the motion after frame 0. Keep the "
+        "full outfit readable for the full clip: silhouette, fit, fabric "
+        "drape, shoes/accessories when visible. Use one natural try-on "
+        "motion such as a small weight shift, half turn, hem/collar check, "
+        "or mirror-angle adjustment. No exaggerated runway walk, no hard "
+        "pose sequence, no fast camera crop that hides the outfit."
+    ),
+    "mirror_selfie": (
+        "\n\nMIRROR SELFIE RECIPE — Treat the phone/mirror setup as part of "
+        "the source frame. Keep reflection geometry stable: no duplicate "
+        "phones, no warped hands, no impossible mirror angle. The "
+        "video_prompt should feel handheld and casual: tiny phone tilt, "
+        "subtle weight shift, eye-line moving between screen and mirror."
+    ),
+    "unbox": (
+        "\n\nUNBOX RECIPE — Preserve packaging, product shape, and brand-safe "
+        "details. The video_prompt should show one clear reveal action: "
+        "lid opening, tissue paper parting, product lifted slightly, or "
+        "hands rotating the package. No invented labels, no extra items, "
+        "no jump cuts unless the user explicitly asks for cuts."
+    ),
+    "product_demo": (
+        "\n\nPRODUCT DEMO RECIPE — Flowkit-style contract: bind product_ref / "
+        "package_ref / first_frame roles before writing the video_prompt. "
+        "Product fidelity is the priority: preserve shape, material, color, "
+        "logo/label area, cap/nozzle/buttons, and scale. Demonstrate one "
+        "clear product action while keeping it readable in frame. No "
+        "invented labels, no fake UI/text overlays, no extra variants of "
+        "the product."
+    ),
+    "ugc_review": (
+        "\n\nUGC REVIEW RECIPE — Casual creator-style review without spoken "
+        "dialogue by default. Keep the person and product naturally framed; "
+        "use one believable gesture such as holding the product near camera, "
+        "nodding subtly, pointing to texture, or reacting silently. No lip "
+        "sync, no captions, no testimonial text unless explicitly requested."
+    ),
+    "skincare_tvc": (
+        "\n\nSKINCARE TVC RECIPE — Premium beauty-commercial pacing. Preserve "
+        "skin texture, product packaging, liquid/cream consistency, and clean "
+        "lighting. The video_prompt can use slow macro movement, soft hand "
+        "application, bottle turn, glow reveal, or water/gel texture motion. "
+        "No medical claims, no invented before/after claims, no text overlays."
+    ),
+    "before_after": (
+        "\n\nBEFORE/AFTER RECIPE — Keep the transformation readable without "
+        "inventing impossible changes. Preserve identity, pose continuity, "
+        "and product/garment fidelity. If two references are present, use "
+        "their roles as before_ref and after_ref in spirit even when labels "
+        "are generic; describe a clean comparison or reveal motion. No "
+        "misleading medical/beauty claims, no fake UI labels."
+    ),
+    "dance": (
+        "\n\nDANCE RECIPE — Choreography must be light, natural, and physically "
+        "plausible from the source pose. Use a short 1-2 move phrase: small "
+        "step-touch, shoulder sway, hand wave, hip sway, or gentle groove. "
+        "Preserve face, outfit, limb count, and camera framing. No extreme "
+        "acrobatic moves unless the source clearly supports them."
+    ),
+    "storyboard_sequence": (
+        "\n\nSTORYBOARD SEQUENCE RECIPE — Treat storyboard panels as ordered "
+        "beats. The video_prompt should move through the panels in sequence "
+        "without inventing a new plot: panel 1 establishes, middle panels "
+        "carry action, final panel resolves. Keep continuity of subject, "
+        "location, product, and lighting between beats."
+    ),
+}
+
+
+def _normalize_video_recipe_id(recipe_id: Optional[str]) -> Optional[str]:
+    if not recipe_id or recipe_id == "auto":
+        return None
+    return recipe_id if recipe_id in _VIDEO_RECIPE_CLAUSES else None
+
+
+def _infer_video_recipe_id(records: list[dict], target: Node) -> Optional[str]:
+    target_data = target.data or {}
+    texts: list[str] = []
+    title = target_data.get("title")
+    if isinstance(title, str):
+        texts.append(title)
+    for r in records:
+        for key in ("ref_role", "brief", "prompt", "title", "type"):
+            value = r.get(key)
+            if isinstance(value, str):
+                texts.append(value)
+    blob = " ".join(texts).lower()
+    roles = {r.get("ref_role") for r in records if isinstance(r.get("ref_role"), str)}
+
+    if "storyboard" in blob or "storyboard_ref" in roles or "storyboard_panel" in roles:
+        return "storyboard_sequence"
+    if "unbox" in blob or "package_ref" in roles or "packaging" in blob:
+        return "unbox"
+    if "before" in blob and "after" in blob:
+        return "before_after"
+    if "dance" in blob or "dancing" in blob or "choreography" in blob:
+        return "dance"
+    if "ugc" in blob or "review" in blob or "testimonial" in blob:
+        return "ugc_review"
+    if "skincare" in blob or "serum" in blob or "beauty" in blob or "tvc" in blob:
+        return "skincare_tvc"
+    if "mirror" in blob or "selfie" in blob:
+        return "mirror_selfie"
+    if "fit check" in blob or "outfit" in blob or "try-on" in blob or "try on" in blob:
+        return "fashion_fit_check"
+    if "product_ref" in roles or "visual_asset" in blob or "product" in blob:
+        return "product_demo"
+    return None
+
+
 _SYNTH_SYSTEM_VIDEO_DEFAULT = (
     _SYNTH_VIDEO_CORE
     + "\n\nCamera: subtle dolly or pan is allowed if it fits the scene, "
@@ -215,11 +329,16 @@ _SYNTH_SYSTEM_VIDEO_STATIC = (
 )
 
 
-def _video_system_prompt(camera: Optional[str], subject_count: int = 1) -> str:
+def _video_system_prompt(
+    camera: Optional[str], subject_count: int = 1, recipe_id: Optional[str] = None
+) -> str:
     base = (
         _SYNTH_SYSTEM_VIDEO_STATIC if camera == "static"
         else _SYNTH_SYSTEM_VIDEO_DEFAULT
     )
+    normalized_recipe_id = _normalize_video_recipe_id(recipe_id)
+    if normalized_recipe_id:
+        base += _VIDEO_RECIPE_CLAUSES[normalized_recipe_id]
     if subject_count >= 2:
         return base + _MULTI_SUBJECT_VIDEO_CLAUSE
     return base
@@ -275,11 +394,10 @@ def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
         edges = s.exec(
             select(Edge).where(Edge.target_id == node_id).order_by(Edge.id)
         ).all()
-        upstream_ids = [e.source_id for e in edges]
         records: list[dict] = []
         next_ref_index = 1  # 1-based to match user-facing "ref_image_1"
-        for uid in upstream_ids:
-            n = s.get(Node, uid)
+        for edge in edges:
+            n = s.get(Node, edge.source_id)
             if n is None:
                 continue
             data = n.data or {}
@@ -293,7 +411,7 @@ def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
             subject_chars: list[str] = []
             if n.type == "image":
                 gp_edges = s.exec(
-                    select(Edge).where(Edge.target_id == uid).order_by(Edge.id)
+                    select(Edge).where(Edge.target_id == edge.source_id).order_by(Edge.id)
                 ).all()
                 for ge in gp_edges:
                     gp = s.get(Node, ge.source_id)
@@ -318,6 +436,7 @@ def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
                 {
                     "type": n.type,
                     "shortId": n.short_id,
+                    "ref_role": edge.ref_role if isinstance(edge.ref_role, str) else None,
                     "ref_index": ref_index,
                     "brief": brief if isinstance(brief, str) else None,
                     "prompt": user_prompt,
@@ -409,13 +528,15 @@ def _format_user_message(records: list[dict], target: Node) -> str:
                 suffix = f"  [same subject as {', '.join(translated)}]"
 
         ref_index = r.get("ref_index")
+        ref_role = r.get("ref_role")
+        role_note = f"[role={ref_role}] " if isinstance(ref_role, str) else ""
         if ref_index is not None:
-            line = f"ref_image_{ref_index}: {text}{suffix}"
+            line = f"ref_image_{ref_index}: {role_note}{text}{suffix}"
         else:
             # Non-ref records (prompt / note nodes — no media to bind).
             # Render without a label since there's no positional slot
             # for the LLM to reference.
-            line = f"- {text}"
+            line = f"- {role_note}{text}"
         by_type.setdefault(r["type"], []).append(line)
 
     parts: list[str] = []
@@ -568,7 +689,9 @@ async def auto_prompt_batch(
         return prompts
 
 
-async def auto_prompt(node_id: int, *, camera: Optional[str] = None) -> str:
+async def auto_prompt(
+    node_id: int, *, camera: Optional[str] = None, recipe_id: Optional[str] = None
+) -> str:
     """Compose a generation prompt by walking upstream + asking the
     configured Auto-Prompt provider.
 
@@ -586,15 +709,19 @@ async def auto_prompt(node_id: int, *, camera: Optional[str] = None) -> str:
 
     is_video = target.type == "video"
     subject_count = len(_distinct_subjects(records))
+    effective_recipe_id = None
     if is_video:
-        system_prompt = _video_system_prompt(camera, subject_count)
+        effective_recipe_id = _normalize_video_recipe_id(recipe_id)
+        if recipe_id == "auto":
+            effective_recipe_id = _infer_video_recipe_id(records, target)
+        system_prompt = _video_system_prompt(camera, subject_count, effective_recipe_id)
     else:
         system_prompt = _image_system_prompt(subject_count)
     user_msg = _format_user_message(records, target)
 
     async with record_activity(
         "auto_prompt",
-        params={"node_id": node_id, "camera": camera},
+        params={"node_id": node_id, "camera": camera, "recipe_id": effective_recipe_id},
         node_id=node_id,
     ) as activity:
         try:

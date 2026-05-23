@@ -45,6 +45,32 @@ def test_create_edge_with_variant_pin(client):
     assert r.json()["source_variant_idx"] == 2
 
 
+def test_create_edge_with_ref_role_round_trips(client):
+    """Edges can label what role a reference plays in generation.
+
+    Flowkit-style video pipelines distinguish entities/locations/assets
+    before writing the scene prompt and motion prompt. Flowboard needs the
+    same per-edge role so one upstream image can be a product ref while
+    another is the first frame or background.
+    """
+    b, a, c = _scaffold(client)
+    r = client.post(
+        "/api/edges",
+        json={
+            "board_id": b["id"],
+            "source_id": a["id"],
+            "target_id": c["id"],
+            "ref_role": "character_ref",
+        },
+    )
+    assert r.status_code == 200
+    edge = r.json()
+    assert edge["ref_role"] == "character_ref"
+
+    detail = client.get(f"/api/boards/{b['id']}").json()
+    assert detail["edges"][0]["ref_role"] == "character_ref"
+
+
 def test_patch_edge_variant_pin(client):
     """PATCH updates the variant pin in place. Setting an int pins;
     explicit null clears the pin (revert to source.mediaId)."""
@@ -68,6 +94,25 @@ def test_patch_edge_variant_pin(client):
     assert r.json()["source_variant_idx"] is None
 
 
+def test_patch_edge_ref_role_and_clear(client):
+    b, a, c = _scaffold(client)
+    edge = client.post(
+        "/api/edges",
+        json={"board_id": b["id"], "source_id": a["id"], "target_id": c["id"]},
+    ).json()
+
+    r = client.patch(f"/api/edges/{edge['id']}", json={"ref_role": "background_ref"})
+    assert r.status_code == 200
+    assert r.json()["ref_role"] == "background_ref"
+
+    detail = client.get(f"/api/boards/{b['id']}").json()
+    assert detail["edges"][0]["ref_role"] == "background_ref"
+
+    r = client.patch(f"/api/edges/{edge['id']}", json={"ref_role": None})
+    assert r.status_code == 200
+    assert r.json()["ref_role"] is None
+
+
 def test_patch_edge_empty_body_leaves_pin_untouched(client):
     """An empty PATCH body must NOT silently clear the pin — Pydantic's
     `model_fields_set` check distinguishes "unset" from "explicit null"."""
@@ -82,6 +127,37 @@ def test_patch_edge_empty_body_leaves_pin_untouched(client):
     r = client.patch(f"/api/edges/{edge['id']}", json={})
     assert r.status_code == 200
     assert r.json()["source_variant_idx"] == 1
+
+
+def test_patch_edge_empty_body_leaves_ref_role_untouched(client):
+    b, a, c = _scaffold(client)
+    edge = client.post(
+        "/api/edges",
+        json={
+            "board_id": b["id"],
+            "source_id": a["id"],
+            "target_id": c["id"],
+            "ref_role": "product_ref",
+        },
+    ).json()
+
+    r = client.patch(f"/api/edges/{edge['id']}", json={})
+    assert r.status_code == 200
+    assert r.json()["ref_role"] == "product_ref"
+
+
+def test_invalid_edge_ref_role_rejected(client):
+    b, a, c = _scaffold(client)
+    r = client.post(
+        "/api/edges",
+        json={
+            "board_id": b["id"],
+            "source_id": a["id"],
+            "target_id": c["id"],
+            "ref_role": "whatever_this_is",
+        },
+    )
+    assert r.status_code == 422
 
 
 def test_patch_unknown_edge_returns_404(client):

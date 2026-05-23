@@ -3956,7 +3956,10 @@ button:disabled {
    relative to its chip without escaping the chip's tile. */
 .ref-source-chip-wrap {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 72px;
 }
 
 /* Switchable variant: chip becomes a button. Hover hint + active
@@ -4039,6 +4042,53 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 64px;
+}
+
+.ref-source-chip__role-select,
+.ref-role-select {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 2px 18px 2px 6px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--text);
+  background-color: var(--panel-high);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23888' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 8px 5px;
+}
+
+.ref-source-chip__role-select:hover,
+.ref-role-select:hover,
+.ref-source-chip__role-select:focus,
+.ref-role-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ref-role-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ref-role-row__label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ref-role-row .ref-role-select {
+  max-width: 180px;
+  font-size: 12px;
 }
 
 /* ── Plan Preview Card ───────────────────────────────────────────────────── */
@@ -5701,4 +5751,3 @@ button:disabled {
 .references-panel__toggle-tab:hover {
   animation: none;
 }
-

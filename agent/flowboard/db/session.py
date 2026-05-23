@@ -49,6 +49,9 @@ def init_db() -> None:
                     "ALTER TABLE edge ADD COLUMN source_variant_idx INTEGER"
                 )
                 conn.commit()
+            if "ref_role" not in edge_cols:
+                conn.exec_driver_sql("ALTER TABLE edge ADD COLUMN ref_role TEXT")
+                conn.commit()
 
     SQLModel.metadata.create_all(engine)
 

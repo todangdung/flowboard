@@ -144,7 +144,31 @@ export interface EdgeDTO {
   // 0-based index into the source node's `data.mediaIds[]` when the
   // user has explicitly picked a variant.
   source_variant_idx: number | null;
+  ref_role: RefRole | null;
 }
+
+export type RefRole =
+  | "first_frame"
+  | "last_frame"
+  | "character_ref"
+  | "product_ref"
+  | "package_ref"
+  | "background_ref"
+  | "style_ref"
+  | "storyboard_ref"
+  | "storyboard_panel"
+  | "ingredient";
+
+export type VideoRecipeId =
+  | "fashion_fit_check"
+  | "mirror_selfie"
+  | "unbox"
+  | "product_demo"
+  | "ugc_review"
+  | "skincare_tvc"
+  | "before_after"
+  | "dance"
+  | "storyboard_sequence";
 
 export interface BoardDetail {
   board: Board;
@@ -243,6 +267,7 @@ export function createEdge(input: {
   target_id: number;
   kind?: string;
   source_variant_idx?: number | null;
+  ref_role?: RefRole | null;
 }): Promise<EdgeDTO> {
   return api<EdgeDTO>("/api/edges", {
     method: "POST",
@@ -258,7 +283,7 @@ export function createEdge(input: {
  */
 export function patchEdge(
   id: number,
-  patch: { source_variant_idx?: number | null },
+  patch: { source_variant_idx?: number | null; ref_role?: RefRole | null },
 ): Promise<EdgeDTO> {
   return api<EdgeDTO>(`/api/edges/${id}`, {
     method: "PATCH",
@@ -557,12 +582,16 @@ export async function autoPromptBatch(
 
 export async function autoPrompt(
   nodeId: number,
-  opts?: { camera?: string },
+  opts?: { camera?: string; recipeId?: "auto" | VideoRecipeId },
 ): Promise<AutoPromptResponse> {
   const res = await fetch("/api/prompt/auto", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ node_id: nodeId, camera: opts?.camera }),
+    body: JSON.stringify({
+      node_id: nodeId,
+      camera: opts?.camera,
+      recipe_id: opts?.recipeId,
+    }),
   });
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));

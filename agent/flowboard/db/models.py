@@ -47,6 +47,10 @@ class Edge(SQLModel, table=True):
     # downstream A, variant 3 for downstream B" with two clicks; the
     # edge UI surfaces the pinned index so the binding stays visible.
     source_variant_idx: Optional[int] = None
+    # Optional semantic role for the source reference. This follows the
+    # Flowkit-style split between entities, locations/assets, and first-frame
+    # video sources before composing the final image prompt / video_prompt.
+    ref_role: Optional[str] = None
 
 
 class Request(SQLModel, table=True):

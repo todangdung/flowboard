@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useGenerationStore } from "../store/generation";
-import { useBoardStore, type StoryboardGrid } from "../store/board";
+import {
+  useBoardStore,
+  type RefRole,
+  type StoryboardGrid,
+  type VideoRecipeId,
+} from "../store/board";
 import {
   STORYBOARD_GRIDS,
   buildStoryboardPrompt,
@@ -105,6 +110,33 @@ const CAMERA_MOVEMENTS = [
 ] as const;
 
 type CameraKey = (typeof CAMERA_MOVEMENTS)[number]["key"];
+
+const VIDEO_RECIPES: readonly { key: "auto" | VideoRecipeId; label: string }[] = [
+  { key: "auto", label: "Auto" },
+  { key: "fashion_fit_check", label: "Fashion fit check" },
+  { key: "mirror_selfie", label: "Mirror selfie" },
+  { key: "unbox", label: "Unbox" },
+  { key: "product_demo", label: "Product demo" },
+  { key: "ugc_review", label: "UGC review" },
+  { key: "skincare_tvc", label: "Skincare TVC" },
+  { key: "before_after", label: "Before / after" },
+  { key: "dance", label: "Dance" },
+  { key: "storyboard_sequence", label: "Storyboard sequence" },
+];
+
+const REF_ROLE_OPTIONS: readonly { key: "" | RefRole; label: string }[] = [
+  { key: "", label: "Auto role" },
+  { key: "first_frame", label: "First frame" },
+  { key: "last_frame", label: "Last frame" },
+  { key: "character_ref", label: "Character" },
+  { key: "product_ref", label: "Product" },
+  { key: "package_ref", label: "Package" },
+  { key: "background_ref", label: "Background" },
+  { key: "style_ref", label: "Style" },
+  { key: "storyboard_ref", label: "Storyboard" },
+  { key: "storyboard_panel", label: "Panel" },
+  { key: "ingredient", label: "Ingredient" },
+];
 
 // Video model picker shown in the dialog — mirrors the unified list from
 // SettingsPanel so the user can override the model per-dispatch without
@@ -217,6 +249,7 @@ export function GenerationDialog() {
   const [aspectRatio, setAspectRatio] = useState<AspectKey>("IMAGE_ASPECT_RATIO_LANDSCAPE");
   const [variants, setVariants] = useState(1);
   const [camera, setCamera] = useState<CameraKey>("static");
+  const [videoRecipe, setVideoRecipe] = useState<"auto" | VideoRecipeId>("auto");
   // Storyboard layout. The node dispatches via the standard image
   // handler with a locked template prompt wrapping the user's topic
   // into a single composite NxN grid. See lib/storyboardPrompt.ts.
@@ -341,7 +374,12 @@ export function GenerationDialog() {
           const n = nodes.find((node) => node.id === e.source);
           if (!n || n.data.type !== "prompt") return null;
           const text = typeof n.data.prompt === "string" ? n.data.prompt : "";
-          return { edgeId: e.id, node: n, text };
+          return {
+            edgeId: e.id,
+            node: n,
+            text,
+            refRole: (e.data?.refRole ?? null) as RefRole | null,
+          };
         })
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
     : [];
@@ -380,6 +418,7 @@ export function GenerationDialog() {
             mediaId,
             variantIdx,
             allVariants: variants,
+            refRole: (e.data?.refRole ?? null) as RefRole | null,
           };
         })
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -439,6 +478,12 @@ export function GenerationDialog() {
         .getState()
         .nodes.find((n) => n.id === rfId)?.data;
       setStoryboardGrid(normaliseStoryboardGrid(openNodeData?.storyboardGrid));
+      const savedRecipe = openNodeData?.videoRecipeId;
+      setVideoRecipe(
+        VIDEO_RECIPES.some((r) => r.key === savedRecipe)
+          ? (savedRecipe as "auto" | VideoRecipeId)
+          : "auto",
+      );
       setCharGender(null);
       setCharCountry(null);
       setCharVibe("clean");
@@ -564,6 +609,22 @@ export function GenerationDialog() {
     }
   }
 
+  async function updateRefRoleForEdge(edgeId: string, nextRole: "" | RefRole) {
+    const edgeDbId = parseInt(edgeId, 10);
+    if (isNaN(edgeDbId)) return;
+    const refRole = nextRole === "" ? null : nextRole;
+    try {
+      const updated = await patchEdge(edgeDbId, { ref_role: refRole });
+      useBoardStore.getState().updateEdgeData(edgeId, {
+        refRole: updated.ref_role,
+      });
+    } catch (err) {
+      useGenerationStore.setState({
+        error: `Couldn't set reference role: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
   async function handleSubmit() {
     if (!rfId) return;
     // Defense in depth — block submit if the LLM layer is still composing
@@ -685,7 +746,10 @@ export function GenerationDialog() {
           finalPrompt = res.prompts[0] ?? "";
           setPrompt(res.prompts.join("\n\n— variant —\n\n"));
         } else {
-          const res = await autoPromptApi(dbId, isVideo ? { camera } : undefined);
+          const res = await autoPromptApi(
+            dbId,
+            isVideo ? { camera, recipeId: videoRecipe } : undefined,
+          );
           finalPrompt = res.prompt;
           setPrompt(finalPrompt);
         }
@@ -716,6 +780,16 @@ export function GenerationDialog() {
       // shows one toggleable thumbnail per variant + an All/None action.
       const picked = sourceMediaIds.filter((_, i) => selectedSourceIdx.has(i));
       const useMulti = picked.length > 1;
+      const recipeToPersist = hasStoryboardUpstream
+        ? "storyboard_sequence"
+        : videoRecipe;
+      useBoardStore.getState().updateNodeData(rfId, {
+        videoRecipeId: recipeToPersist,
+      });
+      const dbId = parseInt(rfId, 10);
+      if (!isNaN(dbId)) {
+        patchNode(dbId, { data: { videoRecipeId: recipeToPersist } }).catch(() => {});
+      }
       dispatchGeneration(rfId, {
         prompt: videoPrompt,
         aspectRatio,
@@ -860,6 +934,27 @@ export function GenerationDialog() {
           </div>
         )}
 
+        {isVideo && !hasStoryboardUpstream && (
+          <div className="gen-dialog__field">
+            <span className="gen-dialog__label">
+              Video recipe
+              <InfoTip tip="Recipe chỉ ảnh hưởng auto-prompt khi prompt đang trống. Auto sẽ infer từ title, upstream refs và role của edge." />
+            </span>
+            <select
+              className="gen-dialog__select"
+              value={videoRecipe}
+              onChange={(e) => setVideoRecipe(e.target.value as "auto" | VideoRecipeId)}
+              disabled={isWorking}
+            >
+              {VIDEO_RECIPES.map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Character builder (character node only) */}
         {isCharacter && (
           <>
@@ -1001,6 +1096,27 @@ export function GenerationDialog() {
                     #{sourceNode.data.shortId}
                   </span>
                 </div>
+                {sourceEdge && (
+                  <div className="ref-role-row">
+                    <span className="ref-role-row__label">Role</span>
+                    <select
+                      className="ref-role-select"
+                      value={(sourceEdge.data?.refRole ?? "") as "" | RefRole}
+                      onChange={(e) =>
+                        void updateRefRoleForEdge(
+                          sourceEdge.id,
+                          e.target.value as "" | RefRole,
+                        )
+                      }
+                    >
+                      {REF_ROLE_OPTIONS.map((r) => (
+                        <option key={r.key || "auto"} value={r.key}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <p className="gen-dialog__hint">
                   {selectedSourceIdx.size === 0 ? (
                     <span style={{ color: "#ef4444" }}>
@@ -1042,18 +1158,38 @@ export function GenerationDialog() {
                 return (
                   <div
                     key={p.edgeId}
-                    className="ref-source-chip ref-source-chip--prompt"
-                    title={`${p.node.data.title || "Prompt"} — ${preview}`}
+                    className="ref-source-chip-wrap"
                   >
-                    <div className="ref-source-chip__prompt-body">
-                      <span className="ref-source-chip__prompt-icon" aria-hidden="true">✦</span>
-                      <span className="ref-source-chip__prompt-text">
-                        {preview}
+                    <div
+                      className="ref-source-chip ref-source-chip--prompt"
+                      title={`${p.node.data.title || "Prompt"} — ${preview}`}
+                    >
+                      <div className="ref-source-chip__prompt-body">
+                        <span className="ref-source-chip__prompt-icon" aria-hidden="true">✦</span>
+                        <span className="ref-source-chip__prompt-text">
+                          {preview}
+                        </span>
+                      </div>
+                      <span className="ref-source-chip__id">
+                        #{p.node.data.shortId}
                       </span>
                     </div>
-                    <span className="ref-source-chip__id">
-                      #{p.node.data.shortId}
-                    </span>
+                    <select
+                      className="ref-source-chip__role-select"
+                      value={(p.refRole ?? "") as "" | RefRole}
+                      onChange={(e) =>
+                        void updateRefRoleForEdge(
+                          p.edgeId,
+                          e.target.value as "" | RefRole,
+                        )
+                      }
+                    >
+                      {REF_ROLE_OPTIONS.map((r) => (
+                        <option key={r.key || "auto"} value={r.key}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 );
               })}
@@ -1132,6 +1268,22 @@ export function GenerationDialog() {
                         })}
                       </div>
                     )}
+                    <select
+                      className="ref-source-chip__role-select"
+                      value={(r.refRole ?? "") as "" | RefRole}
+                      onChange={(e) =>
+                        void updateRefRoleForEdge(
+                          r.edgeId,
+                          e.target.value as "" | RefRole,
+                        )
+                      }
+                    >
+                      {REF_ROLE_OPTIONS.map((opt) => (
+                        <option key={opt.key || "auto"} value={opt.key}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 );
               })}

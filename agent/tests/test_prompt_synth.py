@@ -593,6 +593,132 @@ async def test_auto_prompt_video_uses_motion_system_prompt(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
+    client, monkeypatch
+):
+    """Product-demo video prompts need a Flowkit-style separation between
+    reference roles and motion direction: source frame, product entity, then
+    a recipe-specific video_prompt contract.
+    """
+    with get_session() as s:
+        b = Board(name="product-demo-video")
+        s.add(b); s.commit(); s.refresh(b)
+        src = Node(
+            board_id=b.id, short_id="pdfr", type="image",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "First frame",
+                "aiBrief": "hands holding a serum bottle on a clean vanity",
+                "mediaId": "uuuuuuuu-pdfr-3333-3333-444444444444",
+            },
+            status="done",
+        )
+        product = Node(
+            board_id=b.id, short_id="pdpr", type="visual_asset",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Serum bottle",
+                "aiBrief": "clear glass vitamin C serum bottle with white dropper cap",
+                "mediaId": "uuuuuuuu-pdpr-3333-3333-444444444444",
+            },
+            status="done",
+        )
+        vid = Node(
+            board_id=b.id, short_id="pdvd", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Product demo clip"},
+            status="idle",
+        )
+        s.add_all([src, product, vid]); s.commit()
+        for n in (src, product, vid):
+            s.refresh(n)
+        board_id, src_id, product_id, vid_id = b.id, src.id, product.id, vid.id
+
+    client.post(
+        "/api/edges",
+        json={
+            "board_id": board_id,
+            "source_id": src_id,
+            "target_id": vid_id,
+            "ref_role": "first_frame",
+        },
+    )
+    client.post(
+        "/api/edges",
+        json={
+            "board_id": board_id,
+            "source_id": product_id,
+            "target_id": vid_id,
+            "ref_role": "product_ref",
+        },
+    )
+
+    captured: dict = {}
+
+    async def stub_run(feature, prompt, *, system_prompt=None, timeout=0):
+        captured["prompt"] = prompt
+        captured["system_prompt"] = system_prompt
+        return "Keep the bottle centered as the hands rotate it once, label area readable."
+
+    monkeypatch.setattr(prompt_synth, "run_llm", stub_run)
+    await prompt_synth.auto_prompt(vid_id, recipe_id="product_demo")
+
+    user = captured["prompt"] or ""
+    sp = captured["system_prompt"] or ""
+    assert "first_frame" in user
+    assert "product_ref" in user
+    assert "clear glass vitamin C serum" in user
+    assert "PRODUCT DEMO RECIPE" in sp
+    assert "product fidelity" in sp.lower()
+    assert "video_prompt" in sp or "motion prompt" in sp.lower()
+    assert "no invented labels" in sp.lower()
+
+
+@pytest.mark.asyncio
+async def test_auto_prompt_video_fashion_fit_recipe_has_fit_check_contract(
+    client, monkeypatch
+):
+    with get_session() as s:
+        b = Board(name="fit-check-video")
+        s.add(b); s.commit(); s.refresh(b)
+        src = Node(
+            board_id=b.id, short_id="fcfr", type="image",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Mirror outfit still",
+                "aiBrief": "woman in a full outfit standing in front of a mirror",
+                "mediaId": "uuuuuuuu-fcfr-3333-3333-444444444444",
+            },
+            status="done",
+        )
+        vid = Node(
+            board_id=b.id, short_id="fcvd", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Fashion fit check"},
+            status="idle",
+        )
+        s.add_all([src, vid]); s.commit(); s.refresh(src); s.refresh(vid)
+        s.add(Edge(board_id=b.id, source_id=src.id, target_id=vid.id))
+        s.commit()
+        vid_id = vid.id
+
+    captured: dict = {}
+
+    async def stub_run(feature, prompt, *, system_prompt=None, timeout=0):
+        captured["system_prompt"] = system_prompt
+        return "She shifts weight once and turns slightly so the outfit fit stays readable."
+
+    monkeypatch.setattr(prompt_synth, "run_llm", stub_run)
+    await prompt_synth.auto_prompt(vid_id, recipe_id="fashion_fit_check")
+    sp = captured["system_prompt"] or ""
+    assert "FASHION FIT CHECK RECIPE" in sp
+    assert "full outfit" in sp.lower()
+    assert "fit" in sp.lower()
+    assert "fabric" in sp.lower()
+    assert "no exaggerated runway" in sp.lower()
+
+
+@pytest.mark.asyncio
 async def test_auto_prompt_video_static_camera_locks_system_prompt(client, monkeypatch):
     """When camera='static' the synthesiser must use the locked-camera
     system variant and NOT propose dolly/pan/zoom (which crops the product
@@ -914,7 +1040,7 @@ async def test_auto_prompt_passes_through_long_responses(client, monkeypatch):
 def test_route_happy_path(client, monkeypatch):
     ids = _seed_board_with_chain()
 
-    async def stub(node_id, *, camera=None):
+    async def stub(node_id, *, camera=None, recipe_id=None):
         assert node_id == ids["target_id"]
         return "synthesized prompt"
 
@@ -930,7 +1056,7 @@ def test_route_passes_camera_arg_through(client, monkeypatch):
     ids = _seed_board_with_chain()
     captured: dict = {}
 
-    async def stub(node_id, *, camera=None):
+    async def stub(node_id, *, camera=None, recipe_id=None):
         captured["camera"] = camera
         return "ok"
 
@@ -941,6 +1067,29 @@ def test_route_passes_camera_arg_through(client, monkeypatch):
     )
     assert r.status_code == 200, r.text
     assert captured["camera"] == "static"
+
+
+def test_route_passes_recipe_id_arg_through(client, monkeypatch):
+    ids = _seed_board_with_chain()
+    captured: dict = {}
+
+    async def stub(node_id, *, camera=None, recipe_id=None):
+        captured["camera"] = camera
+        captured["recipe_id"] = recipe_id
+        return "ok"
+
+    monkeypatch.setattr(prompt_synth, "auto_prompt", stub)
+    r = client.post(
+        "/api/prompt/auto",
+        json={
+            "node_id": ids["target_id"],
+            "camera": "static",
+            "recipe_id": "product_demo",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert captured["camera"] == "static"
+    assert captured["recipe_id"] == "product_demo"
 
 
 @pytest.mark.asyncio
@@ -1045,7 +1194,7 @@ def test_route_auto_batch_rejects_bad_count(client):
 
 
 def test_route_502_on_synth_failure(client, monkeypatch):
-    async def stub(node_id, *, camera=None):
+    async def stub(node_id, *, camera=None, recipe_id=None):
         raise prompt_synth.PromptSynthError("auto-prompt provider failed: timeout")
 
     monkeypatch.setattr(prompt_synth, "auto_prompt", stub)
@@ -1140,4 +1289,3 @@ async def test_aibrief_used_when_no_prompt(client, monkeypatch):
     user = captured["prompt"] or ""
 
     assert "BRIEF-FALLBACK" in user
-

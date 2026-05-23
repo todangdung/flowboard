@@ -25,6 +25,10 @@ class AutoPromptBody(BaseModel):
     # Optional video-only constraint: e.g. "static" → synth uses the camera-
     # locked system prompt and avoids dolly/zoom suggestions.
     camera: Optional[str] = None
+    # Optional video recipe selector. "auto" / null lets prompt_synth infer
+    # from upstream roles and titles; explicit ids apply a known short-video
+    # contract such as product_demo or fashion_fit_check.
+    recipe_id: Optional[str] = None
 
 
 class AutoPromptResponse(BaseModel):
@@ -35,7 +39,9 @@ class AutoPromptResponse(BaseModel):
 @router.post("/auto", response_model=AutoPromptResponse)
 async def auto_prompt(body: AutoPromptBody) -> AutoPromptResponse:
     try:
-        text = await prompt_synth.auto_prompt(body.node_id, camera=body.camera)
+        text = await prompt_synth.auto_prompt(
+            body.node_id, camera=body.camera, recipe_id=body.recipe_id
+        )
     except prompt_synth.PromptSynthError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return AutoPromptResponse(node_id=body.node_id, prompt=text)

@@ -14,9 +14,11 @@ import {
   ensureBoardProject,
   type Board,
   type NodeType,
+  type RefRole,
+  type VideoRecipeId,
 } from "../api/client";
 
-export type { NodeType };
+export type { NodeType, RefRole, VideoRecipeId };
 
 export type NodeStatus = "idle" | "queued" | "running" | "done" | "error";
 
@@ -80,6 +82,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   // plain text in that case so the user knows it's an estimate.
   imageModel?: string;
   videoQuality?: string;
+  videoRecipeId?: "auto" | VideoRecipeId;
   // Character-builder selections — persisted on dispatch so the detail
   // panel can show "Country / Vibe / Gender" pills under METADATA. Keys
   // (`vn`, `clean`, `female`) match the constants in
@@ -104,6 +107,7 @@ export type FlowNode = Node<FlowboardNodeData>;
 // backend. `sourceVariantIdx` mirrors `EdgeDTO.source_variant_idx`.
 export interface FlowboardEdgeData extends Record<string, unknown> {
   sourceVariantIdx?: number | null;
+  refRole?: RefRole | null;
 }
 
 /** Map an EdgeDTO from the backend into ReactFlow's Edge shape, carrying
@@ -113,12 +117,16 @@ function edgeFromDto(dto: {
   source_id: number;
   target_id: number;
   source_variant_idx?: number | null;
+  ref_role?: RefRole | null;
 }): Edge<FlowboardEdgeData> {
   return {
     id: String(dto.id),
     source: String(dto.source_id),
     target: String(dto.target_id),
-    data: { sourceVariantIdx: dto.source_variant_idx ?? null },
+    data: {
+      sourceVariantIdx: dto.source_variant_idx ?? null,
+      refRole: dto.ref_role ?? null,
+    },
   };
 }
 
@@ -286,6 +294,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           aiBrief: n.data["aiBrief"] as string | undefined,
           imageModel: n.data["imageModel"] as string | undefined,
           videoQuality: n.data["videoQuality"] as string | undefined,
+          videoRecipeId: n.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
           charCountry: n.data["charCountry"] as string | undefined,
           charVibe: n.data["charVibe"] as string | undefined,
           charGender: n.data["charGender"] as string | undefined,
@@ -342,6 +351,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           aiBrief: n.data["aiBrief"] as string | undefined,
           imageModel: n.data["imageModel"] as string | undefined,
           videoQuality: n.data["videoQuality"] as string | undefined,
+          videoRecipeId: n.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
           charCountry: n.data["charCountry"] as string | undefined,
           charVibe: n.data["charVibe"] as string | undefined,
           charGender: n.data["charGender"] as string | undefined,
@@ -454,6 +464,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           aiBrief: n.data["aiBrief"] as string | undefined,
           imageModel: n.data["imageModel"] as string | undefined,
           videoQuality: n.data["videoQuality"] as string | undefined,
+          videoRecipeId: n.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
           charCountry: n.data["charCountry"] as string | undefined,
           charVibe: n.data["charVibe"] as string | undefined,
           charGender: n.data["charGender"] as string | undefined,
@@ -665,24 +676,19 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set((s) => ({ nodes: [...s.nodes, newNode] }));
 
     // Replicate upstream edges: every (upstream → src) becomes (upstream → clone).
-    const upstreamSourceRfIds = edges
-      .filter((e) => e.target === rfId)
-      .map((e) => e.source);
-    for (const usrc of upstreamSourceRfIds) {
-      const sourceId = parseInt(usrc, 10);
+    const upstreamEdges = edges.filter((e) => e.target === rfId);
+    for (const upstreamEdge of upstreamEdges) {
+      const sourceId = parseInt(upstreamEdge.source, 10);
       if (isNaN(sourceId)) continue;
       try {
         const eDto = await createEdge({
           board_id: boardId,
           source_id: sourceId,
           target_id: nodeDto.id,
+          source_variant_idx: (upstreamEdge.data?.sourceVariantIdx ?? null) as number | null,
+          ref_role: (upstreamEdge.data?.refRole ?? null) as RefRole | null,
         });
-        const newEdge: Edge = {
-          id: String(eDto.id),
-          source: String(eDto.source_id),
-          target: String(eDto.target_id),
-        };
-        set((s) => ({ edges: [...s.edges, newEdge] }));
+        set((s) => ({ edges: [...s.edges, edgeFromDto(eDto)] }));
       } catch {
         // best-effort — partial edge replication still useful
       }

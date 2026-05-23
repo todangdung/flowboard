@@ -9,6 +9,18 @@ from flowboard.db.models import Edge, Node
 router = APIRouter(prefix="/api/edges", tags=["edges"])
 
 EdgeKind = Literal["ref", "hint"]
+RefRole = Literal[
+    "first_frame",
+    "last_frame",
+    "character_ref",
+    "product_ref",
+    "package_ref",
+    "background_ref",
+    "style_ref",
+    "storyboard_ref",
+    "storyboard_panel",
+    "ingredient",
+]
 
 
 class EdgeCreate(BaseModel):
@@ -20,12 +32,15 @@ class EdgeCreate(BaseModel):
     # Frontend passes when the user picks a variant before drawing the
     # edge (or when right-click → pin variant on an existing edge).
     source_variant_idx: Optional[int] = None
+    # Optional semantic role for prompt generation / video recipes.
+    ref_role: Optional[RefRole] = None
 
 
 class EdgePatch(BaseModel):
     """Partial update — currently only the variant pin is mutable;
     swapping source/target is a delete + create."""
     source_variant_idx: Optional[int] = None
+    ref_role: Optional[RefRole] = None
 
 
 @router.post("")
@@ -45,6 +60,7 @@ def create_edge(body: EdgeCreate):
             target_id=body.target_id,
             kind=body.kind,
             source_variant_idx=body.source_variant_idx,
+            ref_role=body.ref_role,
         )
         s.add(edge)
         s.commit()
@@ -69,6 +85,8 @@ def patch_edge(edge_id: int, body: EdgePatch):
         # gives us model_fields_set for that.
         if "source_variant_idx" in body.model_fields_set:
             edge.source_variant_idx = body.source_variant_idx
+        if "ref_role" in body.model_fields_set:
+            edge.ref_role = body.ref_role
         s.add(edge)
         s.commit()
         s.refresh(edge)
