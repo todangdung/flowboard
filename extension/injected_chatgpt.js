@@ -30,6 +30,7 @@
   // working across OpenAI's tinkering. Each path returns null on miss
   // (rather than throwing), so the caller can fall through to the next.
   const CONVERSATION_URL = '/backend-api/conversation';
+  const CHAT_REQUIREMENTS_URL = '/backend-api/sentinel/chat-requirements';
   const AUTH_FETCH_FALLBACKS = [
     '/api/auth/session',          // NextAuth.js default (current best guess)
     '/backend-api/auth/session',  // legacy custom OpenAI endpoint
@@ -129,6 +130,118 @@
       }
     }
     return null;
+  }
+
+  /** Replicate Python's `json.dumps(value)` default output (ensure_ascii=True,
+   *  `, ` and `: ` separators). Critical for proof-of-work: the server
+   *  recomputes SHA3-512 over the exact bytes we send, so a single
+   *  whitespace difference breaks the proof.
+   *
+   *  Handles strings (with full \uXXXX escaping for non-ASCII), numbers,
+   *  null, booleans, arrays. Plain objects aren't needed by the PoW
+   *  payload (it's all top-level arrays) so we leave them unsupported. */
+  function pyJsonEncode(v) {
+    if (v === null) return 'null';
+    if (v === true) return 'true';
+    if (v === false) return 'false';
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'string') {
+      let out = '"';
+      for (let i = 0; i < v.length; i++) {
+        const code = v.charCodeAt(i);
+        const ch = v[i];
+        if (ch === '\\') out += '\\\\';
+        else if (ch === '"') out += '\\"';
+        else if (code === 0x08) out += '\\b';
+        else if (code === 0x09) out += '\\t';
+        else if (code === 0x0a) out += '\\n';
+        else if (code === 0x0c) out += '\\f';
+        else if (code === 0x0d) out += '\\r';
+        else if (code < 0x20 || code > 0x7e) {
+          out += '\\u' + code.toString(16).padStart(4, '0');
+        } else {
+          out += ch;
+        }
+      }
+      return out + '"';
+    }
+    if (Array.isArray(v)) {
+      return '[' + v.map(pyJsonEncode).join(', ') + ']';
+    }
+    return JSON.stringify(v);
+  }
+
+  /** Build the proof token that satisfies the chat-requirements PoW.
+   *  Mirrors gpt4free's `generate_proof_token` (Python) field-for-field
+   *  so the server-side hash check passes. Returns the `gAAAAAB…` string
+   *  or null when `required=false`. */
+  function generateProofToken(required, seed, difficulty, userAgent) {
+    if (!required) return null;
+    if (typeof globalThis.sha3_512 !== 'function') {
+      // Should never trigger — content script injects sha3.js first.
+      throw new Error('SHA3_NOT_LOADED');
+    }
+    const screen = [3008, 4010, 6000][Math.floor(Math.random() * 3)]
+      * [1, 2, 4][Math.floor(Math.random() * 3)];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const parseTime =
+      dayNames[now.getUTCDay()] + ', ' +
+      String(now.getUTCDate()).padStart(2, '0') + ' ' +
+      monthNames[now.getUTCMonth()] + ' ' +
+      now.getUTCFullYear() + ' ' +
+      String(now.getUTCHours()).padStart(2, '0') + ':' +
+      String(now.getUTCMinutes()).padStart(2, '0') + ':' +
+      String(now.getUTCSeconds()).padStart(2, '0') + ' GMT';
+    const reactListeners = ['_reactListeningcfilawjnerp', '_reactListening9ne2dfo1i47', '_reactListening410nzwhan2a'];
+    const events = ['alert', 'ontransitionend', 'onprogress'];
+    const proofToken = [
+      screen, parseTime,
+      null, 0, userAgent,
+      'https://tcr9i.chat.openai.com/v2/35536E1E-65B4-4D96-9D97-6ADB7EFF8147/api.js',
+      'dpl=1440a687921de39ff5ee56b92807faaadce73f13', 'en', 'en-US',
+      null,
+      'plugins−[object PluginArray]',
+      reactListeners[Math.floor(Math.random() * 3)],
+      events[Math.floor(Math.random() * 3)],
+    ];
+    const diffLen = (difficulty || '').length;
+    for (let i = 0; i < 100000; i++) {
+      proofToken[3] = i;
+      const jsonData = pyJsonEncode(proofToken);
+      const base = btoa(unescape(encodeURIComponent(jsonData)));
+      const hashHex = globalThis.sha3_512(seed + base);
+      if (diffLen > 0 && hashHex.slice(0, diffLen) <= difficulty) {
+        return 'gAAAAAB' + base;
+      }
+    }
+    // Fallback — matches gpt4free's last-resort string when difficulty is
+    // unsolvable in 100k iters. Server sometimes accepts it; if not, we
+    // surface a clear PoW_FAILED error from the conversation call.
+    const fallback = btoa(unescape(encodeURIComponent('"' + seed + '"')));
+    return 'gAAAAABwQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + fallback;
+  }
+
+  /** Hit `/backend-api/sentinel/chat-requirements` to get the
+   *  `openai-sentinel-chat-requirements-token` and any proof-of-work /
+   *  turnstile / arkose challenges the server wants us to clear.
+   *
+   *  Returns null if the endpoint 404s (older accounts that skipped this
+   *  gate) — callers proceed without sentinel headers. */
+  async function fetchChatRequirements(token) {
+    const resp = await fetch(CHAT_REQUIREMENTS_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'authorization': 'Bearer ' + token,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ p: null }),
+    });
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error(`CHAT_REQ_${resp.status}`);
+    return await resp.json();
   }
 
   async function getAccessToken(force = false) {
@@ -263,14 +376,60 @@
     const token = await getAccessToken();
     const body = buildRequestBody(prompt, model);
 
+    // Free-tier accounts gate the conversation endpoint behind a
+    // chat-requirements handshake (proof-of-work + sentinel token).
+    // Plus accounts may skip it (server returns 404) — we run the call
+    // unconditionally and just add whichever headers the server hands
+    // us. Pre-flighting also lets us surface unsolvable challenges
+    // (arkose / turnstile) as a clean error before burning the PoW
+    // compute.
+    const sentinelHeaders = {};
+    let requirements = null;
+    try {
+      requirements = await fetchChatRequirements(token);
+    } catch (err) {
+      // 5xx / network — fall through and try the conversation anyway;
+      // worst case the conversation 403s and the caller sees the error.
+      console.warn('[Flowboard] chat-requirements failed:', err?.message || err);
+    }
+    if (requirements) {
+      if (requirements.token) {
+        sentinelHeaders['openai-sentinel-chat-requirements-token'] = requirements.token;
+      }
+      if (requirements.arkose && requirements.arkose.required) {
+        // Arkose Funcaptcha is human-verification — no programmatic way
+        // to satisfy from MAIN world. Surface as clear error so the
+        // user knows the score (rather than a generic 403).
+        throw new Error('ARKOSE_REQUIRED');
+      }
+      if (requirements.turnstile && requirements.turnstile.required) {
+        // Same story — Cloudflare Turnstile needs the page's widget,
+        // which we can't trigger from a sibling fetch.
+        throw new Error('TURNSTILE_REQUIRED');
+      }
+      const pow = requirements.proofofwork;
+      if (pow && pow.required) {
+        const proofToken = generateProofToken(
+          true,
+          pow.seed || '',
+          pow.difficulty || '',
+          navigator.userAgent || ''
+        );
+        if (proofToken) sentinelHeaders['openai-sentinel-proof-token'] = proofToken;
+      }
+    }
+
+    const buildHeaders = (authToken) => ({
+      'authorization': 'Bearer ' + authToken,
+      'content-type': 'application/json',
+      'accept': 'text/event-stream',
+      ...sentinelHeaders,
+    });
+
     let resp = await fetch(CONVERSATION_URL, {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'authorization': 'Bearer ' + token,
-        'content-type': 'application/json',
-        'accept': 'text/event-stream',
-      },
+      headers: buildHeaders(token),
       body: JSON.stringify(body),
     });
 
@@ -281,11 +440,7 @@
       resp = await fetch(CONVERSATION_URL, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'authorization': 'Bearer ' + fresh,
-          'content-type': 'application/json',
-          'accept': 'text/event-stream',
-        },
+        headers: buildHeaders(fresh),
         body: JSON.stringify(body),
       });
     }

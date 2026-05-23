@@ -40,7 +40,7 @@
       "matches": ["https://labs.google/*"]
     },
     {
-      "resources": ["injected_chatgpt.js"],
+      "resources": ["injected_chatgpt.js", "sha3.js"],
       "matches": ["https://chatgpt.com/*"]
     }
   ],

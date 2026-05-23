@@ -7,10 +7,16 @@
  * results back to background.
  */
 (function () {
-  const s = document.createElement('script');
-  s.src = chrome.runtime.getURL('injected_chatgpt.js');
-  s.onload = () => s.remove();
-  (document.head || document.documentElement).appendChild(s);
+  // Inject SHA3-512 first (defines window.sha3_512) — the chat-requirements
+  // proof-of-work for free-tier ChatGPT depends on it. injected_chatgpt.js
+  // is appended second so it can reference the helper at module init.
+  const root = document.head || document.documentElement;
+  for (const file of ['sha3.js', 'injected_chatgpt.js']) {
+    const s = document.createElement('script');
+    s.src = chrome.runtime.getURL(file);
+    s.onload = () => s.remove();
+    root.appendChild(s);
+  }
 })();
 
 chrome.runtime.onMessage.addListener((msg, _, reply) => {
