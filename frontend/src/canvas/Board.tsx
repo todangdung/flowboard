@@ -28,6 +28,7 @@ const nodeTypes = {
   note: NodeCard,
   visual_asset: NodeCard,
   Storyboard: NodeCard,
+  chatgpt: NodeCard,
 };
 
 // Single edge type used for everything — VariantEdge renders the
