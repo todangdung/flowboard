@@ -20,8 +20,20 @@
  * chunks via a fake reader.
  */
 (function () {
-  const AUTH_URL = '/backend-api/auth/session';
+  // ChatGPT's bootstrap path keeps moving — Apr 2026 the auth session
+  // endpoint at `/backend-api/auth/session` returns 404 because the
+  // frontend now hydrates the access token into `window.__remixContext`
+  // and skips the network round-trip entirely (see gpt4free's
+  // `OpenaiChat.py::nodriver_auth`).
+  //
+  // We try every known bootstrap in order so the extension keeps
+  // working across OpenAI's tinkering. Each path returns null on miss
+  // (rather than throwing), so the caller can fall through to the next.
   const CONVERSATION_URL = '/backend-api/conversation';
+  const AUTH_FETCH_FALLBACKS = [
+    '/api/auth/session',          // NextAuth.js default (current best guess)
+    '/backend-api/auth/session',  // legacy custom OpenAI endpoint
+  ];
 
   let cachedAccessToken = null;
 
@@ -88,18 +100,65 @@
     return { bytes, mime };
   }
 
+  /** Extract the access token from one of three known locations:
+   *    1. `window.__remixContext` — current ChatGPT hydrates the token here
+   *       (cheapest, no network). Pattern from gpt4free OpenaiChat.py.
+   *    2. `window.__NEXT_DATA__` — Next.js Pages Router hydration blob.
+   *    3. Network fallback to `/api/auth/session` (NextAuth) and
+   *       `/backend-api/auth/session` (legacy).
+   *
+   *  We surface a structured error listing what we tried so the agent's
+   *  activity log makes the failure mode obvious. */
+  function readTokenFromWindowContext() {
+    const candidates = [
+      () => window.__remixContext,
+      () => window.__NEXT_DATA__,
+      // Next.js App Router stuffs server context into __next_f as a stream
+      // of `["0", "..."]` payloads; the token shows up inside one of them.
+      () => window.__next_f,
+    ];
+    for (const get of candidates) {
+      try {
+        const ctx = get();
+        if (!ctx) continue;
+        const json = typeof ctx === 'string' ? ctx : JSON.stringify(ctx);
+        const m = json.match(/"accessToken":"([^"\\]{20,})"/);
+        if (m && m[1]) return m[1];
+      } catch {
+        // continue
+      }
+    }
+    return null;
+  }
+
   async function getAccessToken(force = false) {
     if (!force && cachedAccessToken) return cachedAccessToken;
-    const resp = await fetch(AUTH_URL, { credentials: 'include' });
-    if (!resp.ok) {
-      throw new Error(`AUTH_SESSION_${resp.status}`);
+
+    const fromCtx = readTokenFromWindowContext();
+    if (fromCtx) {
+      cachedAccessToken = fromCtx;
+      return cachedAccessToken;
     }
-    const data = await resp.json();
-    if (!data?.accessToken) {
-      throw new Error('NO_ACCESS_TOKEN');
+
+    const errors = [];
+    for (const url of AUTH_FETCH_FALLBACKS) {
+      try {
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) {
+          errors.push(`${url}=${resp.status}`);
+          continue;
+        }
+        const data = await resp.json();
+        if (data?.accessToken) {
+          cachedAccessToken = data.accessToken;
+          return cachedAccessToken;
+        }
+        errors.push(`${url}=no_token`);
+      } catch (err) {
+        errors.push(`${url}=${err?.message || 'fetch_error'}`);
+      }
     }
-    cachedAccessToken = data.accessToken;
-    return cachedAccessToken;
+    throw new Error(`NO_ACCESS_TOKEN[ctx_miss,${errors.join(',')}]`);
   }
 
   function buildRequestBody(prompt, model) {
