@@ -364,6 +364,13 @@ export function Board() {
         // Larger connection-drop radius so users don't have to land
         // pixel-perfect on the handle to complete an edge.
         connectionRadius={32}
+        // Wider zoom range — ReactFlow defaults to minZoom=0.5 which
+        // can't fit large boards (10+ nodes spread out) in one view.
+        // 0.1 lets the user pull all the way out to see the whole graph
+        // at once; 2.0 keeps the upper bound at the default so close-up
+        // editing isn't affected.
+        minZoom={0.1}
+        maxZoom={2}
         fitView
         proOptions={{ hideAttribution: true }}
       >
