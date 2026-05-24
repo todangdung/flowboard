@@ -454,6 +454,7 @@ class WorkflowBuildRequest(BaseModel):
     sources: list[SourceBinding] = Field(default_factory=list)
     open_generation: bool = True
     shot_count: int = Field(default=3, ge=1, le=6)
+    shot_duration_sec: int = Field(default=4, ge=1, le=10)
 
 
 def _node_dict(node: Node) -> dict:
@@ -591,7 +592,7 @@ def _shot_plan_prompt(index: int, total: int, label: str) -> str:
     )
 
 
-def _shot_video_prompt(index: int, total: int, label: str) -> str:
+def _shot_video_prompt(index: int, total: int, label: str, duration_sec: int) -> str:
     if index == 1:
         action = "start with a calm establishing motion, then reveal the main subject/product"
     elif index == total:
@@ -599,7 +600,8 @@ def _shot_video_prompt(index: int, total: int, label: str) -> str:
     else:
         action = "perform one clear transition/action beat with stable continuity"
     return (
-        f"The uploaded image is the first frame. Generate shot {index}/{total} "
+        f"The uploaded image is the first frame. Generate a {duration_sec}s "
+        f"shot {index}/{total} "
         f"for {label}. Action: {action}. Camera movement stays motivated by "
         "this single shot. Preserve continuity locks from the storyboard plan. "
         "Avoid random cuts, changed identity, product drift, captions, and text overlays."
@@ -631,6 +633,7 @@ def _add_edge(
 def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
     spec = _SHOT_WORKFLOWS[recipe_id]
     shot_count = body.shot_count or spec.shot_count
+    shot_duration_sec = body.shot_duration_sec
 
     with get_session() as s:
         board = s.get(Board, body.board_id)
@@ -716,7 +719,7 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
                     "workflowKind": "shot_frame",
                     "shotId": shot,
                     "shotIndex": idx,
-                    "shotDurationSec": 4,
+                    "shotDurationSec": shot_duration_sec,
                     "videoRecipeId": recipe_id,
                     "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
                 },
@@ -732,11 +735,13 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
                 h=180,
                 data={
                     "title": f"Shot {idx} clip / Cảnh {idx} video",
-                    "prompt": _shot_video_prompt(idx, shot_count, spec.label),
+                    "prompt": _shot_video_prompt(
+                        idx, shot_count, spec.label, shot_duration_sec
+                    ),
                     "workflowKind": "shot_clip",
                     "shotId": shot,
                     "shotIndex": idx,
-                    "shotDurationSec": 4,
+                    "shotDurationSec": shot_duration_sec,
                     "videoRecipeId": recipe_id,
                     "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
                 },

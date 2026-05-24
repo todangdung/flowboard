@@ -261,6 +261,7 @@ interface BoardState {
   addFlowFromRecipe(
     recipeId: VideoRecipeId,
     position: { x: number; y: number },
+    opts?: { shotCount?: number; shotDurationSec?: number },
   ): Promise<string | null>;
   // Spawn a brand-new visual_asset node from a saved Reference. Used by
   // both the panel click-to-spawn path and the canvas drop-to-spawn path.
@@ -504,7 +505,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     return null;
   },
 
-  async addFlowFromRecipe(recipeId, position) {
+  async addFlowFromRecipe(recipeId, position, opts) {
     const { boardId } = get();
     if (boardId === null) return null;
     if (!isVideoRecipeId(recipeId)) return null;
@@ -514,6 +515,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         recipe_id: recipeId,
         x: Math.round(position.x),
         y: Math.round(position.y),
+        shot_count: opts?.shotCount,
+        shot_duration_sec: opts?.shotDurationSec,
       });
       const createdNodes = built.nodes.map(nodeFromDto);
       const createdEdges = built.edges.map(edgeFromDto);

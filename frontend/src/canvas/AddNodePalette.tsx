@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { useBoardStore } from "../store/board";
 import type { NodeType, VideoRecipeId } from "../store/board";
@@ -23,6 +24,8 @@ export function AddNodePalette() {
   const { screenToFlowPosition } = useReactFlow();
   const addNodeOfType = useBoardStore((s) => s.addNodeOfType);
   const addFlowFromRecipe = useBoardStore((s) => s.addFlowFromRecipe);
+  const [sequenceShotCount, setSequenceShotCount] = useState(3);
+  const [sequenceDurationSec, setSequenceDurationSec] = useState(4);
 
   function handleAdd(type: NodeType) {
     const position = screenToFlowPosition({
@@ -37,7 +40,16 @@ export function AddNodePalette() {
       x: window.innerWidth / 2 - 360,
       y: window.innerHeight / 2 - 140,
     });
-    addFlowFromRecipe(recipeId, position);
+    addFlowFromRecipe(
+      recipeId,
+      position,
+      recipeId === "storyboard_sequence"
+        ? {
+            shotCount: sequenceShotCount,
+            shotDurationSec: sequenceDurationSec,
+          }
+        : undefined,
+    );
   }
 
   return (
@@ -56,16 +68,68 @@ export function AddNodePalette() {
       ))}
       <span className="add-node-divider" aria-hidden="true" />
       {FLOW_SCAFFOLD_RECIPES.map((recipe) => (
-        <button
-          key={recipe.key}
-          className="add-node-chip add-node-chip--recipe"
-          aria-label={`Create ${recipe.label} flow`}
-          onClick={() => handleRecipe(recipe.key)}
-          title={`Create ${recipe.label} flow`}
-        >
-          <span aria-hidden="true">▱</span>
-          {recipe.label}
-        </button>
+        <span key={recipe.key} className="add-node-recipe-wrap">
+          <button
+            className="add-node-chip add-node-chip--recipe"
+            aria-label={`Create ${recipe.label} flow`}
+            onClick={() => handleRecipe(recipe.key)}
+            title={`Create ${recipe.label} flow`}
+          >
+            <span aria-hidden="true">▱</span>
+            {recipe.label}
+          </button>
+          {recipe.key === "storyboard_sequence" && (
+            <span
+              className="add-node-shot-controls"
+              aria-label="Shot settings / Cài đặt cảnh"
+            >
+              <span
+                className="add-node-shot-stepper"
+                aria-label="Shot count / Số cảnh"
+              >
+                <button
+                  type="button"
+                  aria-label="Decrease shot count"
+                  onClick={() => setSequenceShotCount((n) => Math.max(2, n - 1))}
+                  disabled={sequenceShotCount <= 2}
+                >
+                  −
+                </button>
+                <span>{sequenceShotCount} shots / cảnh</span>
+                <button
+                  type="button"
+                  aria-label="Increase shot count"
+                  onClick={() => setSequenceShotCount((n) => Math.min(6, n + 1))}
+                  disabled={sequenceShotCount >= 6}
+                >
+                  +
+                </button>
+              </span>
+              <span
+                className="add-node-shot-stepper"
+                aria-label="Shot duration / Giây mỗi cảnh"
+              >
+                <button
+                  type="button"
+                  aria-label="Decrease shot duration"
+                  onClick={() => setSequenceDurationSec((n) => Math.max(2, n - 1))}
+                  disabled={sequenceDurationSec <= 2}
+                >
+                  −
+                </button>
+                <span>{sequenceDurationSec}s / cảnh</span>
+                <button
+                  type="button"
+                  aria-label="Increase shot duration"
+                  onClick={() => setSequenceDurationSec((n) => Math.min(10, n + 1))}
+                  disabled={sequenceDurationSec >= 10}
+                >
+                  +
+                </button>
+              </span>
+            </span>
+          )}
+        </span>
       ))}
     </div>
   );

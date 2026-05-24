@@ -109,6 +109,7 @@ def test_build_storyboard_sequence_shot_workflow(client):
             "x": 50,
             "y": 60,
             "shot_count": 3,
+            "shot_duration_sec": 5,
         },
     )
     assert r.status_code == 200, r.text
@@ -133,6 +134,8 @@ def test_build_storyboard_sequence_shot_workflow(client):
     assert timeline["data"]["timelineShotIds"] == ["shot_01", "shot_02", "shot_03"]
     assert [n["data"]["shotIndex"] for n in frames] == [1, 2, 3]
     assert [n["data"]["shotIndex"] for n in clips] == [1, 2, 3]
+    assert all(n["data"]["shotDurationSec"] == 5 for n in frames + clips)
+    assert all("Generate a 5s shot" in n["data"]["prompt"] for n in clips)
     assert all(n["data"]["videoRecipeId"] == "storyboard_sequence" for n in frames + clips)
 
     edges = body["edges"]

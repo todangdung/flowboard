@@ -18,23 +18,25 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await page.goto("/");
 
     await expect(page.getByRole("button", { name: "Rename board" })).toContainText(boardName);
+    await page.getByRole("button", { name: "Increase shot count" }).click();
+    await page.getByRole("button", { name: "Increase shot duration" }).click();
     await page
       .getByRole("button", { name: /Create Seq \/ Chuỗi cảnh flow/i })
       .click();
 
-    await expect(page.locator(".node-card")).toHaveCount(11);
+    await expect(page.locator(".node-card")).toHaveCount(13);
     await expect(page.getByText("Timeline / Dòng dựng").first()).toBeVisible();
-    await expect(page.locator(".timeline-shot-row")).toHaveCount(3);
+    await expect(page.locator(".timeline-shot-row")).toHaveCount(4);
     await expect(
       page.locator(".shot-badge").filter({ hasText: "First frame / Khung đầu" }),
-    ).toHaveCount(3);
+    ).toHaveCount(4);
     await expect(
       page.locator(".shot-badge").filter({ hasText: "Clip / Video" }),
-    ).toHaveCount(3);
+    ).toHaveCount(4);
 
     const dialog = page.getByRole("dialog", { name: /Generate image/i });
     await expect(dialog).toBeVisible();
-    await expect(page.locator("#gen-prompt")).toHaveValue(/shot 1\/3/);
+    await expect(page.locator("#gen-prompt")).toHaveValue(/shot 1\/4/);
     await expect(page.getByText("Source references (2)")).toBeVisible();
 
     const detailRes = await request.get(`/api/boards/${board.id}`);
@@ -45,15 +47,20 @@ test("builds storyboard sequence shot workflow from palette", async ({
     };
     expect(
       detail.nodes.filter((node) => node.data.workflowKind === "shot_frame"),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(
       detail.nodes.filter((node) => node.data.workflowKind === "shot_clip"),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(
       detail.nodes.filter((node) => node.data.workflowKind === "timeline"),
     ).toHaveLength(1);
-    expect(detail.edges.filter((edge) => edge.ref_role === "first_frame")).toHaveLength(3);
-    expect(detail.edges.filter((edge) => edge.ref_role === "storyboard_panel")).toHaveLength(3);
+    expect(
+      detail.nodes
+        .filter((node) => node.data.workflowKind === "shot_clip")
+        .every((node) => node.data.shotDurationSec === 5),
+    ).toBeTruthy();
+    expect(detail.edges.filter((edge) => edge.ref_role === "first_frame")).toHaveLength(4);
+    expect(detail.edges.filter((edge) => edge.ref_role === "storyboard_panel")).toHaveLength(4);
 
     await test.info().attach("shot-workflow-scaffold", {
       body: await page.screenshot({ fullPage: true }),

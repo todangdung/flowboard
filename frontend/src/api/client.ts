@@ -630,6 +630,7 @@ export async function buildRecipeWorkflow(input: {
   y: number;
   sources?: Array<{ node_id: number; role: RefRole }>;
   shot_count?: number;
+  shot_duration_sec?: number;
 }): Promise<RecipeWorkflowBuildResponse> {
   const res = await fetch("/api/recipes/build-workflow", {
     method: "POST",
