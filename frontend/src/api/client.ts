@@ -616,6 +616,10 @@ export interface RecipeWorkflowBuildResponse {
   edges: EdgeDTO[];
   video_node_id: number | null;
   frame_node_id: number | null;
+  timeline_node_id?: number | null;
+  shot_node_ids?: number[];
+  shot_count?: number;
+  open_node_id?: number | null;
   open_generation: boolean;
 }
 
@@ -625,6 +629,7 @@ export async function buildRecipeWorkflow(input: {
   x: number;
   y: number;
   sources?: Array<{ node_id: number; role: RefRole }>;
+  shot_count?: number;
 }): Promise<RecipeWorkflowBuildResponse> {
   const res = await fetch("/api/recipes/build-workflow", {
     method: "POST",

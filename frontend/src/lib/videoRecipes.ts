@@ -20,7 +20,7 @@ export const VIDEO_RECIPES: readonly VideoRecipeOption[] = [
   { key: "skincare_tvc", label: "Skincare TVC", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
   { key: "before_after", label: "Before / after", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
   { key: "dance", label: "Dance", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "storyboard_sequence", label: "Storyboard sequence", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
+  { key: "storyboard_sequence", label: "Seq / Chuỗi cảnh", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
 ];
 
 export const FLOW_SCAFFOLD_RECIPES = VIDEO_RECIPES.filter(

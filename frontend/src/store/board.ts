@@ -101,6 +101,12 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   // missing (true for fresh nodes + legacy pre-1.2.15 nodes whose
   // multi-shot data is now ignored).
   storyboardGrid?: StoryboardGrid;
+  workflowKind?: string;
+  shotId?: string;
+  shotIndex?: number;
+  shotDurationSec?: number;
+  timelineRecipeId?: string;
+  timelineShotIds?: string[];
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -181,6 +187,12 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       charVibe: dto.data["charVibe"] as string | undefined,
       charGender: dto.data["charGender"] as string | undefined,
       storyboardGrid: dto.data["storyboardGrid"] as StoryboardGrid | undefined,
+      workflowKind: dto.data["workflowKind"] as string | undefined,
+      shotId: dto.data["shotId"] as string | undefined,
+      shotIndex: dto.data["shotIndex"] as number | undefined,
+      shotDurationSec: dto.data["shotDurationSec"] as number | undefined,
+      timelineRecipeId: dto.data["timelineRecipeId"] as string | undefined,
+      timelineShotIds: dto.data["timelineShotIds"] as string[] | undefined,
       error: dto.data["error"] as string | undefined,
     },
   };
@@ -312,32 +324,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       }
       const detail = await getBoard(board.id);
 
-      const nodes: FlowNode[] = detail.nodes.map((n) => ({
-        id: String(n.id),
-        type: n.type,
-        position: { x: n.x, y: n.y },
-        data: {
-          type: n.type,
-          shortId: n.short_id,
-          title: (n.data["title"] as string | undefined) ?? TYPE_TITLE[n.type],
-          status: n.status,
-          prompt: n.data["prompt"] as string | undefined,
-          thumbnailUrl: n.data["thumbnailUrl"] as string | undefined,
-          mediaId: n.data["mediaId"] as string | undefined,
-          mediaIds: n.data["mediaIds"] as (string | null)[] | undefined,
-          slotErrors: n.data["slotErrors"] as (string | null)[] | undefined,
-          variantCount: n.data["variantCount"] as number | undefined,
-          aspectRatio: n.data["aspectRatio"] as string | undefined,
-          aiBrief: n.data["aiBrief"] as string | undefined,
-          imageModel: n.data["imageModel"] as string | undefined,
-          videoQuality: n.data["videoQuality"] as string | undefined,
-          videoRecipeId: n.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
-          charCountry: n.data["charCountry"] as string | undefined,
-          charVibe: n.data["charVibe"] as string | undefined,
-          charGender: n.data["charGender"] as string | undefined,
-          storyboardGrid: n.data["storyboardGrid"] as StoryboardGrid | undefined,
-        },
-      }));
+      const nodes: FlowNode[] = detail.nodes.map(nodeFromDto);
 
       const edges: Edge[] = detail.edges.map(edgeFromDto);
 
@@ -369,32 +356,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const detail = await getBoard(id);
-      const nodes: FlowNode[] = detail.nodes.map((n) => ({
-        id: String(n.id),
-        type: n.type,
-        position: { x: n.x, y: n.y },
-        data: {
-          type: n.type,
-          shortId: n.short_id,
-          title: (n.data["title"] as string | undefined) ?? TYPE_TITLE[n.type],
-          status: n.status,
-          prompt: n.data["prompt"] as string | undefined,
-          thumbnailUrl: n.data["thumbnailUrl"] as string | undefined,
-          mediaId: n.data["mediaId"] as string | undefined,
-          mediaIds: n.data["mediaIds"] as (string | null)[] | undefined,
-          slotErrors: n.data["slotErrors"] as (string | null)[] | undefined,
-          variantCount: n.data["variantCount"] as number | undefined,
-          aspectRatio: n.data["aspectRatio"] as string | undefined,
-          aiBrief: n.data["aiBrief"] as string | undefined,
-          imageModel: n.data["imageModel"] as string | undefined,
-          videoQuality: n.data["videoQuality"] as string | undefined,
-          videoRecipeId: n.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
-          charCountry: n.data["charCountry"] as string | undefined,
-          charVibe: n.data["charVibe"] as string | undefined,
-          charGender: n.data["charGender"] as string | undefined,
-          storyboardGrid: n.data["storyboardGrid"] as StoryboardGrid | undefined,
-        },
-      }));
+      const nodes: FlowNode[] = detail.nodes.map(nodeFromDto);
       const edges: Edge[] = detail.edges.map(edgeFromDto);
       set({
         boardId: detail.board.id,
@@ -483,32 +445,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     if (boardId === null) return;
     try {
       const detail = await getBoard(boardId);
-      const nodes: FlowNode[] = detail.nodes.map((n) => ({
-        id: String(n.id),
-        type: n.type,
-        position: { x: n.x, y: n.y },
-        data: {
-          type: n.type,
-          shortId: n.short_id,
-          title: (n.data["title"] as string | undefined) ?? TYPE_TITLE[n.type],
-          status: n.status,
-          prompt: n.data["prompt"] as string | undefined,
-          thumbnailUrl: n.data["thumbnailUrl"] as string | undefined,
-          mediaId: n.data["mediaId"] as string | undefined,
-          mediaIds: n.data["mediaIds"] as (string | null)[] | undefined,
-          slotErrors: n.data["slotErrors"] as (string | null)[] | undefined,
-          variantCount: n.data["variantCount"] as number | undefined,
-          aiBrief: n.data["aiBrief"] as string | undefined,
-          imageModel: n.data["imageModel"] as string | undefined,
-          videoQuality: n.data["videoQuality"] as string | undefined,
-          videoRecipeId: n.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
-          charCountry: n.data["charCountry"] as string | undefined,
-          charVibe: n.data["charVibe"] as string | undefined,
-          charGender: n.data["charGender"] as string | undefined,
-          storyboardGrid: n.data["storyboardGrid"] as StoryboardGrid | undefined,
-          error: n.data["error"] as string | undefined,
-        },
-      }));
+      const nodes: FlowNode[] = detail.nodes.map(nodeFromDto);
       const edges: Edge[] = detail.edges.map(edgeFromDto);
       set({ nodes, edges });
     } catch {
@@ -585,16 +522,27 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         edges: [...s.edges, ...createdEdges],
       }));
 
-      const videoNode = createdNodes.find((n) => n.id === String(built.video_node_id));
-      if (videoNode) {
+      const openNodeId =
+        built.open_node_id ??
+        built.video_node_id ??
+        built.frame_node_id ??
+        built.timeline_node_id ??
+        null;
+      const openNode = openNodeId !== null
+        ? createdNodes.find((n) => n.id === String(openNodeId))
+        : undefined;
+      if (openNode && built.open_generation) {
         try {
           const { useGenerationStore } = await import("./generation");
-          useGenerationStore.getState().openGenerationDialog(videoNode.id, "");
+          useGenerationStore
+            .getState()
+            .openGenerationDialog(openNode.id, openNode.data.prompt ?? "");
         } catch {
           // The scaffold itself is complete; opening the dialog is best-effort.
         }
-        return videoNode.id;
+        return openNode.id;
       }
+      if (openNode) return openNode.id;
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }

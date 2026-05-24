@@ -98,6 +98,86 @@ def test_build_workflow_can_bind_existing_sources(client):
     assert any(e.source_id == product_id and e.ref_role == "product_ref" for e in edges)
 
 
+def test_build_storyboard_sequence_shot_workflow(client):
+    board_id = _make_board()
+
+    r = client.post(
+        "/api/recipes/build-workflow",
+        json={
+            "board_id": board_id,
+            "recipe_id": "storyboard_sequence",
+            "x": 50,
+            "y": 60,
+            "shot_count": 3,
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["recipe_id"] == "storyboard_sequence"
+    assert body["shot_count"] == 3
+    assert body["frame_node_id"] == body["open_node_id"]
+    assert body["video_node_id"]
+    assert body["timeline_node_id"]
+    assert len(body["shot_node_ids"]) == 6
+    assert len(body["nodes"]) == 11
+    assert len(body["edges"]) == 27
+
+    nodes = body["nodes"]
+    plan = next(n for n in nodes if n["data"].get("workflowKind") == "storyboard_plan")
+    timeline = next(n for n in nodes if n["data"].get("workflowKind") == "timeline")
+    frames = [n for n in nodes if n["data"].get("workflowKind") == "shot_frame"]
+    clips = [n for n in nodes if n["data"].get("workflowKind") == "shot_clip"]
+
+    assert plan["type"] == "prompt"
+    assert timeline["type"] == "note"
+    assert timeline["data"]["timelineShotIds"] == ["shot_01", "shot_02", "shot_03"]
+    assert [n["data"]["shotIndex"] for n in frames] == [1, 2, 3]
+    assert [n["data"]["shotIndex"] for n in clips] == [1, 2, 3]
+    assert all(n["data"]["videoRecipeId"] == "storyboard_sequence" for n in frames + clips)
+
+    edges = body["edges"]
+    assert sum(1 for e in edges if e["ref_role"] == "first_frame") == 3
+    assert sum(1 for e in edges if e["target_id"] == timeline["id"] and e["ref_role"] == "storyboard_panel") == 3
+    assert sum(1 for e in edges if e["source_id"] == plan["id"] and e["ref_role"] == "storyboard_ref") == 3
+
+
+def test_storyboard_sequence_can_bind_existing_character(client):
+    board_id = _make_board()
+    with get_session() as s:
+        ch = Node(
+            board_id=board_id,
+            short_id="char",
+            type="character",
+            x=0,
+            y=0,
+            data={"title": "Existing character", "mediaId": "m1"},
+            status="done",
+        )
+        s.add(ch)
+        s.commit()
+        s.refresh(ch)
+        ch_id = ch.id
+
+    r = client.post(
+        "/api/recipes/build-workflow",
+        json={
+            "board_id": board_id,
+            "recipe_id": "storyboard_sequence",
+            "shot_count": 2,
+            "sources": [{"node_id": ch_id, "role": "character_ref"}],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    created_ids = {n["id"] for n in body["nodes"]}
+    assert ch_id not in created_ids
+    assert len([n for n in body["nodes"] if n["data"].get("workflowKind") == "shot_frame"]) == 2
+
+    with get_session() as s:
+        edges = s.exec(select(Edge).where(Edge.board_id == board_id)).all()
+    assert sum(1 for e in edges if e.source_id == ch_id and e.ref_role == "character_ref") == 4
+
+
 def test_build_workflow_rejects_cross_board_source(client):
     board_a = _make_board()
     board_b = _make_board()

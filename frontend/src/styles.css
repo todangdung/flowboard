@@ -5699,6 +5699,123 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Shot workflow ──────────────────────────────────────────────────── */
+.shot-wrap {
+  position: relative;
+}
+
+.shot-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(11, 15, 23, 0.78);
+  color: #f8fafc;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 650;
+  pointer-events: none;
+}
+
+.shot-badge span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-body--timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 150px;
+  padding: 10px;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.timeline-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-shot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timeline-shot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-shot-row:hover {
+  border-color: rgba(125, 211, 252, 0.55);
+  background: rgba(125, 211, 252, 0.08);
+}
+
+.timeline-shot-row__name,
+.timeline-shot-row__status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-shot-row__name {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.timeline-shot-row__status {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.timeline-shot-row--done .timeline-shot-row__status {
+  color: #86efac;
+}
+
+.timeline-shot-row--running .timeline-shot-row__status,
+.timeline-shot-row--queued .timeline-shot-row__status {
+  color: #fbbf24;
+}
+
+.timeline-shot-row--error .timeline-shot-row__status {
+  color: #fca5a5;
+}
+
 /* ── References panel (right sidebar) ──────────────────────────────────── */
 
 .references-panel {

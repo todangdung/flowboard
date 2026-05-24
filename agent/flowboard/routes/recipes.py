@@ -55,6 +55,14 @@ class RecipeWorkflowSpec:
     frame_key: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class ShotWorkflowSpec:
+    recipe_id: str
+    label: str
+    shot_count: int
+    shared_inputs: tuple[WorkflowNodeSpec, ...]
+
+
 _WORKFLOWS: dict[str, RecipeWorkflowSpec] = {
     "fashion_fit_check": RecipeWorkflowSpec(
         frame_key="frame",
@@ -222,6 +230,47 @@ _WORKFLOWS: dict[str, RecipeWorkflowSpec] = {
             WorkflowEdgeSpec("product", "frame", "product_ref"),
             WorkflowEdgeSpec("frame", "video", "first_frame"),
             WorkflowEdgeSpec("product", "video", "product_ref"),
+        ),
+    ),
+}
+
+_SHOT_WORKFLOWS: dict[str, ShotWorkflowSpec] = {
+    "storyboard_sequence": ShotWorkflowSpec(
+        recipe_id="storyboard_sequence",
+        label="Storyboard sequence / Chuỗi cảnh",
+        shot_count=3,
+        shared_inputs=(
+            WorkflowNodeSpec(
+                "character",
+                "character",
+                "Sequence character / Nhân vật",
+                0,
+                0,
+                role="character_ref",
+            ),
+            WorkflowNodeSpec(
+                "product",
+                "visual_asset",
+                "Product or hero asset / Sản phẩm",
+                0,
+                220,
+                role="product_ref",
+            ),
+            WorkflowNodeSpec(
+                "style",
+                "prompt",
+                "Sequence direction / Hướng cảnh",
+                0,
+                440,
+                data={
+                    "prompt": (
+                        "consistent subject/product, clear 3-shot short video arc, "
+                        "no text overlays unless requested"
+                    ),
+                    "status": "done",
+                },
+                role="style_ref",
+            ),
         ),
     ),
 }
@@ -404,6 +453,7 @@ class WorkflowBuildRequest(BaseModel):
     y: float = Field(default=0.0, ge=_COORD_MIN, le=_COORD_MAX)
     sources: list[SourceBinding] = Field(default_factory=list)
     open_generation: bool = True
+    shot_count: int = Field(default=3, ge=1, le=6)
 
 
 def _node_dict(node: Node) -> dict:
@@ -437,6 +487,8 @@ def _edge_dict(edge: Edge) -> dict:
 @router.post("/build-workflow")
 def build_recipe_workflow(body: WorkflowBuildRequest) -> dict:
     recipe_id = normalize_video_recipe_id(body.recipe_id)
+    if recipe_id in _SHOT_WORKFLOWS:
+        return _build_shot_workflow(body, recipe_id)
     if recipe_id is None or recipe_id not in _WORKFLOWS:
         raise HTTPException(400, f"unsupported recipe_id {body.recipe_id!r}")
     spec = _WORKFLOWS[recipe_id]
@@ -513,6 +565,238 @@ def build_recipe_workflow(body: WorkflowBuildRequest) -> dict:
             "edges": [_edge_dict(e) for e in created_edges],
             "video_node_id": video_node.id if video_node else None,
             "frame_node_id": frame_node.id if frame_node else None,
+            "timeline_node_id": None,
+            "shot_node_ids": [],
+            "shot_count": 0,
+            "open_node_id": video_node.id if video_node else None,
+            "open_generation": body.open_generation,
+        }
+
+
+def _shot_id(index: int) -> str:
+    return f"shot_{index:02d}"
+
+
+def _shot_plan_prompt(index: int, total: int, label: str) -> str:
+    if index == 1:
+        beat = "Hook: establish subject/product and visual problem in one readable frame."
+    elif index == total:
+        beat = "Payoff: resolve action with final hero hold and clear continuity."
+    else:
+        beat = "Development: show one concrete action beat that moves the short forward."
+    return (
+        f"{label} shot {index}/{total}. {beat} Keep subject, product, lighting, "
+        "and location consistent with adjacent shots. Output should be one "
+        "production-ready first frame for this shot."
+    )
+
+
+def _shot_video_prompt(index: int, total: int, label: str) -> str:
+    if index == 1:
+        action = "start with a calm establishing motion, then reveal the main subject/product"
+    elif index == total:
+        action = "complete the action and hold the final hero composition"
+    else:
+        action = "perform one clear transition/action beat with stable continuity"
+    return (
+        f"The uploaded image is the first frame. Generate shot {index}/{total} "
+        f"for {label}. Action: {action}. Camera movement stays motivated by "
+        "this single shot. Preserve continuity locks from the storyboard plan. "
+        "Avoid random cuts, changed identity, product drift, captions, and text overlays."
+    )
+
+
+def _add_edge(
+    s,
+    created_edges: list[Edge],
+    board_id: int,
+    source: Node,
+    target: Node,
+    role: str,
+) -> None:
+    if source.id == target.id:
+        return
+    edge = Edge(
+        board_id=board_id,
+        source_id=source.id,
+        target_id=target.id,
+        kind="ref",
+        ref_role=role,
+    )
+    s.add(edge)
+    s.flush()
+    created_edges.append(edge)
+
+
+def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
+    spec = _SHOT_WORKFLOWS[recipe_id]
+    shot_count = body.shot_count or spec.shot_count
+
+    with get_session() as s:
+        board = s.get(Board, body.board_id)
+        if board is None:
+            raise HTTPException(404, "board not found")
+
+        bound_by_role: dict[str, Node] = {}
+        for binding in body.sources:
+            node = s.get(Node, binding.node_id)
+            if node is None:
+                raise HTTPException(404, f"source node {binding.node_id} not found")
+            if node.board_id != body.board_id:
+                raise HTTPException(400, "source node belongs to another board")
+            bound_by_role[binding.role] = node
+
+        created_nodes: list[Node] = []
+        created_edges: list[Edge] = []
+        shared_by_role: dict[str, Node] = {}
+
+        for node_spec in spec.shared_inputs:
+            bound = bound_by_role.get(node_spec.role or "")
+            if bound is not None:
+                shared_by_role[node_spec.role or ""] = bound
+                continue
+            data = {"title": node_spec.title, **dict(node_spec.data)}
+            status = "done" if data.get("status") == "done" else "idle"
+            node = Node(
+                board_id=body.board_id,
+                short_id=generate_unique_short_id(s, body.board_id),
+                type=node_spec.type,
+                x=round(body.x + node_spec.dx),
+                y=round(body.y + node_spec.dy),
+                w=240,
+                h=180 if node_spec.type != "prompt" else 120,
+                data=data,
+                status=status,
+            )
+            s.add(node)
+            s.flush()
+            shared_by_role[node_spec.role or ""] = node
+            created_nodes.append(node)
+
+        plan_node = Node(
+            board_id=body.board_id,
+            short_id=generate_unique_short_id(s, body.board_id),
+            type="prompt",
+            x=round(body.x + 330),
+            y=round(body.y - 80),
+            w=280,
+            h=150,
+            data={
+                "title": "Storyboard plan / Kế hoạch cảnh",
+                "prompt": (
+                    f"Create a {shot_count}-shot short-video storyboard. "
+                    "Each shot needs one first frame and one generated clip. "
+                    "Continuity locks: same subject/product/location, one clear action beat per shot."
+                ),
+                "workflowKind": "storyboard_plan",
+                "videoRecipeId": recipe_id,
+                "status": "done",
+            },
+            status="done",
+        )
+        s.add(plan_node)
+        s.flush()
+        created_nodes.append(plan_node)
+
+        frame_nodes: list[Node] = []
+        clip_nodes: list[Node] = []
+        for idx in range(1, shot_count + 1):
+            shot = _shot_id(idx)
+            frame = Node(
+                board_id=body.board_id,
+                short_id=generate_unique_short_id(s, body.board_id),
+                type="image",
+                x=round(body.x + 670),
+                y=round(body.y + (idx - 1) * 260),
+                w=240,
+                h=180,
+                data={
+                    "title": f"Shot {idx} first frame / Cảnh {idx} khung đầu",
+                    "prompt": _shot_plan_prompt(idx, shot_count, spec.label),
+                    "workflowKind": "shot_frame",
+                    "shotId": shot,
+                    "shotIndex": idx,
+                    "shotDurationSec": 4,
+                    "videoRecipeId": recipe_id,
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+                status="idle",
+            )
+            clip = Node(
+                board_id=body.board_id,
+                short_id=generate_unique_short_id(s, body.board_id),
+                type="video",
+                x=round(body.x + 1010),
+                y=round(body.y + (idx - 1) * 260),
+                w=240,
+                h=180,
+                data={
+                    "title": f"Shot {idx} clip / Cảnh {idx} video",
+                    "prompt": _shot_video_prompt(idx, shot_count, spec.label),
+                    "workflowKind": "shot_clip",
+                    "shotId": shot,
+                    "shotIndex": idx,
+                    "shotDurationSec": 4,
+                    "videoRecipeId": recipe_id,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+                status="idle",
+            )
+            s.add(frame)
+            s.flush()
+            s.add(clip)
+            s.flush()
+            frame_nodes.append(frame)
+            clip_nodes.append(clip)
+            created_nodes.extend([frame, clip])
+
+        timeline_node = Node(
+            board_id=body.board_id,
+            short_id=generate_unique_short_id(s, body.board_id),
+            type="note",
+            x=round(body.x + 1350),
+            y=round(body.y + 80),
+            w=300,
+            h=max(180, 80 + shot_count * 42),
+            data={
+                "title": "Timeline / Dòng dựng",
+                "prompt": f"{shot_count} shots / {shot_count} cảnh",
+                "workflowKind": "timeline",
+                "timelineRecipeId": recipe_id,
+                "timelineShotIds": [_shot_id(i) for i in range(1, shot_count + 1)],
+            },
+            status="idle",
+        )
+        s.add(timeline_node)
+        s.flush()
+        created_nodes.append(timeline_node)
+
+        for frame, clip in zip(frame_nodes, clip_nodes):
+            _add_edge(s, created_edges, body.board_id, plan_node, frame, "storyboard_ref")
+            _add_edge(s, created_edges, body.board_id, frame, clip, "first_frame")
+            for role, source in shared_by_role.items():
+                _add_edge(s, created_edges, body.board_id, source, frame, role)
+                _add_edge(s, created_edges, body.board_id, source, clip, role)
+            _add_edge(s, created_edges, body.board_id, clip, timeline_node, "storyboard_panel")
+
+        s.commit()
+        for node in created_nodes:
+            s.refresh(node)
+        for edge in created_edges:
+            s.refresh(edge)
+
+        first_frame = frame_nodes[0] if frame_nodes else None
+        first_clip = clip_nodes[0] if clip_nodes else None
+        return {
+            "recipe_id": recipe_id,
+            "nodes": [_node_dict(n) for n in created_nodes],
+            "edges": [_edge_dict(e) for e in created_edges],
+            "video_node_id": first_clip.id if first_clip else None,
+            "frame_node_id": first_frame.id if first_frame else None,
+            "timeline_node_id": timeline_node.id,
+            "shot_node_ids": [node.id for pair in zip(frame_nodes, clip_nodes) for node in pair],
+            "shot_count": shot_count,
+            "open_node_id": first_frame.id if first_frame else None,
             "open_generation": body.open_generation,
         }
 

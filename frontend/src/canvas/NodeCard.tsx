@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { useBoardStore, type FlowboardNodeData, type FlowNode } from "../store/board";
+import { useBoardStore, type FlowboardNodeData, type FlowNode, type NodeStatus } from "../store/board";
 import { useGenerationStore } from "../store/generation";
 import {
   mediaUrl,
@@ -992,7 +992,13 @@ function VideoBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   // i2v: variant i of the video came from variant i of the upstream
   // image; single-source: every tile shares the same poster.
   const { nodes, edges } = useBoardStore.getState();
-  const upstreamEdge = edges.find((e) => e.target === rfId);
+  const incomingEdges = edges.filter((e) => e.target === rfId);
+  const upstreamEdge = incomingEdges.find((e) => e.data?.refRole === "first_frame")
+    ?? incomingEdges.find((e) => {
+      const n = nodes.find((node) => node.id === e.source);
+      return n?.data.type === "image" || n?.data.type === "Storyboard";
+    })
+    ?? incomingEdges[0];
   const upstreamNode = upstreamEdge
     ? nodes.find((n) => n.id === upstreamEdge.source)
     : undefined;
@@ -1440,6 +1446,114 @@ function EditableTextBody({
   );
 }
 
+// ── Shot workflow ─────────────────────────────────────────────────────────
+// Phase5 MVP stores shot/timeline semantics in node.data so the backend can
+// create a production layer without a DB migration or new ReactFlow type.
+
+function ShotBadge({ data, kind }: { data: FlowboardNodeData; kind: "frame" | "clip" }) {
+  const index = typeof data.shotIndex === "number" ? data.shotIndex : null;
+  const duration = typeof data.shotDurationSec === "number" ? data.shotDurationSec : null;
+  return (
+    <div className="shot-badge" title={data.shotId}>
+      <span>{index ? `Shot ${index} / Cảnh ${index}` : "Shot / Cảnh"}</span>
+      <span>{kind === "frame" ? "First frame / Khung đầu" : "Clip / Video"}</span>
+      {duration && <span>{duration}s</span>}
+    </div>
+  );
+}
+
+function ShotFrameBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
+  return (
+    <div className="shot-wrap">
+      <ShotBadge data={data} kind="frame" />
+      <ImageBody rfId={rfId} data={data} />
+    </div>
+  );
+}
+
+function ShotClipBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
+  return (
+    <div className="shot-wrap">
+      <ShotBadge data={data} kind="clip" />
+      <VideoBody rfId={rfId} data={data} />
+    </div>
+  );
+}
+
+const STATUS_LABEL_VI: Record<NodeStatus, string> = {
+  idle: "chờ",
+  queued: "đợi",
+  running: "đang",
+  done: "xong",
+  error: "lỗi",
+};
+
+function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
+  const nodes = useBoardStore((s) => s.nodes);
+  const edges = useBoardStore((s) => s.edges);
+  const incoming = edges
+    .filter((e) => e.target === rfId)
+    .map((e) => nodes.find((n) => n.id === e.source))
+    .filter((n): n is FlowNode => !!n && n.data.workflowKind === "shot_clip")
+    .sort((a, b) => (a.data.shotIndex ?? 0) - (b.data.shotIndex ?? 0));
+  const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
+  const rows = incoming.length > 0
+    ? incoming
+    : shotIds.map((shotId, idx) => ({
+      id: shotId,
+      data: {
+        type: "video" as const,
+        shortId: shotId,
+        title: `Shot ${idx + 1}`,
+        shotId,
+        shotIndex: idx + 1,
+        status: "idle" as NodeStatus,
+      },
+      position: { x: 0, y: 0 },
+      type: "video",
+    } as FlowNode));
+
+  return (
+    <div className="node-body node-body--timeline">
+      <div className="timeline-header">
+        <span>Timeline / Dòng dựng</span>
+        <span>{rows.length} shots / cảnh</span>
+      </div>
+      <div className="timeline-shot-list">
+        {rows.map((clip) => {
+          const index = clip.data.shotIndex ?? 0;
+          const hasMedia = Boolean(clip.data.mediaId);
+          const status = clip.data.status ?? "idle";
+          return (
+            <button
+              key={clip.id}
+              type="button"
+              className={`timeline-shot-row timeline-shot-row--${status}`}
+              onClick={() => {
+                if (hasMedia) {
+                  useGenerationStore.getState().openResultViewer(clip.id, 0);
+                } else if (/^\d+$/.test(clip.id)) {
+                  useGenerationStore
+                    .getState()
+                    .openGenerationDialog(clip.id, clip.data.prompt ?? "");
+                }
+              }}
+              title={clip.data.title}
+            >
+              <span className="timeline-shot-row__name">
+                Shot {index || "?"} / Cảnh {index || "?"}
+              </span>
+              <span className="timeline-shot-row__status">
+                {hasMedia ? "done / xong" : `${status} / ${STATUS_LABEL_VI[status] ?? status}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Storyboard ────────────────────────────────────────────────────────────
 // Storyboard is a thin image-node wrapper. It dispatches via the standard
 // `gen_image` handler with a locked prompt template that asks Flow to render
@@ -1474,12 +1588,21 @@ function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
     case "character":
       return <CharacterBody rfId={rfId} data={data} />;
     case "image":
+      if (data.workflowKind === "shot_frame") {
+        return <ShotFrameBody rfId={rfId} data={data} />;
+      }
       return <ImageBody rfId={rfId} data={data} />;
     case "video":
+      if (data.workflowKind === "shot_clip") {
+        return <ShotClipBody rfId={rfId} data={data} />;
+      }
       return <VideoBody rfId={rfId} data={data} />;
     case "prompt":
       return <EditableTextBody rfId={rfId} data={data} variant="prompt" />;
     case "note":
+      if (data.workflowKind === "timeline") {
+        return <TimelineBody rfId={rfId} data={data} />;
+      }
       return <EditableTextBody rfId={rfId} data={data} variant="note" />;
     case "visual_asset":
       return <VisualAssetBody rfId={rfId} data={data} />;
