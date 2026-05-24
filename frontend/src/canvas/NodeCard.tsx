@@ -1488,14 +1488,58 @@ const STATUS_LABEL_VI: Record<NodeStatus, string> = {
   error: "lỗi",
 };
 
+function isNodeBusy(data: FlowboardNodeData): boolean {
+  return data.status === "queued" || data.status === "running";
+}
+
+function nodeMediaIds(data: FlowboardNodeData): string[] {
+  const ids = Array.isArray(data.mediaIds)
+    ? data.mediaIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  if (ids.length > 0) return ids;
+  return typeof data.mediaId === "string" && data.mediaId ? [data.mediaId] : [];
+}
+
 function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   const nodes = useBoardStore((s) => s.nodes);
   const edges = useBoardStore((s) => s.edges);
+  const paygateTier = useGenerationStore((s) => s.paygateTier);
+  const dispatchGeneration = useGenerationStore((s) => s.dispatchGeneration);
+  const [runnerBusy, setRunnerBusy] = useState<"frames" | "clips" | null>(null);
   const incoming = edges
     .filter((e) => e.target === rfId)
     .map((e) => nodes.find((n) => n.id === e.source))
     .filter((n): n is FlowNode => !!n && n.data.workflowKind === "shot_clip")
     .sort((a, b) => (a.data.shotIndex ?? 0) - (b.data.shotIndex ?? 0));
+  const shotPairs = incoming.map((clip) => {
+    const frameEdge = edges.find(
+      (e) => e.target === clip.id && e.data?.refRole === "first_frame",
+    );
+    const frame = frameEdge
+      ? nodes.find(
+        (n) => n.id === frameEdge.source && n.data.workflowKind === "shot_frame",
+      )
+      : undefined;
+    return { clip, frame };
+  });
+  const frameTargets = shotPairs
+    .map((pair) => pair.frame)
+    .filter((frame): frame is FlowNode =>
+      !!frame && nodeMediaIds(frame.data).length === 0 && !isNodeBusy(frame.data),
+    );
+  const clipTargets = shotPairs.filter(
+    ({ clip, frame }) =>
+      !!frame
+      && nodeMediaIds(frame.data).length > 0
+      && nodeMediaIds(clip.data).length === 0
+      && !isNodeBusy(clip.data),
+  );
+  const framesReady = shotPairs.filter(({ frame }) => !!frame && nodeMediaIds(frame.data).length > 0).length;
+  const clipsReady = shotPairs.filter(({ clip }) => nodeMediaIds(clip.data).length > 0).length;
+  const allFramesReady = shotPairs.length > 0 && framesReady === shotPairs.length;
+  const runnerBlocked = paygateTier === null;
+  const canRunFrames = frameTargets.length > 0 && runnerBusy === null && !runnerBlocked;
+  const canRunClips = allFramesReady && clipTargets.length > 0 && runnerBusy === null && !runnerBlocked;
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
     ? incoming
@@ -1513,11 +1557,82 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       type: "video",
     } as FlowNode));
 
+  async function runFrames() {
+    if (!canRunFrames) return;
+    setRunnerBusy("frames");
+    try {
+      for (const frame of frameTargets) {
+        await dispatchGeneration(frame.id, {
+          kind: "image",
+          prompt: frame.data.prompt ?? "",
+          aspectRatio: "IMAGE_ASPECT_RATIO_PORTRAIT",
+          variantCount: 1,
+        });
+      }
+    } finally {
+      setRunnerBusy(null);
+    }
+  }
+
+  async function runClips() {
+    if (!canRunClips) return;
+    setRunnerBusy("clips");
+    try {
+      for (const { clip, frame } of clipTargets) {
+        const sourceMediaIds = nodeMediaIds(frame!.data);
+        await dispatchGeneration(clip.id, {
+          kind: "video",
+          prompt: clip.data.prompt ?? "",
+          aspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+          sourceMediaId: sourceMediaIds[0],
+          sourceMediaIds: sourceMediaIds.length > 1 ? sourceMediaIds : undefined,
+        });
+      }
+    } finally {
+      setRunnerBusy(null);
+    }
+  }
+
   return (
     <div className="node-body node-body--timeline">
       <div className="timeline-header">
         <span>Timeline / Dòng dựng</span>
         <span>{rows.length} shots / cảnh</span>
+      </div>
+      <div className="timeline-actions">
+        <button
+          type="button"
+          className="timeline-run-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            void runFrames();
+          }}
+          disabled={!canRunFrames}
+          title={runnerBlocked ? "Open Flow to detect tier / Mở Flow để nhận diện gói" : undefined}
+        >
+          {runnerBusy === "frames" ? "Queueing frames / Đang xếp ảnh" : "Generate frames / Tạo ảnh cảnh"}
+        </button>
+        <button
+          type="button"
+          className="timeline-run-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            void runClips();
+          }}
+          disabled={!canRunClips}
+          title={
+            runnerBlocked
+              ? "Open Flow to detect tier / Mở Flow để nhận diện gói"
+              : allFramesReady
+              ? undefined
+              : "Generate first frames first / Tạo ảnh cảnh trước"
+          }
+        >
+          {runnerBusy === "clips" ? "Queueing clips / Đang xếp video" : "Generate clips / Tạo video"}
+        </button>
+      </div>
+      <div className="timeline-run-summary">
+        {framesReady}/{shotPairs.length} frames / ảnh · {clipsReady}/{shotPairs.length} clips / video
       </div>
       <div className="timeline-shot-list">
         {rows.map((clip) => {

@@ -6120,6 +6120,44 @@ button:disabled {
   white-space: nowrap;
 }
 
+.timeline-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.timeline-run-btn {
+  min-width: 0;
+  min-height: 30px;
+  padding: 5px 7px;
+  border: 1px solid rgba(110, 231, 183, 0.34);
+  border-radius: 6px;
+  background: rgba(110, 231, 183, 0.08);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.timeline-run-btn:hover:not(:disabled) {
+  border-color: rgba(110, 231, 183, 0.62);
+  background: rgba(110, 231, 183, 0.14);
+}
+
+.timeline-run-btn:disabled {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.timeline-run-summary {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .timeline-shot-list {
   display: flex;
   flex-direction: column;

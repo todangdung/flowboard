@@ -108,6 +108,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   shotDurationSec?: number;
   timelineRecipeId?: string;
   timelineShotIds?: string[];
+  timelineDurationsSec?: number[];
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -194,6 +195,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       shotDurationSec: dto.data["shotDurationSec"] as number | undefined,
       timelineRecipeId: dto.data["timelineRecipeId"] as string | undefined,
       timelineShotIds: dto.data["timelineShotIds"] as string[] | undefined,
+      timelineDurationsSec: dto.data["timelineDurationsSec"] as number[] | undefined,
       error: dto.data["error"] as string | undefined,
     },
   };
