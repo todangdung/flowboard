@@ -894,7 +894,11 @@ async def test_auto_prompt_raises_for_unknown_node(client):
 
 
 @pytest.mark.asyncio
-async def test_auto_prompt_caps_long_responses(client, monkeypatch):
+async def test_auto_prompt_passes_through_long_responses(client, monkeypatch):
+    """The hard 500-char truncate was removed — we trust the system-prompt
+    hints (280 / 400 / 540) to keep the LLM concise. Long responses pass
+    through untouched so the user sees the full prompt in the dialog and
+    can edit before re-dispatching."""
     ids = _seed_board_with_chain()
     long_text = "a" * 900
 
@@ -903,8 +907,8 @@ async def test_auto_prompt_caps_long_responses(client, monkeypatch):
 
     monkeypatch.setattr(prompt_synth, "run_llm", stub_run)
     out = await prompt_synth.auto_prompt(ids["target_id"])
-    assert len(out) <= 501
-    assert out.endswith("…")
+    assert len(out) == 900
+    assert not out.endswith("…")
 
 
 def test_route_happy_path(client, monkeypatch):

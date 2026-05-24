@@ -20,6 +20,10 @@ interface ChatState {
 
   loadChat(boardId: number): Promise<void>;
   sendMessage(message: string, mentions: string[]): Promise<void>;
+  // Patch the cached plan's status after a pipeline run finishes — keeps
+  // the chat sidebar's Run / Re-run button in sync with the backend
+  // truth without a full plan re-fetch.
+  setPlanStatus(planId: number, status: PlanDTO["status"]): void;
   clearError(): void;
 }
 
@@ -84,6 +88,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
         error: err instanceof Error ? err.message : String(err),
       }));
     }
+  },
+
+  setPlanStatus(planId: number, status: PlanDTO["status"]) {
+    set((s) => {
+      const next: Record<number, PlanDTO> = {};
+      let changed = false;
+      for (const [msgIdStr, plan] of Object.entries(s.plans)) {
+        if (plan.id === planId && plan.status !== status) {
+          next[Number(msgIdStr)] = { ...plan, status };
+          changed = true;
+        } else {
+          next[Number(msgIdStr)] = plan;
+        }
+      }
+      return changed ? { plans: next } : {};
+    });
   },
 
   clearError() {

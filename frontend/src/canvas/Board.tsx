@@ -17,6 +17,7 @@ import {
 
 import { useBoardStore, type FlowNode, type NodeType } from "../store/board";
 import { NodeCard } from "./NodeCard";
+import { NodeContextMenu } from "./NodeContextMenu";
 import { VariantEdge } from "./VariantEdge";
 import { useGenerationStore } from "../store/generation";
 
@@ -120,6 +121,12 @@ export function Board() {
 
   const [dropPopover, setDropPopover] = useState<
     { clientX: number; clientY: number; sourceId: string } | null
+  >(null);
+  // Right-click context menu on a node: lets the user trigger
+  // "Rerun from here" without leaving the canvas. The backend infers
+  // which plan owns the node, so we only need its id + click coords.
+  const [ctxMenu, setCtxMenu] = useState<
+    { x: number; y: number; nodeId: string } | null
   >(null);
   // Drag-state: whether a connection was successfully made. onConnect fires
   // before onConnectEnd, so we use this to decide whether the drop landed
@@ -275,6 +282,15 @@ export function Board() {
     [deleteEdgeByRfId],
   );
 
+  const onNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: FlowNode) => {
+      // Replace the browser's default right-click menu with our own.
+      event.preventDefault();
+      setCtxMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+    },
+    [],
+  );
+
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: FlowNode) => {
       const isGenerable = [
@@ -360,11 +376,19 @@ export function Board() {
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeContextMenu={onNodeContextMenu}
         deleteKeyCode={["Backspace", "Delete"]}
         defaultEdgeOptions={defaultEdgeOptions}
         // Larger connection-drop radius so users don't have to land
         // pixel-perfect on the handle to complete an edge.
         connectionRadius={32}
+        // Wider zoom range — ReactFlow defaults to minZoom=0.5 which
+        // can't fit large boards (10+ nodes spread out) in one view.
+        // 0.1 lets the user pull all the way out to see the whole graph
+        // at once; 2.0 keeps the upper bound at the default so close-up
+        // editing isn't affected.
+        minZoom={0.1}
+        maxZoom={2}
         fitView
         proOptions={{ hideAttribution: true }}
       >
@@ -376,6 +400,14 @@ export function Board() {
           onPick={handlePickAdd}
           onClose={() => setDropPopover(null)}
         />
+        {ctxMenu && (
+          <NodeContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            nodeId={ctxMenu.nodeId}
+            onClose={() => setCtxMenu(null)}
+          />
+        )}
       </ReactFlow>
     </div>
   );

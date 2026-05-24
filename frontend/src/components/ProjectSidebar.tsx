@@ -18,6 +18,7 @@ export function ProjectSidebar() {
   const activeId = useBoardStore((s) => s.boardId);
   const switchBoard = useBoardStore((s) => s.switchBoard);
   const createNewBoard = useBoardStore((s) => s.createNewBoard);
+  const createNewBoardWithFlowProject = useBoardStore((s) => s.createNewBoardWithFlowProject);
   const deleteBoardById = useBoardStore((s) => s.deleteBoardById);
   const renameBoard = useBoardStore((s) => s.renameBoard);
 
@@ -125,6 +126,19 @@ export function ProjectSidebar() {
     setNewDialogBusy(true);
     try {
       await createNewBoard(name);
+    } finally {
+      setNewDialogBusy(false);
+      setNewDialogOpen(false);
+      setNewDialogName("");
+    }
+  }
+
+  async function commitNewDialogWithFlowProject() {
+    if (newDialogBusy) return;
+    const name = newDialogName.trim() || "Untitled";
+    setNewDialogBusy(true);
+    try {
+      await createNewBoardWithFlowProject(name);
     } finally {
       setNewDialogBusy(false);
       setNewDialogOpen(false);
@@ -403,6 +417,12 @@ export function ProjectSidebar() {
             </h2>
             <p className="project-modal__hint">
               Tên project hiển thị trong sidebar. Có thể đổi sau.
+              <br />
+              <strong>Create</strong> chỉ tạo board local — Flow project sẽ
+              được tạo lazy ở lần Generate đầu tiên.
+              {" "}
+              <strong>Create + link Flow</strong> tạo Flow project ngay
+              (cần extension đã connect + tier biết).
             </p>
             <input
               ref={newDialogInputRef}
@@ -430,11 +450,21 @@ export function ProjectSidebar() {
               </button>
               <button
                 type="button"
-                className="project-modal__btn project-modal__btn--primary"
+                className="project-modal__btn"
                 onClick={commitNewDialog}
                 disabled={newDialogBusy}
+                title="Tạo board local, Flow project sẽ tạo khi Generate"
               >
                 {newDialogBusy ? "Creating…" : "Create"}
+              </button>
+              <button
+                type="button"
+                className="project-modal__btn project-modal__btn--primary"
+                onClick={commitNewDialogWithFlowProject}
+                disabled={newDialogBusy}
+                title="Tạo board + link Flow project ngay lập tức"
+              >
+                {newDialogBusy ? "Linking…" : "Create + link Flow"}
               </button>
             </div>
           </div>

@@ -79,10 +79,23 @@ async def ensure_media_in_project(
     #    try fetching via Asset.url (signed GCS URL — may have expired).
     bytes_data, mime = await _load_bytes(original_media_id)
     if bytes_data is None:
-        raise MediaSyncError(
-            f"no bytes available for media_id={original_media_id} "
-            f"(local cache miss + no usable URL)"
+        # Cache miss + no usable URL. Two cases:
+        #   a) Media was generated natively in the CURRENT project — no
+        #      sync needed, pass the id through unchanged. Flow will
+        #      accept it because it owns the asset.
+        #   b) Media was generated elsewhere AND bytes truly lost — we
+        #      can't help, but Flow will 404 at dispatch time and the
+        #      caller gets a clean Flow error rather than our sync_failed
+        #      noise that hides the real cause.
+        # Either way, passthrough is the least-surprising default. We
+        # used to raise MediaSyncError here, which broke same-project
+        # dispatches on systems whose media cache was pruned.
+        logger.debug(
+            "ensure_media_in_project: no cached bytes for %s, "
+            "passing through unchanged (likely native to project %s)",
+            original_media_id, project_id,
         )
+        return original_media_id
 
     # 3) Upload to Flow under the target project.
     image_b64 = base64.b64encode(bytes_data).decode("ascii")
