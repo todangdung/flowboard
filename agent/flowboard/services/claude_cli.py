@@ -167,17 +167,26 @@ async def run_claude(
     except Exception as exc:  # noqa: BLE001
         raise ClaudeCliError(f"claude CLI error: {exc}") from exc
 
-    if result.returncode != 0:
-        stderr = result.stderr.decode(errors="replace")[:400]
-        raise ClaudeCliError(f"claude CLI exited {result.returncode}: {stderr}")
-
     stdout = result.stdout.decode(errors="replace")
     try:
         envelope = json.loads(stdout)
     except json.JSONDecodeError as exc:
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace")[:400]
+            raise ClaudeCliError(f"claude CLI exited {result.returncode}: {stderr}") from exc
         raise ClaudeCliError(
             f"claude CLI returned non-JSON output: {stdout[:200]}"
         ) from exc
+
+    if result.returncode != 0:
+        detail = ""
+        if isinstance(envelope, dict):
+            raw_detail = envelope.get("result") or envelope.get("subtype")
+            if isinstance(raw_detail, str):
+                detail = raw_detail
+        if not detail:
+            detail = result.stderr.decode(errors="replace")[:400]
+        raise ClaudeCliError(f"claude CLI exited {result.returncode}: {detail}")
 
     if not isinstance(envelope, dict):
         raise ClaudeCliError("claude CLI envelope is not an object")

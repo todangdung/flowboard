@@ -569,13 +569,45 @@ export interface VideoRecipeDTO {
   label: string;
   required_roles: RefRole[];
   optional_roles: RefRole[];
+  recommended_generation_path: string;
   default_camera: "static" | "dynamic";
   default_aspect_ratio: string;
+  action_hint: string;
+  audio_hint: string;
+  preserve_hint: string;
+  avoid_hint: string;
   prompt_contract: string;
 }
 
 export interface VideoRecipeCatalogResponse {
   recipes: VideoRecipeDTO[];
+}
+
+export interface VideoRecipePromptSections {
+  brief: string;
+  refs: string;
+  action: string;
+  camera: string;
+  audio: string;
+  preserve: string;
+  avoid: string;
+}
+
+export interface VideoRecipePlan {
+  recipe_id: VideoRecipeId | null;
+  label: string;
+  ready: boolean;
+  required_roles: RefRole[];
+  optional_roles: RefRole[];
+  present_roles: RefRole[];
+  missing_roles: RefRole[];
+  recommended_generation_path: string;
+  prompt_sections: VideoRecipePromptSections;
+}
+
+export interface VideoRecipePlanResponse {
+  node_id: number;
+  plan: VideoRecipePlan;
 }
 
 export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
@@ -584,6 +616,20 @@ export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
     throw new Error(await extractErrorMessage(res));
   }
   return res.json() as Promise<VideoRecipeCatalogResponse>;
+}
+
+export async function getVideoRecipePlan(
+  nodeId: number,
+  opts?: { recipeId?: "auto" | VideoRecipeId; camera?: string },
+): Promise<VideoRecipePlanResponse> {
+  const params = new URLSearchParams({ node_id: String(nodeId) });
+  if (opts?.recipeId) params.set("recipe_id", opts.recipeId);
+  if (opts?.camera) params.set("camera", opts.camera);
+  const res = await fetch(`/api/prompt/video-recipe-plan?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<VideoRecipePlanResponse>;
 }
 
 export async function autoPromptBatch(

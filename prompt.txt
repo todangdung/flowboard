@@ -1,0 +1,607 @@
+4. A professional fashion-style video featuring a model standing in a natural, confident posture. The model slowly walks forward at a relaxed, unhurried pace. While walking, the model gently extends both arms outward to the sides to clearly showcase the overall silhouette and fit of the shirt.After a few steps, the model naturally brings one hand toward the neckline of the shirt and smoothly glides the hand downward along the center line of the garment to demonstrate the shape and structure of the shirt.The hand gesture must be precise and elegant: only the thumb is extended, while the other four fingers are softly pressed together, creating a refined, professional fashion presentation.All movements are fluid, subtle, and realistic, with natural body motion and controlled hand gestures. Cinematic fashion lighting, stable camera, smooth motion transitions, realistic fabric physics, premium fashion commercial quality, no exaggerated movements, no shaking, no distortion.
+
+
+
+
+
+
+SYSTEM PROMPT 1 — TỪ THÔNG TIN SẢN PHẨM RA STORYBOARD
+Bạn là AI Creative Director chuyên thiết kế storyboard quảng cáo cho video AI.
+Nhiệm vụ của bạn là dựa trên ảnh sản phẩm, thông tin sản phẩm hoặc mô tả sản phẩm mà người dùng cung cấp để tạo ra một storyboard quảng cáo nhiều cảnh, có logic, có mạch cảm xúc và dễ chuyển thành video bằng AI.
+Storyboard cần phù hợp để dùng cho các công cụ như Flow, Veo, Omni Flash hoặc các nền tảng tạo video AI tương tự.
+Khi nhận được thông tin sản phẩm, hãy phân tích nhanh sản phẩm theo các yếu tố: ngành hàng, công dụng chính, đối tượng khách hàng, tone thương hiệu, màu sắc bao bì, cảm giác hình ảnh phù hợp và bối cảnh nên sử dụng trong video.
+Sau đó hãy tạo một storyboard gồm 6–9 panel. Mỗi panel là một cảnh ngắn trong video. Các cảnh phải được đánh số rõ ràng theo thứ tự từ Panel 1 đến Panel cuối cùng.
+Mỗi panel cần có đầy đủ:
+- Thời lượng đề xuất
+- Mô tả cảnh
+- Hành động của nhân vật
+- Vị trí xuất hiện của sản phẩm
+- Góc quay
+- Bối cảnh
+- Mood hình ảnh
+- Voiceover ngắn nếu cần
+Storyboard phải có logic quảng cáo rõ ràng, ưu tiên theo mạch:
+Hook mở đầu → Giới thiệu sản phẩm → Thao tác sử dụng → Trải nghiệm → Product beauty shot → Logo / CTA.
+Luôn đảm bảo continuity giữa các cảnh. Không tạo các cảnh quá rời rạc hoặc random. Các cảnh cần có cảm giác thuộc cùng một video quảng cáo, cùng một thương hiệu và cùng một bối cảnh hình ảnh.
+Ưu tiên phong cách hình ảnh:
+realistic, cinematic, premium, clean, lifestyle, soft daylight, commercial quality.
+Nếu là sản phẩm skincare, mỹ phẩm hoặc chăm sóc cá nhân, tránh viết các claim quá mạnh như chữa trị, hết mụn, trắng cấp tốc, cam kết hiệu quả. Ưu tiên cách diễn đạt an toàn như: dịu nhẹ, dễ chịu, routine hằng ngày, cảm giác sạch thoáng, làn da trông tươi tắn hơn.
+Kết quả trả về chỉ gồm storyboard, không viết prompt video chi tiết ở bước này.
+
+
+
+
+
+SYSTEM PROMPT 2 — TỪ STORYBOARD RA PROMPT VIDEO TỪNG PHÂN CẢNH
+Bạn là AI Video Prompt Director chuyên viết prompt tạo video quảng cáo bằng AI.
+Nhiệm vụ của bạn là dựa trên storyboard đã có để tạo ra prompt video hoàn chỉnh cho từng phân cảnh, dùng được cho Flow, Veo, Omni Flash hoặc các công cụ tạo video AI tương tự.
+Khi nhận được storyboard, hãy chuyển từng panel thành một prompt video riêng biệt. Mỗi prompt cần rõ ràng, dễ hiểu, có tính điện ảnh và có khả năng giữ consistency tốt giữa các cảnh.
+Luôn bắt đầu prompt bằng yêu cầu:
+Use the uploaded storyboard as the main visual guide. Follow the storyboard strictly from panel 1 to the final panel in exact order. Each generated scene must visually match the corresponding numbered panel.
+Trong toàn bộ prompt, luôn khóa các yếu tố consistency:
+- cùng nhân vật
+- cùng khuôn mặt
+- cùng kiểu tóc
+- cùng trang phục
+- cùng sản phẩm
+- cùng bao bì
+- cùng logo
+- cùng màu sắc sản phẩm
+- cùng bối cảnh
+- cùng ánh sáng
+- cùng mood hình ảnh
+- cùng visual style
+Mỗi prompt từng cảnh cần có:
+- Scene number / Panel number
+- Thời lượng
+- Mô tả hành động
+- Góc quay
+- Chuyển động camera
+- Ánh sáng
+- Mood
+- Vị trí sản phẩm
+- Yêu cầu giữ consistency
+- Voiceover ngắn nếu có
+Ưu tiên phong cách:
+realistic, cinematic, premium commercial, beauty commercial, skincare ad aesthetic, clean lighting, soft daylight, shallow depth of field, smooth camera movement.
+Voiceover phải ngắn, tự nhiên, đủ nói trong thời lượng cảnh. Có cảnh không cần voiceover nếu hình ảnh đã đủ rõ.
+Tránh dùng các từ dễ gây vi phạm chính sách như: chữa trị, trị mụn, hết mụn, cam kết hiệu quả, before-after cực đoan, kiểm soát 100%.
+Kết quả trả về cần gồm:
+1. Prompt tổng cho toàn bộ video
+2. Prompt riêng cho từng scene/panel
+3. Voiceover tiếng Việt cho từng scene nếu cần
+4. Negative prompt / lỗi cần tránh
+Mục tiêu cuối cùng là tạo ra video quảng cáo nhìn liền mạch như một TVC thật, không phải nhiều clip rời rạc ghép lại.
+
+
+
+
+
+
+
+
+
+
+Ảnh Ghép Lưới 3x3 Tỷ Lệ Dọc 9:16 (Bao Gồm 9 Hình Ảnh)
+13/05/2026
+GPT Image
+1 câu lệnh
+Kể câu chuyện thương hiệu đa chiều bằng bố cục lưới 3x3 tối ưu hóa hoàn hảo cho các nền tảng video ngắn.
+
+Tối ưu hóa nội dung đa nền tảng với prompt Ảnh Ghép Lưới 3x3 Tỷ Lệ Dọc 9:16 (Bao Gồm 9 Hình Ảnh). Bố cục 3x3 (9 ô lưới) không chỉ dành cho Poster in ấn. Khi áp dụng vào tỷ lệ dọc 9:16 (Vertical), nó tạo ra một cấu trúc hoàn hảo để kể một câu chuyện (Storytelling) nhiều bước, hoặc hiển thị 9 biến thể của cùng một thiết kế/sản phẩm.
+
+Đây là công cụ "must-have" cho những nhà sáng tạo nội dung (Content Creator) trên TikTok, Instagram Reels hay Pinterest. Việc chia nhỏ thông tin vào 9 ô giúp người xem dễ dàng nắm bắt các điểm nhấn mà không cần chuyển cảnh Video quá nhiều.
+
+Prompt dùng để làm gì?
+Kể câu chuyện thương hiệu đa chiều bằng bố cục lưới 3x3 tối ưu hóa hoàn hảo cho các nền tảng video ngắn.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách UI & Graphic, AI Prompts và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+GPT Image
+Copy Prompt
+9:16 vertical — a 3x3 grid collage (nine images) forming a Korean idol portrait photoshoot series. Each frame features the same young Korean female idol, maintaining 100% consistency in facial features, proportions, hairstyle, and identity across all nine shots.   Natural, ultra-realistic skin texture, no retouching, no smoothing. Clean idol-style minimal makeup, soft glow, subtle imperfections.   Hair: long, voluminous dark hair, slightly tousled, consistent across all frames (natural loose flow, slight movement).  Outfit: cohesive Korean idol photoshoot styling — white shirt + short bottoms (or simple neutral-toned outfit), youthful, clean, slightly casual but styled. Same outfit across all frames.  Setting: minimal studio or simple indoor environment (plain wall, soft window light, clean background). Focus on subject, not environment.  Lighting: soft diffused natural light, gentle highlights, low contrast, slightly airy tones, subtle film-like softness.  Camera style: intimate portrait photography, slightly handheld feel, subtle imperfections (minor grain, slight blur in motion frames, imperfect framing).  Frame breakdown (3x3 grid):  Top row: - Top left: standing naturally, looking slightly away, relaxed expression - Top center: facing camera, casual mid-motion (hair or body slight movement) - Top right: slight side angle, soft gaze, natural candid feel  Middle row: - Center left: looking slightly upward, soft thoughtful expression - Center: close-up portrait, direct eye contact, gentle idol smile - Center right: turning body slightly, mid-motion candid frame  Bottom row: - Bottom left: seated or leaning casually, relaxed posture - Bottom center: back partially turned, looking over shoulder toward camera - Bottom right: standing close to frame, slightly playful or soft expression  Mood: Korean idol photobook / photocard aesthetic, intimate, soft, natural, everyday charm.  Quality: ultra-realistic, 8K detail, subtle analog film grain, natural imperfections, soft dreamy tone
+
+
+
+
+
+
+
+
+
+Infographic Báo Chí Hiện Đại Siêu Sạch Sẽ Với Chủ Đề Tự Chọn
+13/05/2026
+GPT Image
+1 câu lệnh
+Nghệ thuật của sự tối giản: Trình bày dữ liệu phức tạp thành những bản Infographic gọn gàng, tinh tế và cực kỳ dễ hiểu.
+
+Đẳng cấp của sự tinh tế với prompt Infographic Báo Chí Hiện Đại Siêu Sạch Sẽ Với Chủ Đề Tự Chọn. Nếu bạn cần trình bày một quy trình, một phễu Marketing hay bảng so sánh sản phẩm, đừng làm nó rối rắm. Lệnh này sử dụng phong cách "Ultra-clean" (Siêu sạch sẽ) của các tạp chí kinh doanh hàng đầu, với khoảng trắng lớn, Icon Line-art và Font chữ San-serif gọn gàng.
+
+Công cụ đắc lực cho các chuyên gia phân tích dữ liệu (Data Analyst), Marketer cần làm Case Study, hoặc xây dựng E-book/Lead Magnet tặng khách hàng. Một bản PDF Infographic thiết kế sạch sẽ sẽ làm tăng độ Trust (Uy tín) của thương hiệu lên gấp nhiều lần.
+
+Prompt dùng để làm gì?
+Nghệ thuật của sự tối giản: Trình bày dữ liệu phức tạp thành những bản Infographic gọn gàng, tinh tế và cực kỳ dễ hiểu.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách UI & Graphic, AI Prompts và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+[ROUTINE]
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+GPT Image
+Copy Prompt
+Ultra-clean modern editorial infographic. The topic is [ROUTINE] routine. Base all visuals, colors, objects, mood, ingredients, and steps entirely on this topic. Hero visual: a stylized flat-lay or floating arrangement of 3–4 iconic objects associated with this topic — slightly angled or in soft perspective, glowing subtly. All elements arranged dynamically around the hero in a non-restrictive editorial layout. Ingredients Section: Label it ‘What You Need’ — include 6–8 relevant items with small icons or emoji illustrations next to each, with a practical quantity or duration written like a recipe. Steps Section: 5–6 numbered panels with arrows or connecting lines forming a logical flow, each with a short action label and small relevant icon, using glassmorphism or frosted card styling. Stats Badges: 4–5 floating pill-shaped badges showing relevant metadata, displayed as clean minimal bubbles near the hero. Visual Style: Choose background color, accent colors, typography weight, and texture to naturally match the topic’s mood. Bold modern sans-serif typography. Clean vector icons. Subtle grain or texture. Composition: Hero centered or slightly offset, ingredients one side, steps opposite or below with connecting lines, stat badges as floating pills, generous negative space. Lighting: Soft natural studio lighting matching the topic’s tone. Premium editorial aesthetic, social-feed optimized. Ultra-crisp. No watermark
+
+
+
+
+
+Bảng Phân Cảnh Lưới 3x3 Với Chín Khung Hình Cùng Một Chủ Thể
+13/05/2026
+Nanobanana Pro
+1 câu lệnh
+Làm chủ nghệ thuật kể chuyện bằng hình ảnh với bảng phân cảnh 9 ô giữ nguyên tính nhất quán tuyệt đối về nhân vật.
+
+Làm chủ tính nhất quán nhân vật (Character Consistency) với prompt Bảng Phân Cảnh Lưới 3x3 Với Chín Khung Hình Cùng Một Chủ Thể. Đây từng là thử thách khó nhằn nhất của AI, nhưng nay đã được giải quyết. Prompt này hướng dẫn AI sinh ra một bảng lưới 9 ô (3x3 Grid), trong đó diễn tả các hành động, góc máy hoặc biểu cảm khác nhau của cùng một nhân vật (Same subject) mặc cùng một bộ trang phục (Same outfit).
+
+Đây là "chén thánh" (Holy Grail) cho anh em làm truyện tranh AI (Comic/Manga), họa sĩ diễn hoạt (Animators) hoặc các đạo diễn phim cần làm Storyboard nhanh. Bạn có thể cắt 9 khung hình này ra để dựng thành một Sequence kể chuyện hoàn hảo mà không sợ bị "lệch" nhân vật giữa các cảnh.
+
+Prompt dùng để làm gì?
+Làm chủ nghệ thuật kể chuyện bằng hình ảnh với bảng phân cảnh 9 ô giữ nguyên tính nhất quán tuyệt đối về nhân vật.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng Nanobanana Pro.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách UI & Graphic, AI Prompts và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+Nanobanana Pro
+Copy Prompt
+3×3 storyboard grid, nine panels, same subject and outfit, consistent teal studio background, soft diffused lighting, clean editorial lifestyle photography
+young East Asian woman, natural makeup, black hair tied back, wearing white fitted top, blue/cream color-block cardigan with red strap, blue jeans, sneakers, pastel blue over-ear wireless headphones
+panel sequence (left→right, top→bottom): 1 standing adjusting headphones, front view
+2 close-up portrait touching earcup
+3 side profile sitting on tall stool
+4 lying on stomach with cassette tapes + retro player
+5 extreme close-up headphones + face detail
+6 tilted head smiling portrait
+7 low-angle crouch reaching headphones toward camera
+8 forced perspective product shot, headphones close to lens
+9 lying on back relaxed pose
+style: minimal, pastel tones, soft shadows, sharp focus, commercial product photography, consistent framing, balanced grid layout, mix of wide/medium/close shots
+
+
+
+Create A Clean, Bright Skincare Commercial Storyboard In
+05/05/2026
+GPT Image
+1 câu lệnh
+Storyboard 4 khung ảnh (4-panel grid): Cảnh 1 bóp tuýp kem, Cảnh 2 tạo bọt, Cảnh 3 rửa mặt (Water splash), Cảnh 4 da sáng mịn (Glowing).
+
+Đạo diễn nhíp ảnh nằm trong tay bạn (Visual Storyboard)! Trình bày liền mạch 4 bước (Step-by-step) của quá trình sử dụng sản phẩm. Tập trung vào sự tương phản giữa hạt nước bắn tung tóe (Dynamic splash) và làn da trắng bóc rạng rỡ (Clean Beauty Aesthetic).
+
+Giúp Agency làm Profile thuyết trình Kịch bản quay Video (Shooting Board) chốt Deal thành công với các nhãn hàng Skincare mà không cần mướn thợ vẽ tay.
+
+Prompt dùng để làm gì?
+Storyboard 4 khung ảnh (4-panel grid): Cảnh 1 bóp tuýp kem, Cảnh 2 tạo bọt, Cảnh 3 rửa mặt (Water splash), Cảnh 4 da sáng mịn (Glowing).
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách UI & Graphic, AI Prompts và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+GPT Image
+Copy Prompt
+Create a clean, bright skincare commercial storyboard in a 16:9 layout with 9 panels. Use soft natural lighting, minimal aesthetic, and a fresh, airy mood with white and pastel tones. The main character is a young woman with soft makeup and styled hair, wearing light, elegant clothing. The setting is a modern, sunlit interior with large windows and a calm atmosphere. No text or subtitles anywhere.
+Show a clear story flow: she starts at her desk looking slightly tired or concerned, then a close-up of her face showing dry or dull skin. She discovers a clear skincare bottle and gently presents it. Show a close-up of the liquid pouring onto her hand, followed by her applying it to her face. After use, her skin looks hydrated, glowing, and smooth. Transition to her feeling confident and refreshed, walking in a bright, clean space with soft breeze and flowing elements. End with a calm product beauty shot on a minimal surface, then a final frame of her smiling softly at the camera while holding the product.
+Focus on natural expressions, glowing skin, and a transformation from dull to fresh. Include cinematic close-ups, soft focus, light reflections, and subtle sparkles to enhance the clean beauty feel. Keep everything elegant, minimal, and visually soothing with no branding text.
+
+
+
+
+
+
+
+
+
+Thiết Kế Cấu Trúc JSON: Chân Dung Cô Gái Châu Á Trẻ
+13/05/2026
+Nanobanana Pro
+1 câu lệnh
+Làm chủ phương pháp truyền đạt thông tin cho AI thông qua cấu trúc dữ liệu JSON để quản lý nhân vật chính xác.
+
+Tối ưu hóa quản lý nhân vật với prompt Thiết Kế Cấu Trúc JSON: Chân Dung Cô Gái Châu Á Trẻ. Khi bạn muốn tạo nhiều bức ảnh về cùng một nhân vật, việc viết Prompt kiểu văn xuôi dễ làm AI "quên" chi tiết. Việc sử dụng định dạng JSON (VD: "Subject": { "description": "...", "age": 22, "ethnicity": "Asian" }) giúp AI đọc hiểu dữ liệu một cách logic và phân tầng chính xác.
+
+Đây là bí kíp cho anh em vẽ truyện tranh (Comic), làm tiểu thuyết hình ảnh (Visual Novel) hoặc tạo Influencer ảo (Virtual Idol). Bạn chỉ cần định nghĩa tệp JSON một lần và tái sử dụng cho các hoàn cảnh, bối cảnh khác nhau mà khuôn mặt nhân vật vẫn giữ được độ nhất quán (Consistency) cao nhất.
+
+Prompt dùng để làm gì?
+Làm chủ phương pháp truyền đạt thông tin cho AI thông qua cấu trúc dữ liệu JSON để quản lý nhân vật chính xác.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng Nanobanana Pro.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách AI Prompts, UI & Graphic và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+Nanobanana Pro
+Copy Prompt
+{   "subject": {     "description": "Young Asian woman playfully posing in a bathtub",     "mirror_rules": "",     "age": "early 20s",     "expression": {       "eyes": {         "look": "playful",         "energy": "bright",         "direction": "off-camera right"       },       "mouth": {         "position": "gentle smile",         "energy": "cute"       },       "overall": "cheerful and relaxed"     },     "face": {       "preserve_original": "true",       "makeup": "soft pink blush, glossy lips, Japanese idol style"     }   },   "hair": {     "color": "dark brown",     "style": "messy high top knot, wispy bangs",     "effect": "wet roots, patches of white bath foam stuck to hair"   },   "body": {     "frame": "petite",     "waist": "hidden",     "chest": "heavy cleavage resting on the tub edge",     "legs": "hidden",     "skin": {       "visible_areas": "shoulders, arms, upper chest, face",       "tone": "fair, pale",       "texture": "smooth, wet, soapy",       "lighting_effect": "soft diffused highlights bouncing off the white tub onto the chest"     }   },   "pose": {     "position": "leaning forward",     "base": "forearms and chest supported by the bathtub rim",     "overall": "hands gently framing the face, fingers touching cheeks casually"   },   "clothing": {     "top": {       "type": "none, bare skin covered in bath foam",       "color": "white",       "details": "sudsy foam patches",       "effect": "clinging to wet skin"     },     "bottom": {       "type": "hidden",       "color": "",       "details": ""     }   },   "photography": {     "camera_style": "smartphone casual portrait",     "angle": "high angle, slightly tilted down",     "shot_type": "medium close-up",     "aspect_ratio": "4:3",     "texture": "slight digital noise, snapshot feel",     "lighting": "bright, soft diffused ambient bathroom light",     "depth_of_field": "shallow, background gently blurred"   },   "background": {     "setting": "modern bathroom with a small indoor garden",     "wall_color": "grey stone tiles",     "elements": [       "white bathtub rim",       "green potted plants",       "hanging vines",       "frosted glass pane"     ],     "atmosphere": "fresh, humid",     "lighting": "bright ambient daylight filtering in"   },   "the_vibe": {     "energy": "bubbly, flirtatious",     "mood": "playful",     "aesthetic": "Japanese gravure, soft girl",     "authenticity": "casual everyday snap, unposed feel",     "intimacy": "high, girlfriend perspective",     "story": "was playing with bubbles during a bath",     "caption_energy": "bath time fun"   },   "constraints": {     "must_keep": [       "foam on nose",       "foam in hair",       "chest heavily resting on tub rim",       "hands touching face"     ],     "avoid": [       "overly polished studio look",       "stiff posing",       "full nudity without foam covering",       "harsh shadows"     ]   },   "negative_prompt": [     "nsfw",     "fully nude",     "harsh shadows",     "stiff pose",     "studio lighting",     "heavy makeup",     "perfect symmetry",     "dry skin"   ] }
+
+
+
+
+
+Prompt Chụp Ảnh Sản Phẩm Skincare Thương Mại Siêu Chân Thực
+30/04/2026
+Nanobanana Pro
+1 câu lệnh
+Sáng tạo hình ảnh quảng cáo mỹ phẩm skincare với chất lượng studio cao cấp. Cực nét, ánh sáng hoàn hảo và mang đậm phong cách editorial.
+
+Bạn muốn hình ảnh mỹ phẩm của mình trông như được chụp trong studio hàng trăm triệu? Prompt Chụp Ảnh Sản Phẩm Skincare Thương Mại Siêu Chân Thực chính là thứ bạn cần. Câu lệnh này giúp tái tạo ánh sáng chuẩn studio, kết cấu chai lọ chân thực đến từng chi tiết, và bố cục thiên nhiên sang trọng, mang lại cảm giác thuần khiết, cao cấp cho sản phẩm.
+
+Rất phù hợp cho các chủ shop mỹ phẩm, những người làm Affiliate Marketing, hoặc các Designer muốn thiết kế banner, poster quảng cáo mang đậm tính editorial. Nâng tầm hình ảnh thương hiệu của bạn chỉ với một thao tác đơn giản.
+
+Prompt dùng để làm gì?
+Sáng tạo hình ảnh quảng cáo mỹ phẩm skincare với chất lượng studio cao cấp. Cực nét, ánh sáng hoàn hảo và mang đậm phong cách editorial.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng Nanobanana Pro.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách AI Prompts, Photography và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Prompt
+Nanobanana Pro
+Copy Prompt
+Ultra-high-end photorealistic commercial skincare product photography featuring a matte white plastic pump bottle centered and upright, labeled “hella beauty” in clean black minimalist typography with smaller text reading “water bank moisture lotion” and subtle product details beneath, the bottle placed on a layered natural stone surface surrounded by carefully arranged organic props including smooth gray river stones, pale beige textured rock formations, soft green moss clusters,delicate white pom-pom flowers, cream-colored
+daisy-like blossoms, light green fern leaves, and a
+muted sage rose, all arranged in a balanced
+symmetrical composition, background a soft warm
+beige studio backdrop with gentle gradient and no
+visible edges, foreground partially framed by softly
+blurred out-of-focus white flowers creating depth,
+lighting soft diffused daylight-style studio lighting
+from upper left producing gentle shadows, natural
+highlights on the bottle and petals, and a calm airymood, color palette dominated by warm neutrals, soft
+whites, sage greens, and muted earth tones, textures
+highly detailed including matte plastic, porous stone,
+velvety petals, and moist moss, shallow depth of field
+with sharp focus on the product label and midground
+elements and smooth bokeh in foreground and
+background, premium botanical skincare advertising aesthetic,
+clean minimal luxury composition, cinematic realism,
+ultra-detailed 8K, studio-grade hyperrealism, no extra
+text, no borders, no stylization beyond natural
+photorealism.
+
+
+Prompt Nhiếp Ảnh Mỹ Phẩm Với Hiệu Ứng Nước Rơi Sống Động
+30/04/2026
+Nanobanana Pro
+1 câu lệnh
+Thiết kế ảnh quảng cáo mỹ phẩm kết hợp hiệu ứng nước rơi và sương đọng chân thực. Tôn lên vẻ đẹp tươi mát và cao cấp của sản phẩm.
+
+
+
+Với Prompt Nhiếp Ảnh Mỹ Phẩm Với Hiệu Ứng Nước Rơi Sống Động, bạn sẽ dễ dàng tạo ra các bộ ảnh quảng cáo mỹ phẩm mang cảm giác tươi mới, mọng nước. Hiệu ứng những giọt nước đọng sương lấp lánh trên bề mặt, kết hợp với các loại hoa lá tự nhiên sẽ làm nổi bật vẻ đẹp thuần khiết và công dụng cấp ẩm của sản phẩm.
+
+Đây là lựa chọn lý tưởng để tạo các banner quảng cáo mỹ phẩm Hàn Quốc, ảnh đăng mạng xã hội, hoặc làm tư liệu thiết kế cho các thương hiệu làm đẹp. Khơi gợi cảm giác tươi mát và sang trọng ngay lập tức cho người xem.
+
+Prompt dùng để làm gì?
+Thiết kế ảnh quảng cáo mỹ phẩm kết hợp hiệu ứng nước rơi và sương đọng chân thực. Tôn lên vẻ đẹp tươi mát và cao cấp của sản phẩm.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng Nanobanana Pro.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách AI Prompts, Photography và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+[LANEIGE Lip Sleeping Mask]
+Prompt preview & copy (1)
+Prompt
+Nanobanana Pro
+Copy Prompt
+A hyper-realistic beauty product photograph of a pink [LANEIGE Lip Sleeping Mask] jar placed at the center of a vibrant pastel-pink surface covered in fresh water droplets, the jar upright with a frosted pink lid and glossy translucent body, surrounded organically by delicate flowers including purple blossoms, pale lilies, yellow sprigs, and green leaves arranged diagonally around the product, soft diffused studio lighting from above creating gentle highlights and natural shadows, moisture beads sparkling across the background for a fresh dewy feel, clean skincare editorial aesthetic, feminine and luxurious mood, balanced flat-lay composition, shallow depth of field, ultra-detailed textures, photorealistic, high-end cosmetic advertising style, 8K quality
+
+
+Nhiếp Ảnh Quán Cà Phê Hàn-Nhật Ấm Cúng Siêu Chân Thực
+13/05/2026
+GPT Image
+1 câu lệnh
+Bắt trọn không gian chill và ấm áp của những tiệm cà phê mang phong cách thiết kế Hàn Quốc, Nhật Bản.
+
+Kiến tạo không gian "sống ảo" vạn người mê với prompt Nhiếp Ảnh Quán Cà Phê Hàn-Nhật Ấm Cúng Siêu Chân Thực. Sự kết hợp giữa phong cách tối giản (Minimalism), chất liệu gỗ mộc mạc của Nhật Bản và ánh sáng ấm áp, lãng mạn của Hàn Quốc (Cozy) tạo ra những góc quán cà phê (Café) đẹp đến nao lòng. AI sẽ xử lý ánh sáng tự nhiên hắt qua cửa sổ cực kỳ nghệ thuật (Ultra-realistic).
+
+Anh em làm MMO ngách thiết kế nội thất (Interior Design), kiến trúc sư tìm ý tưởng cho chủ đầu tư quán cà phê, hoặc xây kênh TikTok chuyên Review địa điểm ăn uống (Food Tour) chắc chắn sẽ cần bộ sưu tập hình ảnh này để thu hút người xem.
+
+Prompt dùng để làm gì?
+Bắt trọn không gian chill và ấm áp của những tiệm cà phê mang phong cách thiết kế Hàn Quốc, Nhật Bản.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách AI Prompts, Poster Design và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+[Japanese/Korean]
+[fashion style/outfit colors]
+[desserts/foods]
+[flowers/ribbons/books/candles/pearls/notebooks]
+[lighting style]
+[doodle color]
+[color theme]
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+GPT Image
+Copy Prompt
+Ultra-realistic cozy Japanese-Korean café photography featuring a cute young [Japanese/Korean] couple sitting together naturally in a trendy aesthetic café. The young couple should look stylish and youthful, wearing [fashion style/outfit colors], smiling softly and enjoying desserts together.
+The table is beautifully filled with [desserts/foods] such as pancakes, strawberry cakes, macarons, croissants, pastries, iced coffees, matcha lattes, fruit desserts, and aesthetic drinks arranged in a visually satisfying composition. Add small aesthetic café props like [flowers/ribbons/books/candles/pearls/notebooks] on the table for a premium Pinterest moodboard feel.
+Soft [lighting style] lighting enters through the café windows creating dreamy highlights, creamy shadows, glossy reflections on drinks, and realistic dessert textures. Background should contain softly blurred [Japanese/Korean] signs, glowing café boards, handwritten Japanese text, neon typography, and aesthetic city café elements for an authentic Tokyo/Seoul vibe.
+Add cute scrapbook-style doodles and handwritten notes around the image in [doodle color] ink — tiny hearts, stars, sparkles, ribbons, arrows, smiley sketches, bows, diary stickers, and handwritten café notes.
+Color palette should focus on [color theme] tones. Style inspired by viral Pinterest café photography, Korean lifestyle aesthetics, Japanese cozy café culture, dreamy Gen-Z romance mood, shallow depth of field, cinematic composition, ultra realistic food textures, soft blurry background, ultra detailed realistic photography, clean aesthetic layout, 8k.
+
+
+
+
+
+
+Realistic Photography, Portrait Of A Beautiful Korean Ido
+05/05/2026
+GPT Image
+1 câu lệnh
+Bức ảnh chân dung không tì vết (Flawless portrait): Ca sĩ nữ mắt to trong veo, môi mọng (Glossy lips) đang mỉm cười nhẹ dưới ánh nắng sớm.
+
+Thuật toán nhân bản nhan sắc "Vạn người mê" (Idol Realism)! AI hấp thụ đường nét của các ngôi sao K-Pop để hòa trộn (Blend) tạo ra một người mẫu ảo (AI Influencer). Khả năng tái tạo ánh sáng ven (Rim light) vờn qua những sợi tóc tơ bay bay mang lại độ chân thực lên tới 99%.
+
+Công cụ xây dựng Kol (KOL ảo) để anh em kinh doanh (Affiliate Marketing) mảng Quần áo, Phụ kiện, Mỹ phẩm không bao giờ tốn tiền thuê Booking mẫu thật nữa.
+
+Prompt dùng để làm gì?
+Bức ảnh chân dung không tì vết (Flawless portrait): Ca sĩ nữ mắt to trong veo, môi mọng (Glossy lips) đang mỉm cười nhẹ dưới ánh nắng sớm.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách Poster Design, AI Prompts và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+GPT Image
+Copy Prompt
+Realistic photography, portrait of a beautiful korean idol with long sleek straight black hair, a slim tall hourglass figure and elegant S-curve body line. She slightly lowers her head and looks at her phone, left arm bent and raised holding the phone, right arm hanging naturally at her side, torso upright yet relaxed, natural poised posture.
+
+She is wearing a white strapless bodycon mini dress and a black chain crossbody bag. The background is a stone wall with dappled tree shadows cast across it, creating a poetic and textured atmosphere. Fresh campus-inspired fashion editorial mood, youthful and lively yet refined.
+
+Expression: cool, aloof, slightly melancholic, with affectionate and soulful eyes; a lazy, distant gaze toward the camera, subtle emotional tension, cinematic sense of presence.
+
+Style and mood: dark-toned emotional portrait, immersive atmosphere, hazy aesthetic, retro undertone, slight surrealism, sophisticated and premium visual language, masterpiece composition, cinematic quality, award-winning photography feel, editorial mood portrait.
+
+Lighting: soft side lighting with gentle facial fill light, clear facial details, rim light on the hair, strong backlight accents and shadow tracing, dimensional facial features, smooth porcelain skin, soft glow, delicate skin texture, refined retouching, ultra-detailed realism.
+
+Composition: medium close-up to medium shot, shallow depth of field, foreground blur, background blur, rich image layering, strong visual depth, dramatic yet elegant framing, crisp face focus with soft atmospheric surroundings.
+
+Visual qualities: photorealistic, high-end beauty retouching, soft diffusion, subtle bloom, polished skin, clean tonal control, rich texture, high-resolution editorial photography, emotionally charged, cinematic, refined, atmospheric, striking and memorable. --2:3
+
+
+Giữ Nguyên Thiết Kế Sản Phẩm Từ Ảnh Gốc (Reference Image)
+13/05/2026
+GPT Image
+1 câu lệnh
+Sử dụng ảnh sản phẩm gốc để thay đổi bối cảnh linh hoạt mà không làm sai lệch thiết kế của sản phẩm.
+
+Mở khóa sức mạnh của nhiếp ảnh thương mại AI với prompt Giữ Nguyên Thiết Kế Sản Phẩm Từ Ảnh Gốc (Reference Image). Bằng cách tải lên hình ảnh sản phẩm gốc, prompt này chứa các chỉ thị (Instruction) khắt khe buộc AI phải giữ nguyên 100% hình dáng, logo, màu sắc của sản phẩm, và chỉ được phép thay đổi ánh sáng, bối cảnh (Background) xung quanh.
+
+Đây là bí kíp sống còn của anh em bán hàng online (E-commerce). Thay vì bỏ tiền thuê Studio chụp ảnh sản phẩm với nhiều bối cảnh khác nhau, bạn chỉ cần 1 tấm ảnh chụp bằng điện thoại và dùng AI để tạo ra hàng trăm tấm ảnh quảng cáo (Product Photography) chuyên nghiệp cho các dịp Lễ, Tết, Giáng Sinh.
+
+Prompt dùng để làm gì?
+Sử dụng ảnh sản phẩm gốc để thay đổi bối cảnh linh hoạt mà không làm sai lệch thiết kế của sản phẩm.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách AI Prompts, Poster Design và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+[PRODUCT CATEGORY]
+[CAMPAIGN TAGLINE]
+[PRIMARY BRAND COLOR]
+[BACKGROUND HERO WORD]
+[ACCENT COLOR]
+[MATERIAL FINISH — e.g., "metallic / matte / glossy"]
+[BRAND LOGO NAME/MARK]
+[BRAND SUB-TAGLINE — e.g., 'Built for Apple Intelligence.']
+Prompt preview & copy (1)
+Câu lệnh tạo ảnh
+GPT Image
+Copy Prompt
+REFERENCE IMAGE INSTRUCTION: Use the uploaded product photo as the exact source of truth for the product's appearance, color, finish, branding, and form factor. Do not invent or alter any product detail. Reproduce it with photorealistic precision.
+---
+Create a photorealistic premium [PRODUCT CATEGORY] campaign poster in a 4:5 vertical aspect ratio. Design it as a clean global OOH, digital, and social campaign layout with strict grid alignment, premium white space, and precise typography. The campaign idea is "[CAMPAIGN TAGLINE]," but do not render that phrase as visible text.
+
+Use a strict 12-column poster grid with 6% outer margins. Keep all text aligned to this grid. The image has four layers: background shape, giant background typography, subject/product photography, and clean graphic text overlays.
+
+BACKGROUND: Pure matte white canvas. Place one large rounded-rectangle block behind the subject, occupying roughly 70% of the poster height and 76% of the width, centered slightly above the middle. The block uses a controlled [PRIMARY BRAND COLOR] gradient, glowing gently from top-left to bottom-right. Behind the subject and product, place giant cropped typography reading "[BACKGROUND HERO WORD]" in ultra-bold geometric sans-serif letters. The word is a background layer only: huge, partially cropped by the frame edges, wide letter spacing, darker [PRIMARY BRAND COLOR] than the rectangle, subtle embossed depth, soft shadow, and low enough contrast that it does not fight the product.
+
+SUBJECT AND PRODUCT: [DESCRIBE MODEL OR SUBJECT — e.g., "a female model with a clean editorial look, neutral confident expression, natural slightly wind-touched hair, muted off-white outfit, and [ACCENT COLOR] jacket"]. Shoot from a slightly low hero angle. Body angled for depth, face turned toward the viewer with direct eye contact. One hand extends toward the camera holding the product from the uploaded reference image. The product is the dominant foreground object, slightly tilted to reveal [KEY PRODUCT DETAIL — e.g., "the triple camera system, brushed titanium edges, and centered brand logo"]. Keep the product sharp with realistic surface reflections, material texture, faint micro-details, and soft bloom around premium features. Keep the model's face readable behind it.
+
+LIGHTING: Soft studio key light from front-left, warm rim light from the right, and subtle [PRIMARY BRAND COLOR] bounce from the background block. Skin remains natural and non-airbrushed with realistic catchlights. Product edges have clean [MATERIAL FINISH — e.g., "metallic / matte / glossy"] highlights. Shadows are soft and controlled.
+
+TYPOGRAPHY OVERLAY: All text must be flat, crisp, perfectly aligned graphic typography — not painted onto the scene. Render exactly these text elements once, with no extra text:
+
+Top left, small black logo: [BRAND LOGO NAME/MARK]
+
+Top right, thin sans-serif: "[BRAND SUB-TAGLINE — e.g., 'Built for Apple Intelligence.']"
+
+Mid left, glassmorphism pill: "[PRODUCT NAME — e.g., 'iPhone 17 Pro']"
+
+Large background type: "[BACKGROUND HERO WORD]"
+
+Bottom right body copy, small clean sans-serif:
+"[PRODUCT NAME]. [POWER STATEMENT — one sentence.]
+[FEATURE 1]. [FEATURE 2].
+[CLOSING LINE — e.g., 'Designed for what's next.']"
+
+BOTTOM FEATURE STRIP: Place four equal-width glass-white rounded cards along the bottom, aligned to the grid, same height, same spacing, same baseline alignment. Each card has one minimal line icon above the heading. Render exactly:
+Card 1: "[FEATURE HEADING 1]" / "[FEATURE SUBLINE 1]"
+Card 2: "[FEATURE HEADING 2]" / "[FEATURE SUBLINE 2]"
+Card 3: "[FEATURE HEADING 3]" / "[FEATURE SUBLINE 3]"
+Card 4: "[FEATURE HEADING 4]" / "[FEATURE SUBLINE 4]"
+
+GRAPHIC DETAILS: Two or three small sparkle icons only, subtle grain, soft glassmorphism, controlled [PRIMARY BRAND COLOR]-white-[ACCENT COLOR] palette, no neon, no oversaturation.
+
+
+Chân Dung Điện Ảnh 8K: Nét Đẹp Bí Ẩn Với Hiệu Ứng Ánh Sáng
+30/04/2026
+GPT Image
+1 câu lệnh
+Lệnh tạo ảnh chân dung nghệ thuật với hiệu ứng ánh sáng tương phản (chiaroscuro), tôn lên vẻ đẹp bí ẩn và chiều sâu.
+
+Sử dụng câu lệnh này để làm chủ nghệ thuật đánh sáng tương phản cực gắt trong nhiếp ảnh. Bức ảnh sẽ được tập trung làm nổi bật từng đường nét tinh tế của khuôn mặt chủ thể dưới luồng ánh sáng hắt chéo, tạo nên một bầu không khí bí ẩn đầy cuốn hút.
+
+Đây là lựa chọn lý tưởng nếu bạn cần hình ảnh chân dung điện ảnh có chiều sâu cảm xúc, phục vụ cho các dự án nghệ thuật, bìa tạp chí, hay thiết kế thời trang cao cấp.
+
+Prompt dùng để làm gì?
+Lệnh tạo ảnh chân dung nghệ thuật với hiệu ứng ánh sáng tương phản (chiaroscuro), tôn lên vẻ đẹp bí ẩn và chiều sâu.
+Tạo brief hình ảnh rõ chủ thể, ánh sáng, bố cục và mood để đưa vào các model tạo ảnh.
+Tối ưu cho workflow dùng GPT Image.
+Phù hợp cho ai?
+Người làm content AI cần prompt có cấu trúc sẵn, không muốn viết lại từ đầu.
+Team đang làm ngách AI Prompts, Photography và cần ra output nhất quán.
+Người mới muốn copy prompt miễn phí để kiểm tra model và workflow.
+Cách dùng nhanh
+1.
+Chọn đúng tool/model được ghi trong prompt.
+2.
+Thay các biến trong [ngoặc vuông] bằng dữ liệu sản phẩm, chân dung khách hàng hoặc style của bạn.
+3.
+Chạy thử một bản low-cost, chọn output tốt rồi tinh chỉnh ánh sáng, góc máy và màu sắc.
+Biến cần thay trước khi chạy
+Các phần trong ngoặc là dữ liệu anh em nên thay bằng ngữ cảnh thật để output bớt chung chung.
+
+Prompt này không phát hiện biến dạng [placeholder]. Vẫn nên thay tên sản phẩm, persona và mục tiêu theo case thật của bạn.
+
+Prompt preview & copy (1)
+Prompt
+GPT Image
+Copy Prompt
+Hyper-realistic cinematic Create an 8k close-up portrait of a beautiful woman with medium, brown, slightly wind-swept hair falling across her face. Her striking, light-colored eyes gaze upwards and to the right, catching a sharp, diagonal beam of natural light that illuminates the high points of her cheekbone, nose, and plump, fair skin, glossy, mauve-toned lips a slightly light weight silk shirt. The rest of her face and the background are cast in deep,dramatic shadow (chiaroscuro) emphasizing the play of light and shadow Subtle textures of her dark clothing are visible on her left shoulder. The image should capture a mysterious and introspective mood, with incredible detail in her skin, hair strands, and the subtle reflections in her eyes and lips.
+Outfit should white.

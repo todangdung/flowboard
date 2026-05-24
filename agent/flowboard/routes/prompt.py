@@ -14,7 +14,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flowboard.services import prompt_synth
-from flowboard.services.video_recipes import list_video_recipes
+from flowboard.services.video_recipes import (
+    build_video_recipe_plan,
+    list_video_recipes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +44,27 @@ class VideoRecipeCatalogResponse(BaseModel):
     recipes: list[dict]
 
 
+class VideoRecipePlanResponse(BaseModel):
+    node_id: int
+    plan: dict
+
+
 @router.get("/video-recipes", response_model=VideoRecipeCatalogResponse)
 def video_recipes() -> VideoRecipeCatalogResponse:
     return VideoRecipeCatalogResponse(recipes=list_video_recipes())
+
+
+@router.get("/video-recipe-plan", response_model=VideoRecipePlanResponse)
+def video_recipe_plan(
+    node_id: int,
+    recipe_id: Optional[str] = None,
+    camera: Optional[str] = None,
+) -> VideoRecipePlanResponse:
+    try:
+        plan = build_video_recipe_plan(node_id, recipe_id, camera=camera)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return VideoRecipePlanResponse(node_id=node_id, plan=plan)
 
 
 @router.post("/auto", response_model=AutoPromptResponse)

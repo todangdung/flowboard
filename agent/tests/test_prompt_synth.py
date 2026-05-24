@@ -12,7 +12,6 @@ import pytest
 from flowboard.db import get_session
 from flowboard.db.models import Edge, Node, Board
 from flowboard.services import prompt_synth
-from flowboard.services.llm.base import LLMError
 
 
 def _seed_board_with_chain(monkeypatch=None) -> dict:
@@ -170,6 +169,214 @@ async def test_auto_prompt_calls_provider_with_upstream_briefs(client, monkeypat
     ]
     matches = sum(1 for opt in pool_options if opt in sp)
     assert matches >= 4, f"only matched {matches} pose options in pool"
+
+
+@pytest.mark.asyncio
+async def test_auto_prompt_passes_cached_refs_as_vision_attachments(
+    client, monkeypatch, tmp_path
+):
+    ids = _seed_board_with_chain()
+    char_mid = "uuuuuuuu-1111-2222-3333-444444444444"
+    asset_mid = "uuuuuuuu-2222-2222-3333-444444444444"
+    char_path = tmp_path / "char.png"
+    asset_path = tmp_path / "asset.png"
+    char_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+    asset_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+    paths = {char_mid: char_path, asset_mid: asset_path}
+
+    monkeypatch.setattr(
+        prompt_synth.media_service,
+        "cached_path",
+        lambda mid: paths.get(mid),
+    )
+
+    async def fail_fetch(mid):
+        raise AssertionError(f"unexpected fetch for cached media {mid}")
+
+    monkeypatch.setattr(prompt_synth.media_service, "fetch_and_cache", fail_fetch)
+
+    captured: dict = {}
+
+    async def stub_run(feature, prompt, *, system_prompt=None, attachments=None, timeout=0):
+        captured["prompt"] = prompt
+        captured["attachments"] = attachments
+        return "Photoreal editorial fit check using both visual refs"
+
+    monkeypatch.setattr(prompt_synth, "run_llm", stub_run)
+
+    await prompt_synth.auto_prompt(ids["target_id"])
+
+    assert captured["attachments"] == [
+        str(char_path.resolve()),
+        str(asset_path.resolve()),
+    ]
+    user = captured["prompt"] or ""
+    assert "VISION ATTACHMENTS" in user
+    assert "ref_image_1: attached image 1" in user
+    assert "ref_image_2: attached image 2" in user
+    assert "trust the attached image" in user
+
+
+@pytest.mark.asyncio
+async def test_auto_prompt_fetches_uncached_video_ref_for_vision_attachment(
+    client, monkeypatch, tmp_path
+):
+    media_id = "11111111-2222-3333-4444-555555555555"
+    fetched_path = tmp_path / "source.jpg"
+    fetched_path.write_bytes(b"\xff\xd8\xff\xe0fake")
+
+    with get_session() as s:
+        b = Board(name="video-vision-fetch")
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        src = Node(
+            board_id=b.id, short_id="vvfs", type="image",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Source frame",
+                "aiBrief": "woman wearing a black blazer in a mirror",
+                "mediaId": media_id,
+            },
+            status="done",
+        )
+        vid = Node(
+            board_id=b.id, short_id="vvfv", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Fit check clip"},
+            status="idle",
+        )
+        s.add_all([src, vid])
+        s.commit()
+        s.refresh(src)
+        s.refresh(vid)
+        s.add(Edge(board_id=b.id, source_id=src.id, target_id=vid.id))
+        s.commit()
+        vid_id = vid.id
+
+    monkeypatch.setattr(prompt_synth.media_service, "cached_path", lambda mid: None)
+    fetch_calls: list[str] = []
+
+    async def fake_fetch(mid):
+        fetch_calls.append(mid)
+        return (fetched_path.read_bytes(), "image/jpeg", fetched_path)
+
+    monkeypatch.setattr(prompt_synth.media_service, "fetch_and_cache", fake_fetch)
+
+    captured: dict = {}
+
+    async def stub_run(feature, prompt, *, system_prompt=None, attachments=None, timeout=0):
+        captured["prompt"] = prompt
+        captured["attachments"] = attachments
+        return "She shifts weight slightly while the blazer fit stays readable."
+
+    monkeypatch.setattr(prompt_synth, "run_llm", stub_run)
+    await prompt_synth.auto_prompt(vid_id, recipe_id="fashion_fit_check")
+
+    assert fetch_calls == [media_id]
+    assert captured["attachments"] == [str(fetched_path.resolve())]
+    user = captured["prompt"] or ""
+    assert "VISION ATTACHMENTS" in user
+    assert "ref_image_1: attached image 1" in user
+    assert "VIDEO RECIPE PLAN" in user
+
+
+@pytest.mark.asyncio
+async def test_auto_prompt_retries_when_vision_output_uses_role_placeholders(
+    client, monkeypatch, tmp_path
+):
+    char_mid = "22222222-2222-3333-4444-555555555555"
+    outfit_mid = "33333333-2222-3333-4444-555555555555"
+    char_path = tmp_path / "character.jpg"
+    outfit_path = tmp_path / "outfit.jpg"
+    char_path.write_bytes(b"\xff\xd8\xff\xe0fake")
+    outfit_path.write_bytes(b"\xff\xd8\xff\xe0fake")
+
+    with get_session() as s:
+        b = Board(name="role-placeholder-retry")
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        ch = Node(
+            board_id=b.id, short_id="rprc", type="character",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Fit check character", "mediaId": char_mid},
+            status="done",
+        )
+        outfit = Node(
+            board_id=b.id, short_id="rpro", type="visual_asset",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Outfit / garment ref", "mediaId": outfit_mid},
+            status="done",
+        )
+        tgt = Node(
+            board_id=b.id, short_id="rprt", type="image",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Fit check first frame"},
+            status="idle",
+        )
+        s.add_all([ch, outfit, tgt])
+        s.commit()
+        for n in (ch, outfit, tgt):
+            s.refresh(n)
+        s.add(
+            Edge(
+                board_id=b.id,
+                source_id=ch.id,
+                target_id=tgt.id,
+                ref_role="character_ref",
+            )
+        )
+        s.add(
+            Edge(
+                board_id=b.id,
+                source_id=outfit.id,
+                target_id=tgt.id,
+                ref_role="product_ref",
+            )
+        )
+        s.commit()
+        tgt_id = tgt.id
+
+    paths = {char_mid: char_path, outfit_mid: outfit_path}
+    monkeypatch.setattr(
+        prompt_synth.media_service,
+        "cached_path",
+        lambda mid: paths.get(mid),
+    )
+
+    calls: list[dict] = []
+
+    async def stub_run(feature, prompt, *, system_prompt=None, attachments=None, timeout=0):
+        calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "attachments": attachments,
+            }
+        )
+        if len(calls) == 1:
+            return "Photoreal editorial photo of character_ref wearing outfit_ref."
+        return (
+            "Photoreal editorial fashion photo of the woman from the first "
+            "reference wearing the black tailored outfit from the second "
+            "reference, full outfit visible, direct eye contact."
+        )
+
+    monkeypatch.setattr(prompt_synth, "run_llm", stub_run)
+    out = await prompt_synth.auto_prompt(tgt_id)
+
+    assert "character_ref" not in out
+    assert "outfit_ref" not in out
+    assert "black tailored outfit" in out
+    assert len(calls) == 2
+    assert calls[0]["attachments"] == [str(char_path.resolve()), str(outfit_path.resolve())]
+    assert calls[1]["attachments"] == calls[0]["attachments"]
+    assert "REWRITE REQUIRED" in calls[1]["prompt"]
+    assert "[role=Character]" in calls[0]["prompt"]
+    assert "[role=Product]" in calls[0]["prompt"]
+    assert "[role=character_ref]" not in calls[0]["prompt"]
+    assert "[role=product_ref]" not in calls[0]["prompt"]
 
 
 def _seed_couple_via_image_siblings() -> dict:
@@ -667,6 +874,9 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
     sp = captured["system_prompt"] or ""
     assert "first_frame" in user
     assert "product_ref" in user
+    assert "VIDEO RECIPE PLAN" in user
+    assert "Role-bound references" in user
+    assert "Recommended generation path: image_to_video" in user
     assert "clear glass vitamin C serum" in user
     assert "PRODUCT DEMO RECIPE" in sp
     assert "product fidelity" in sp.lower()
@@ -1109,6 +1319,184 @@ def test_route_lists_video_recipe_catalog(client):
     assert "product_ref" in by_id["product_demo"]["required_roles"]
     assert "first_frame" in by_id["product_demo"]["required_roles"]
     assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
+
+
+def test_route_product_demo_recipe_plan_ready(client):
+    with get_session() as s:
+        b = Board(name="product-demo-plan")
+        s.add(b); s.commit(); s.refresh(b)
+        product = Node(
+            board_id=b.id, short_id="prod", type="visual_asset",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Serum bottle",
+                "aiBrief": "clear serum bottle with exact label",
+                "mediaId": "uuuuuuuu-plan-prod-3333-444444444444",
+            },
+            status="done",
+        )
+        frame = Node(
+            board_id=b.id, short_id="fram", type="image",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Demo first frame",
+                "aiBrief": "hand holding the serum bottle near sink",
+                "mediaId": "uuuuuuuu-plan-fram-3333-444444444444",
+            },
+            status="done",
+        )
+        vid = Node(
+            board_id=b.id, short_id="vipl", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Product demo video"},
+            status="idle",
+        )
+        s.add_all([product, frame, vid]); s.commit()
+        for n in (product, frame, vid):
+            s.refresh(n)
+        board_id, product_id, frame_id, vid_id = b.id, product.id, frame.id, vid.id
+
+    client.post(
+        "/api/edges",
+        json={
+            "board_id": board_id,
+            "source_id": product_id,
+            "target_id": vid_id,
+            "ref_role": "product_ref",
+        },
+    )
+    client.post(
+        "/api/edges",
+        json={
+            "board_id": board_id,
+            "source_id": frame_id,
+            "target_id": vid_id,
+            "ref_role": "first_frame",
+        },
+    )
+
+    r = client.get(
+        "/api/prompt/video-recipe-plan",
+        params={"node_id": vid_id, "recipe_id": "product_demo", "camera": "static"},
+    )
+    assert r.status_code == 200, r.text
+    plan = r.json()["plan"]
+    assert plan["recipe_id"] == "product_demo"
+    assert plan["ready"] is True
+    assert plan["missing_roles"] == []
+    assert plan["recommended_generation_path"] == "image_to_video"
+    assert "product_ref" in plan["present_roles"]
+    assert "first_frame" in plan["present_roles"]
+    assert "clear serum bottle" in plan["prompt_sections"]["refs"]
+    assert "Preserve exact product" in plan["prompt_sections"]["preserve"]
+    assert "invented labels" in plan["prompt_sections"]["avoid"]
+
+
+def test_route_fashion_fit_recipe_plan_reports_missing_role(client):
+    with get_session() as s:
+        b = Board(name="fashion-plan-missing")
+        s.add(b); s.commit(); s.refresh(b)
+        char = Node(
+            board_id=b.id, short_id="char", type="character",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Fit model",
+                "aiBrief": "woman in neutral pose",
+                "mediaId": "uuuuuuuu-plan-char-3333-444444444444",
+            },
+            status="done",
+        )
+        vid = Node(
+            board_id=b.id, short_id="vfpl", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Fashion fit check"},
+            status="idle",
+        )
+        s.add_all([char, vid]); s.commit(); s.refresh(char); s.refresh(vid)
+        s.add(
+            Edge(
+                board_id=b.id,
+                source_id=char.id,
+                target_id=vid.id,
+                ref_role="character_ref",
+            )
+        )
+        s.commit()
+        vid_id = vid.id
+
+    r = client.get(
+        "/api/prompt/video-recipe-plan",
+        params={"node_id": vid_id, "recipe_id": "fashion_fit_check"},
+    )
+    assert r.status_code == 200, r.text
+    plan = r.json()["plan"]
+    assert plan["recipe_id"] == "fashion_fit_check"
+    assert plan["ready"] is False
+    assert plan["missing_roles"] == ["first_frame"]
+    assert plan["required_roles"] == ["character_ref", "first_frame"]
+
+
+def test_route_video_recipe_plan_auto_infers_mirror_selfie(client):
+    with get_session() as s:
+        b = Board(name="mirror-plan")
+        s.add(b); s.commit(); s.refresh(b)
+        frame = Node(
+            board_id=b.id, short_id="mifr", type="image",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Mirror selfie first frame",
+                "aiBrief": "creator holding phone in mirror",
+                "mediaId": "uuuuuuuu-plan-mifr-3333-444444444444",
+            },
+            status="done",
+        )
+        char = Node(
+            board_id=b.id, short_id="mich", type="character",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Selfie creator",
+                "aiBrief": "same creator identity",
+                "mediaId": "uuuuuuuu-plan-mich-3333-444444444444",
+            },
+            status="done",
+        )
+        vid = Node(
+            board_id=b.id, short_id="mivi", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Mirror selfie clip"},
+            status="idle",
+        )
+        s.add_all([frame, char, vid]); s.commit()
+        for n in (frame, char, vid):
+            s.refresh(n)
+        s.add(
+            Edge(
+                board_id=b.id,
+                source_id=frame.id,
+                target_id=vid.id,
+                ref_role="first_frame",
+            )
+        )
+        s.add(
+            Edge(
+                board_id=b.id,
+                source_id=char.id,
+                target_id=vid.id,
+                ref_role="character_ref",
+            )
+        )
+        s.commit()
+        vid_id = vid.id
+
+    r = client.get(
+        "/api/prompt/video-recipe-plan",
+        params={"node_id": vid_id, "recipe_id": "auto"},
+    )
+    assert r.status_code == 200, r.text
+    plan = r.json()["plan"]
+    assert plan["recipe_id"] == "mirror_selfie"
+    assert plan["ready"] is True
+    assert "phone/mirror" in plan["prompt_sections"]["preserve"]
 
 
 @pytest.mark.asyncio

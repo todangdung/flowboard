@@ -47,6 +47,20 @@ _MIME_BY_EXT: dict[str, str] = {
 }
 
 
+def _sniff_image_mime(raw: bytes) -> Optional[str]:
+    if len(raw) < 12:
+        return None
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return None
+
+
 class MediaSyncError(RuntimeError):
     """Raised when a reference can't be made available under the target
     project — bytes missing locally and the cached URL is dead, or the
@@ -183,7 +197,7 @@ async def _load_bytes(media_id: str) -> tuple[Optional[bytes], str]:
     if cached is not None and cached.exists():
         try:
             data = cached.read_bytes()
-            mime = _mime_from_ext(cached.suffix)
+            mime = _sniff_image_mime(data) or _mime_from_ext(cached.suffix)
             return data, mime
         except OSError:
             logger.exception("media_sync: failed to read local cache %s", cached)
@@ -194,7 +208,7 @@ async def _load_bytes(media_id: str) -> tuple[Optional[bytes], str]:
     if fetched is None:
         return None, "image/png"
     data, mime, _path = fetched
-    return data, mime
+    return data, _sniff_image_mime(data) or mime
 
 
 def _mime_from_ext(ext: str) -> str:

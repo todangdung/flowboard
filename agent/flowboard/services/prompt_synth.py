@@ -13,16 +13,21 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
+import re
 from typing import Optional
 
 from sqlmodel import select
 
 from flowboard.db import get_session
 from flowboard.db.models import Edge, Node
+from flowboard.services import media as media_service
 from flowboard.services.activity import record_activity
 from flowboard.services.llm import run_llm
 from flowboard.services.llm.base import LLMError
 from flowboard.services.video_recipes import (
+    build_video_recipe_plan_from_records,
+    format_video_recipe_plan_for_prompt,
     infer_video_recipe_id,
     normalize_video_recipe_id,
     video_recipe_clause,
@@ -35,6 +40,12 @@ _SYNTH_SYSTEM_IMAGE = (
     "You are an image-generation prompt builder for a fashion / e-commerce "
     "media pipeline. Output ONE concise sentence (max 280 chars) for a "
     "photoreal shot combining the input briefs.\n\n"
+    "VISION REFS — when reference images are attached, inspect the actual "
+    "pixels and use concrete visible descriptors for the person, garment, "
+    "product, scene, pose, lighting, material, logo/label area, and colors. "
+    "Never output raw role placeholder tokens such as character_ref, "
+    "product_ref, outfit_ref, package_ref, background_ref, or style_ref. "
+    "Those tokens are internal routing metadata, not final prompt text.\n\n"
     "POSE — every shot must look like a real editorial / lookbook photo:\n"
     "  • GAZE: the model's eyes MUST ENGAGE THE CAMERA — direct eye "
     "contact with the lens. No looking-away, no eyes-closed, no "
@@ -120,6 +131,12 @@ _SYNTH_VIDEO_CORE = (
     "You are a video-motion prompt builder for an i2v pipeline (8-second "
     "clip, Veo-style). The source still is the first frame — describe "
     "what unfolds across the next 8 seconds.\n\n"
+    "VISION REFS — when reference images are attached, inspect the actual "
+    "pixels and direct motion from visible facts in the source frame and "
+    "role-bound refs. Never output raw role placeholder tokens such as "
+    "character_ref, product_ref, outfit_ref, package_ref, background_ref, "
+    "or style_ref. Those tokens are internal routing metadata, not final "
+    "prompt text.\n\n"
     "INTENT FIRST. Look at the source: who is this person, what are "
     "they feeling, what would they naturally do in this moment? Let "
     "that drive the motion. The subject is a person with interiority, "
@@ -246,6 +263,60 @@ class PromptSynthError(RuntimeError):
 # positional slot Flow sees on the wire.
 _REF_SOURCE_TYPES = {"character", "image", "visual_asset", "Storyboard"}
 
+_ROLE_LABELS = {
+    "first_frame": "First frame",
+    "last_frame": "Last frame",
+    "character_ref": "Character",
+    "product_ref": "Product",
+    "package_ref": "Package",
+    "background_ref": "Background",
+    "style_ref": "Style",
+    "storyboard_ref": "Storyboard",
+    "storyboard_panel": "Storyboard panel",
+    "ingredient": "Ingredient",
+}
+
+_FORBIDDEN_FINAL_TOKENS = (
+    "background_ref",
+    "character_ref",
+    "first_frame",
+    "ingredient_ref",
+    "last_frame",
+    "outfit_ref",
+    "package_ref",
+    "product_ref",
+    "storyboard_ref",
+    "style_ref",
+)
+_FORBIDDEN_FINAL_TOKEN_RE = re.compile(
+    r"\b(" + "|".join(re.escape(t) for t in _FORBIDDEN_FINAL_TOKENS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _role_label(role: Optional[str]) -> Optional[str]:
+    if not isinstance(role, str) or not role:
+        return None
+    return _ROLE_LABELS.get(role, role.replace("_", " ").title())
+
+
+def _first_media_id(data: dict) -> Optional[str]:
+    """Return the bindable media id for a node, if any.
+
+    Mirrors frontend ref collection: prefer singular ``mediaId`` for
+    selected/current media, otherwise use the first entry in ``mediaIds``.
+    """
+    media_id = data.get("mediaId")
+    if isinstance(media_id, str) and media_id.strip():
+        return media_service.normalize_media_id(media_id.strip())
+
+    media_ids = data.get("mediaIds")
+    if isinstance(media_ids, list):
+        for mid in media_ids:
+            if isinstance(mid, str) and mid.strip():
+                return media_service.normalize_media_id(mid.strip())
+    return None
+
 
 def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
     """Return (upstream_brief_records, target_node).
@@ -314,11 +385,8 @@ def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
             # `mediaIds` into the wire payload — we mirror the same
             # acceptance here so multi-variant nodes still get a
             # `ref_image_N` label even if `mediaId` happens to be unset.
-            mids = data.get("mediaIds")
-            has_media = bool(
-                (isinstance(data.get("mediaId"), str) and data.get("mediaId"))
-                or (isinstance(mids, list) and any(isinstance(m, str) and m for m in mids))
-            )
+            media_id = _first_media_id(data)
+            has_media = media_id is not None
             ref_index: Optional[int] = None
             if n.type in _REF_SOURCE_TYPES and has_media:
                 ref_index = next_ref_index
@@ -333,10 +401,182 @@ def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
                     "prompt": user_prompt,
                     "title": data.get("title") if isinstance(data.get("title"), str) else None,
                     "has_media": has_media,
+                    "media_id": media_id,
                     "subject_chars": subject_chars,
                 }
             )
         return records, target
+
+
+async def _resolve_vision_attachments(
+    records: list[dict],
+) -> tuple[list[str], list[dict], list[dict]]:
+    """Resolve upstream ref media to local files for vision-capable providers.
+
+    Auto-prompt keeps text briefs as baseline context, but when a ref image
+    has bytes locally (or can be fetched from its stored Flow URL), the LLM
+    should inspect the pixels directly. Missing refs degrade to text-only
+    instead of failing the whole auto-prompt call.
+    """
+    attachments: list[str] = []
+    attached: list[dict] = []
+    missing: list[dict] = []
+    slot_by_path: dict[str, int] = {}
+
+    for r in records:
+        ref_index = r.get("ref_index")
+        media_id = r.get("media_id")
+        if ref_index is None or not isinstance(media_id, str) or not media_id:
+            continue
+
+        path: Optional[Path] = None
+        try:
+            cached = media_service.cached_path(media_id)
+            if cached is not None and cached.is_file():
+                path = cached
+            else:
+                result = await media_service.fetch_and_cache(media_id)
+                if result is not None:
+                    _bytes, _mime, fetched_path = result
+                    if fetched_path.is_file():
+                        path = fetched_path
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "auto_prompt: failed to resolve vision attachment for %s: %s",
+                media_id,
+                exc,
+            )
+
+        if path is None:
+            missing.append(
+                {
+                    "ref_index": ref_index,
+                    "ref_role": r.get("ref_role"),
+                    "type": r.get("type"),
+                }
+            )
+            continue
+
+        abs_path = str(path.resolve())
+        slot = slot_by_path.get(abs_path)
+        if slot is None:
+            attachments.append(abs_path)
+            slot = len(attachments)
+            slot_by_path[abs_path] = slot
+        attached.append(
+            {
+                "ref_index": ref_index,
+                "attachment_index": slot,
+                "ref_role": r.get("ref_role"),
+                "type": r.get("type"),
+            }
+        )
+
+    return attachments, attached, missing
+
+
+def _format_vision_attachment_note(attached: list[dict], missing: list[dict]) -> str:
+    if not attached and not missing:
+        return ""
+
+    lines = ["VISION ATTACHMENTS:"]
+    for item in attached:
+        ref_index = item.get("ref_index")
+        attach_index = item.get("attachment_index")
+        role_label = _role_label(item.get("ref_role"))
+        role_note = f", role={role_label}" if role_label else ""
+        lines.append(
+            f"- ref_image_{ref_index}: attached image {attach_index}{role_note}. "
+            "Inspect actual pixels for identity, garment/product details, "
+            "scene/background, labels/text, pose, lighting, and composition."
+        )
+    for item in missing:
+        ref_index = item.get("ref_index")
+        role_label = _role_label(item.get("ref_role"))
+        role_note = f", role={role_label}" if role_label else ""
+        lines.append(
+            f"- ref_image_{ref_index}: image bytes unavailable{role_note}; "
+            "use the text brief only for this ref."
+        )
+    lines.append(
+        "If attached pixels and text briefs disagree, trust the attached image. "
+        "Do not invent details hidden outside the visible frame. Do not use "
+        "raw role tokens like character_ref, product_ref, outfit_ref, or "
+        "background_ref in the final prompt."
+    )
+    return "\n".join(lines)
+
+
+def _append_before_return_instruction(user_msg: str, extra: str) -> str:
+    if not extra:
+        return user_msg
+    sentinel = "\n\nReturn only the prompt sentence."
+    if sentinel in user_msg:
+        return user_msg.replace(sentinel, f"\n\n{extra}{sentinel}", 1)
+    return f"{user_msg}\n\n{extra}"
+
+
+def _vision_unsupported(exc: LLMError) -> bool:
+    return "doesn't support vision" in str(exc).lower()
+
+
+def _has_forbidden_final_token(text: str) -> bool:
+    return bool(_FORBIDDEN_FINAL_TOKEN_RE.search(text or ""))
+
+
+def _forbidden_token_rewrite_note(text: str) -> str:
+    found = sorted({m.group(0) for m in _FORBIDDEN_FINAL_TOKEN_RE.finditer(text or "")})
+    found_text = ", ".join(found) if found else ", ".join(_FORBIDDEN_FINAL_TOKENS)
+    return (
+        "REWRITE REQUIRED: your previous answer used internal placeholder "
+        f"tokens ({found_text}). Write the final generation prompt again using "
+        "concrete visual details from the attached images instead. Never output "
+        "snake_case role tokens. Return only the corrected prompt sentence."
+    )
+
+
+async def _run_auto_prompt_llm(
+    user_msg: str,
+    *,
+    system_prompt: str,
+    attachments: list[str],
+    timeout: float,
+) -> str:
+    try:
+        if attachments:
+            text = await run_llm(
+                "auto_prompt",
+                user_msg,
+                system_prompt=system_prompt,
+                attachments=attachments,
+                timeout=timeout,
+            )
+            if _has_forbidden_final_token(text):
+                logger.info("auto_prompt: retrying after placeholder token output")
+                text = await run_llm(
+                    "auto_prompt",
+                    f"{user_msg}\n\n{_forbidden_token_rewrite_note(text)}",
+                    system_prompt=system_prompt,
+                    attachments=attachments,
+                    timeout=timeout,
+                )
+            return text
+        return await run_llm(
+            "auto_prompt",
+            user_msg,
+            system_prompt=system_prompt,
+            timeout=timeout,
+        )
+    except LLMError as exc:
+        if not attachments or not _vision_unsupported(exc):
+            raise
+        logger.warning("auto_prompt: provider lacks vision; retrying text-only")
+        return await run_llm(
+            "auto_prompt",
+            user_msg,
+            system_prompt=system_prompt,
+            timeout=timeout,
+        )
 
 
 def _distinct_subjects(records: list[dict]) -> list[str]:
@@ -419,8 +659,8 @@ def _format_user_message(records: list[dict], target: Node) -> str:
                 suffix = f"  [same subject as {', '.join(translated)}]"
 
         ref_index = r.get("ref_index")
-        ref_role = r.get("ref_role")
-        role_note = f"[role={ref_role}] " if isinstance(ref_role, str) else ""
+        role_label = _role_label(r.get("ref_role"))
+        role_note = f"[role={role_label}] " if role_label else ""
         if ref_index is not None:
             line = f"ref_image_{ref_index}: {role_note}{text}{suffix}"
         else:
@@ -530,13 +770,18 @@ async def auto_prompt_batch(
     else:
         base_system = _image_system_prompt(subject_count)
     system_prompt = base_system + _BATCH_SUFFIX.format(count=count)
-    user_msg = _format_user_message(records, target)
+    base_user_msg = _format_user_message(records, target)
 
     async with record_activity(
         "auto_prompt_batch",
         params={"node_id": node_id, "count": count, "camera": camera},
         node_id=node_id,
     ) as activity:
+        attachments, attached_refs, missing_refs = await _resolve_vision_attachments(records)
+        user_msg = _append_before_return_instruction(
+            base_user_msg,
+            _format_vision_attachment_note(attached_refs, missing_refs),
+        )
         try:
             # 120s for the batch path — Gemini CLI's `-p` invocation
             # pays ~15s of subprocess + auth cold-start, then a heavy
@@ -545,8 +790,11 @@ async def auto_prompt_batch(
             # lighter and uses a tighter 90s ceiling. Claude Code
             # finishes the same call in 5-15s; we err on Gemini's side
             # so feature parity holds across providers.
-            text = await run_llm(
-                "auto_prompt", user_msg, system_prompt=system_prompt, timeout=120.0
+            text = await _run_auto_prompt_llm(
+                user_msg,
+                system_prompt=system_prompt,
+                attachments=attachments,
+                timeout=120.0,
             )
         except LLMError as exc:
             raise PromptSynthError(f"auto-prompt provider failed: {exc}") from exc
@@ -576,7 +824,13 @@ async def auto_prompt_batch(
         while len(prompts) < count:
             prompts.append(prompts[-1])
         prompts = prompts[:count]
-        activity.set_result({"prompts": prompts})
+        activity.set_result(
+            {
+                "prompts": prompts,
+                "vision_attachments": len(attachments),
+                "vision_missing_refs": len(missing_refs),
+            }
+        )
         return prompts
 
 
@@ -608,22 +862,39 @@ async def auto_prompt(
         system_prompt = _video_system_prompt(camera, subject_count, effective_recipe_id)
     else:
         system_prompt = _image_system_prompt(subject_count)
-    user_msg = _format_user_message(records, target)
+    base_user_msg = _format_user_message(records, target)
 
     async with record_activity(
         "auto_prompt",
         params={"node_id": node_id, "camera": camera, "recipe_id": effective_recipe_id},
         node_id=node_id,
     ) as activity:
+        attachments, attached_refs, missing_refs = await _resolve_vision_attachments(records)
+        user_msg = _append_before_return_instruction(
+            base_user_msg,
+            _format_vision_attachment_note(attached_refs, missing_refs),
+        )
+        if is_video:
+            recipe_plan = build_video_recipe_plan_from_records(
+                records,
+                target.data or {},
+                effective_recipe_id,
+                camera=camera,
+            )
+            user_msg = (
+                f"{user_msg}\n\n"
+                f"{format_video_recipe_plan_for_prompt(recipe_plan)}\n\n"
+                "Use the structured recipe plan above when writing the motion prompt."
+            )
         try:
             # 90s — same Gemini cold-start rationale as the batch path
             # (~15s spawn + 30-60s inference for a complex composition).
             # Single-variant is lighter than batch so a slightly tighter
             # ceiling is fine, but 30s was too aggressive.
-            text = await run_llm(
-                "auto_prompt",
+            text = await _run_auto_prompt_llm(
                 user_msg,
                 system_prompt=system_prompt,
+                attachments=attachments,
                 timeout=90.0,
             )
         except LLMError as exc:
@@ -638,5 +909,11 @@ async def auto_prompt(
         # diffusion + Veo encoders take ~2000 chars) or truncate at its
         # own CLIP boundary. Either way, the user sees the full prompt
         # in the dialog and can edit before re-dispatching.
-        activity.set_result({"prompt": text})
+        activity.set_result(
+            {
+                "prompt": text,
+                "vision_attachments": len(attachments),
+                "vision_missing_refs": len(missing_refs),
+            }
+        )
         return text

@@ -42,6 +42,23 @@ export const REF_ROLE_OPTIONS: readonly { key: "" | RefRole; label: string }[] =
   { key: "ingredient", label: "Ingredient" },
 ];
 
+export const REF_ROLE_LABELS: Record<RefRole, string> = {
+  first_frame: "First frame",
+  last_frame: "Last frame",
+  character_ref: "Character",
+  product_ref: "Product",
+  package_ref: "Package",
+  background_ref: "Background",
+  style_ref: "Style",
+  storyboard_ref: "Storyboard",
+  storyboard_panel: "Panel",
+  ingredient: "Ingredient",
+};
+
+export function labelForRefRole(role: RefRole): string {
+  return REF_ROLE_LABELS[role] ?? role;
+}
+
 export function isVideoRecipeId(value: unknown): value is VideoRecipeId {
   return (
     typeof value === "string"

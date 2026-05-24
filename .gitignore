@@ -49,3 +49,6 @@ coverage/
 .clinerules
 .agents/rules/antigravity-rtk-rules.md
 .kilocode/rules/rtk-rules.md
+.agents/*
+.claude*
+.kilocode/*

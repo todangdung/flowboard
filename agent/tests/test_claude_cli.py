@@ -153,7 +153,24 @@ async def test_run_claude_without_system_prompt_omits_flag(monkeypatch):
 async def test_run_claude_raises_on_nonzero_exit(monkeypatch):
     _stub_resolve(monkeypatch)
     _stub_run(monkeypatch, _FakeResult(returncode=1, stderr=b"auth failed"))
-    with pytest.raises(claude_cli.ClaudeCliError):
+    with pytest.raises(claude_cli.ClaudeCliError, match="auth failed"):
+        await claude_cli.run_claude(user_prompt="x")
+
+
+@pytest.mark.asyncio
+async def test_run_claude_nonzero_exit_surfaces_json_result(monkeypatch):
+    """Claude can return exit 1 with an error JSON envelope on stdout and
+    empty stderr. Surface the envelope result so users see auth/setup fixes
+    instead of a blank `claude CLI exited 1:` message."""
+    _stub_resolve(monkeypatch)
+    _stub_run(
+        monkeypatch,
+        _FakeResult(
+            returncode=1,
+            stdout=_envelope("Not logged in · Please run /login", is_error=True),
+        ),
+    )
+    with pytest.raises(claude_cli.ClaudeCliError, match="Not logged in"):
         await claude_cli.run_claude(user_prompt="x")
 
 

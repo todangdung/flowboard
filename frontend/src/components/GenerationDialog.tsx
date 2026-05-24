@@ -23,11 +23,18 @@ import {
 import {
   autoPrompt as autoPromptApi,
   autoPromptBatch as autoPromptBatchApi,
+  getVideoRecipePlan,
   mediaUrl,
   patchEdge,
   patchNode,
+  type VideoRecipePlan,
 } from "../api/client";
-import { findVideoRecipe, REF_ROLE_OPTIONS, VIDEO_RECIPES } from "../lib/videoRecipes";
+import {
+  findVideoRecipe,
+  labelForRefRole,
+  REF_ROLE_OPTIONS,
+  VIDEO_RECIPES,
+} from "../lib/videoRecipes";
 import {
   CHARACTER_GENDERS,
   CHARACTER_COUNTRIES,
@@ -144,6 +151,16 @@ function cameraInstruction(key: CameraKey): string {
 type ImageAspectKey = (typeof IMAGE_ASPECT_RATIOS)[number]["key"];
 type VideoAspectKey = (typeof VIDEO_ASPECT_RATIOS)[number]["key"];
 type AspectKey = ImageAspectKey | VideoAspectKey;
+const RECIPE_PLAN_SECTION_LABELS = {
+  brief: "Brief",
+  refs: "Refs",
+  action: "Action",
+  camera: "Camera",
+  audio: "Audio",
+  preserve: "Preserve",
+  avoid: "Avoid",
+} as const;
+type RecipePlanSectionKey = keyof typeof RECIPE_PLAN_SECTION_LABELS;
 
 // Map an upstream image aspect onto the closest video aspect. Square has
 // no direct video equivalent — fall back to portrait per the
@@ -224,6 +241,8 @@ export function GenerationDialog() {
   const [variants, setVariants] = useState(1);
   const [camera, setCamera] = useState<CameraKey>("static");
   const [videoRecipe, setVideoRecipe] = useState<"auto" | VideoRecipeId>("auto");
+  const [recipePlan, setRecipePlan] = useState<VideoRecipePlan | null>(null);
+  const [recipePlanLoading, setRecipePlanLoading] = useState(false);
   // Storyboard layout. The node dispatches via the standard image
   // handler with a locked template prompt wrapping the user's topic
   // into a single composite NxN grid. See lib/storyboardPrompt.ts.
@@ -461,6 +480,8 @@ export function GenerationDialog() {
       // Fresh nodes + legacy values ("3x3" from 1.2.15-1.2.18) → "2x2".
       setStoryboardGrid(normaliseStoryboardGrid(openNodeData?.storyboardGrid));
       setVideoRecipe(savedRecipeKey);
+      setRecipePlan(null);
+      setRecipePlanLoading(false);
       setCharGender(null);
       setCharCountry(null);
       setCharVibe("clean");
@@ -490,6 +511,32 @@ export function GenerationDialog() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfId]);
+
+  useEffect(() => {
+    if (rfId === null || !isVideo) {
+      setRecipePlan(null);
+      setRecipePlanLoading(false);
+      return;
+    }
+    const dbId = parseInt(rfId, 10);
+    if (isNaN(dbId)) return;
+    let cancelled = false;
+    const recipeForPlan = hasStoryboardUpstream ? "storyboard_sequence" : videoRecipe;
+    setRecipePlanLoading(true);
+    getVideoRecipePlan(dbId, { recipeId: recipeForPlan, camera })
+      .then((res) => {
+        if (!cancelled) setRecipePlan(res.plan);
+      })
+      .catch(() => {
+        if (!cancelled) setRecipePlan(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRecipePlanLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rfId, isVideo, videoRecipe, camera, hasStoryboardUpstream, edges]);
 
   // Keyboard handling
   useEffect(() => {
@@ -821,6 +868,7 @@ export function GenerationDialog() {
     : isVideo
     ? selectedSourceIdx.size > 0 && !isWorking
     : !isWorking;
+  const recipePlanSections = recipePlan?.prompt_sections;
 
   return (
     <div
@@ -940,6 +988,72 @@ export function GenerationDialog() {
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {isVideo && (
+          <div
+            className={`recipe-plan${
+              recipePlan?.ready ? " recipe-plan--ready" : " recipe-plan--missing"
+            }`}
+          >
+            <div className="recipe-plan__header">
+              <div className="recipe-plan__title-row">
+                <span className="recipe-plan__title">
+                  {recipePlan?.label ?? "Recipe plan"}
+                </span>
+                <span className="recipe-plan__path">
+                  {recipePlan?.recommended_generation_path ?? "loading"}
+                </span>
+              </div>
+              <span className="recipe-plan__status">
+                {recipePlanLoading
+                  ? "Checking"
+                  : recipePlan?.ready
+                  ? "Ready"
+                  : recipePlan?.missing_roles.length
+                  ? `Missing: ${recipePlan.missing_roles.map(labelForRefRole).join(", ")}`
+                  : "Missing roles"}
+              </span>
+            </div>
+            {recipePlan && (
+              <>
+                <div className="recipe-plan__roles">
+                  {recipePlan.required_roles.map((role) => {
+                    const missing = recipePlan.missing_roles.includes(role);
+                    return (
+                      <span
+                        key={role}
+                        className={`recipe-plan__role${
+                          missing ? " recipe-plan__role--missing" : " recipe-plan__role--present"
+                        }`}
+                      >
+                        {labelForRefRole(role)}
+                      </span>
+                    );
+                  })}
+                </div>
+                {recipePlanSections && (
+                  <details className="recipe-plan__details">
+                    <summary className="recipe-plan__summary">
+                      Prompt sections
+                    </summary>
+                    <div className="recipe-plan__sections">
+                      {(Object.keys(RECIPE_PLAN_SECTION_LABELS) as RecipePlanSectionKey[]).map((key) => (
+                        <div key={key} className="recipe-plan__section">
+                          <span className="recipe-plan__section-label">
+                            {RECIPE_PLAN_SECTION_LABELS[key]}
+                          </span>
+                          <p className="recipe-plan__section-text">
+                            {recipePlanSections[key]}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </>
+            )}
           </div>
         )}
 
