@@ -929,6 +929,18 @@ export async function cancelActivity(id: number): Promise<void> {
 // camelCase is reserved for the TS surface, so each helper maps the
 // rows on the way back.
 
+export type ReferenceKind =
+  | "image"
+  | "character"
+  | "visual_asset"
+  | "storyboard_shot"
+  | "product"
+  | "package"
+  | "location"
+  | "style"
+  | "brand"
+  | "first_frame";
+
 export interface ReferenceItem {
   id: number;
   mediaId: string;
@@ -937,7 +949,7 @@ export interface ReferenceItem {
   // exists purely as a re-ingest hint when the file goes missing.
   url: string | null;
   label: string;
-  kind: "image" | "character" | "visual_asset" | "storyboard_shot";
+  kind: ReferenceKind;
   // Snapshot of the source node's aiBrief at save time; lets cross-board
   // spawn skip the re-vision call entirely.
   aiBrief: string | null;
@@ -953,7 +965,7 @@ export interface ReferenceItem {
 // Wire-shape POST body — snake_case to match the FastAPI schema 1:1.
 export interface ReferenceCreateInput {
   media_id: string;
-  kind: ReferenceItem["kind"];
+  kind: ReferenceKind;
   label?: string;
   ai_brief?: string | null;
   aspect_ratio?: string | null;
@@ -992,14 +1004,20 @@ function mapReferenceRow(row: ReferenceRowWire): ReferenceItem {
   // validates against _ALLOWED_KINDS so any unknown value here would
   // mean a backend bug. Fall back to "image" defensively rather than
   // throwing, so a single bad row doesn't break the whole list render.
-  const allowed: ReferenceItem["kind"][] = [
+  const allowed: ReferenceKind[] = [
     "image",
     "character",
     "visual_asset",
     "storyboard_shot",
+    "product",
+    "package",
+    "location",
+    "style",
+    "brand",
+    "first_frame",
   ];
-  const kind: ReferenceItem["kind"] = (allowed as string[]).includes(row.kind)
-    ? (row.kind as ReferenceItem["kind"])
+  const kind: ReferenceKind = (allowed as string[]).includes(row.kind)
+    ? (row.kind as ReferenceKind)
     : "image";
   return {
     id: row.id,
@@ -1040,6 +1058,20 @@ export async function createReference(
   input: ReferenceCreateInput,
 ): Promise<ReferenceItem> {
   const row = await api<ReferenceRowWire>("/api/references", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return mapReferenceRow(row);
+}
+
+export async function createReferenceFromNode(input: {
+  node_id: number;
+  media_id?: string;
+  kind?: ReferenceKind;
+  label?: string;
+  tags?: string[];
+}): Promise<ReferenceItem> {
+  const row = await api<ReferenceRowWire>("/api/references/from-node", {
     method: "POST",
     body: JSON.stringify(input),
   });

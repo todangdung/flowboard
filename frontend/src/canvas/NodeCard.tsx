@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { useBoardStore, type FlowboardNodeData, type FlowNode } from "../store/board";
 import { useGenerationStore } from "../store/generation";
-import { mediaUrl, patchEdge, patchNode, uploadImage, uploadImageFromUrl } from "../api/client";
+import {
+  mediaUrl,
+  patchEdge,
+  patchNode,
+  uploadImage,
+  uploadImageFromUrl,
+  type ReferenceKind,
+} from "../api/client";
 import { requestAutoBrief } from "../api/autoBrief";
 import { useReferencesStore } from "../store/references";
 import {
@@ -257,17 +264,26 @@ function CharacterBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }
 
 // ── Reference-library save helpers ────────────────────────────────────────
 //
-// Maps a FlowboardNodeData.type → the `kind` enum stored on a Reference
-// row. Storyboard nodes are containers — each saved tile is one *shot*
-// of the board, so we use the "storyboard_shot" kind there to leave
-// room for shot-specific UX in the library later (e.g. surfacing the
-// shot index, or grouping by parent storyboard).
-type ReferenceKind = "image" | "character" | "visual_asset" | "storyboard_shot";
-
-function referenceKindFor(nodeType: string): ReferenceKind {
+function referenceKindFor(
+  nodeType: string,
+  data?: FlowboardNodeData,
+): ReferenceKind {
+  const text = [
+    data?.title,
+    data?.aiBrief,
+    data?.prompt,
+    nodeType,
+  ]
+    .filter((x): x is string => typeof x === "string")
+    .join(" ")
+    .toLowerCase();
   if (nodeType === "Storyboard") return "storyboard_shot";
   if (nodeType === "character") return "character";
-  if (nodeType === "visual_asset") return "visual_asset";
+  if (nodeType === "prompt") return "style";
+  if (/(package|packaging|box|unbox)/.test(text)) return "package";
+  if (/(background|location|room|cafe|street|park|interior|exterior)/.test(text)) return "location";
+  if (/(style|mood|palette|lighting|aesthetic)/.test(text)) return "style";
+  if (nodeType === "visual_asset") return "product";
   return "image";
 }
 
@@ -286,7 +302,7 @@ function saveTileToLibrary(opts: {
       : `#${data.shortId}`;
   void useReferencesStore.getState().save({
     media_id: mediaId,
-    kind: referenceKindFor(nodeType),
+    kind: referenceKindFor(nodeType, data),
     ai_brief: typeof data.aiBrief === "string" ? data.aiBrief : null,
     aspect_ratio: typeof data.aspectRatio === "string" ? data.aspectRatio : null,
     label,

@@ -605,10 +605,16 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const { boardId } = get();
     if (boardId === null) return null;
     const title = ref.label || "Reference";
+    const type: NodeType =
+      ref.kind === "character"
+        ? "character"
+        : ref.kind === "storyboard_shot"
+        ? "Storyboard"
+        : "visual_asset";
     try {
       const dto = await createNode({
         board_id: boardId,
-        type: "visual_asset",
+        type,
         x: Math.round(position.x),
         y: Math.round(position.y),
         data: {

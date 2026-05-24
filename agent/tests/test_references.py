@@ -1,7 +1,7 @@
 """Tests for the /api/references CRUD endpoints (Phase 1)."""
 from flowboard.config import STORAGE_DIR
 from flowboard.db import get_session
-from flowboard.db.models import Reference
+from flowboard.db.models import Board, Node, Reference
 from sqlmodel import select
 
 
@@ -22,6 +22,16 @@ def test_create_reference_minimal(client):
     assert row["position"] == 0
     assert row["tags"] == []
     assert "id" in row
+
+
+def test_create_reference_accepts_profile_kinds(client):
+    for kind in ("product", "package", "location", "style", "brand", "first_frame"):
+        r = client.post(
+            "/api/references",
+            json={"media_id": f"m-{kind}", "kind": kind, "label": kind},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["kind"] == kind
 
 
 def test_create_reference_idempotent(client):
@@ -186,3 +196,92 @@ def test_delete_does_not_touch_media_file(client):
         # Clean up the fixture file so we don't leak into the test temp dir.
         if media_file.exists():
             media_file.unlink()
+
+
+def test_create_reference_from_node_infers_product_profile(client):
+    with get_session() as s:
+        b = Board(name="refs")
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        node = Node(
+            board_id=b.id,
+            short_id="prod",
+            type="visual_asset",
+            data={
+                "title": "Serum bottle product",
+                "mediaId": "prod-media",
+                "aiBrief": "clear glass serum bottle with white cap",
+                "aspectRatio": "IMAGE_ASPECT_RATIO_SQUARE",
+            },
+            status="done",
+        )
+        s.add(node)
+        s.commit()
+        s.refresh(node)
+        node_id = node.id
+
+    r = client.post("/api/references/from-node", json={"node_id": node_id})
+    assert r.status_code == 200, r.text
+    row = r.json()
+    assert row["media_id"] == "prod-media"
+    assert row["kind"] == "product"
+    assert row["ai_brief"] == "clear glass serum bottle with white cap"
+    assert row["source_node_short_id"] == "prod"
+
+
+def test_create_reference_from_node_validates_variant_membership(client):
+    with get_session() as s:
+        b = Board(name="refs")
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        node = Node(
+            board_id=b.id,
+            short_id="imgx",
+            type="image",
+            data={"title": "Image", "mediaId": "m1", "mediaIds": ["m1", "m2"]},
+        )
+        s.add(node)
+        s.commit()
+        s.refresh(node)
+        node_id = node.id
+
+    ok = client.post(
+        "/api/references/from-node",
+        json={"node_id": node_id, "media_id": "m2", "kind": "first_frame"},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["kind"] == "first_frame"
+
+    bad = client.post(
+        "/api/references/from-node",
+        json={"node_id": node_id, "media_id": "not-owned"},
+    )
+    assert bad.status_code == 400
+    assert "node.mediaIds" in bad.json()["detail"]
+
+
+def test_create_reference_from_node_rejects_unowned_single_media(client):
+    with get_session() as s:
+        b = Board(name="refs")
+        s.add(b)
+        s.commit()
+        s.refresh(b)
+        node = Node(
+            board_id=b.id,
+            short_id="solo",
+            type="image",
+            data={"title": "Image", "mediaId": "owned-media"},
+        )
+        s.add(node)
+        s.commit()
+        s.refresh(node)
+        node_id = node.id
+
+    r = client.post(
+        "/api/references/from-node",
+        json={"node_id": node_id, "media_id": "other-media"},
+    )
+    assert r.status_code == 400
+    assert "node.mediaIds" in r.json()["detail"]

@@ -116,6 +116,19 @@ interface ReferenceCardProps {
   onDelete(): Promise<void> | void;
 }
 
+function referenceKindLabel(kind: ReferenceItem["kind"]): string {
+  switch (kind) {
+    case "storyboard_shot":
+      return "shot";
+    case "visual_asset":
+      return "asset";
+    case "first_frame":
+      return "first frame";
+    default:
+      return kind;
+  }
+}
+
 function ReferenceCard({
   item,
   onRename,
@@ -287,7 +300,12 @@ function ReferenceCard({
         ) : (
           <span className="reference-card__label">{item.label}</span>
         )}
-        <span className="reference-card__id">{shortIdTag}</span>
+        <span className="reference-card__meta">
+          <span className="reference-card__kind">
+            {referenceKindLabel(item.kind)}
+          </span>
+          <span className="reference-card__id">{shortIdTag}</span>
+        </span>
       </div>
 
       <div className="reference-card__actions">

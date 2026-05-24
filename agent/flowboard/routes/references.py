@@ -14,13 +14,25 @@ from pydantic import BaseModel, Field
 from sqlmodel import select, or_
 
 from flowboard.db import get_session
-from flowboard.db.models import Reference
+from flowboard.db.models import Node, Reference
 
 router = APIRouter(prefix="/api/references", tags=["references"])
 
 
-# Valid kinds — matches the source node types that can be saved.
-_ALLOWED_KINDS = {"image", "character", "visual_asset", "storyboard_shot"}
+# Valid library profile kinds. Keep legacy source-node kinds for existing
+# rows, add production-facing kinds for reusable consistency assets.
+_ALLOWED_KINDS = {
+    "image",
+    "character",
+    "visual_asset",
+    "storyboard_shot",
+    "product",
+    "package",
+    "location",
+    "style",
+    "brand",
+    "first_frame",
+}
 
 
 class ReferenceCreate(BaseModel):
@@ -42,6 +54,14 @@ class ReferencePatch(BaseModel):
     tags: Optional[list[str]] = None
 
 
+class ReferenceFromNodeCreate(BaseModel):
+    node_id: int
+    media_id: Optional[str] = None
+    kind: Optional[str] = None
+    label: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
 def _default_label(body: ReferenceCreate) -> str:
     """Compute the fallback label when the user didn't supply one.
 
@@ -57,33 +77,36 @@ def _default_label(body: ReferenceCreate) -> str:
     return "Untitled"
 
 
-def _row_dict(row: Reference) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "media_id": row.media_id,
-        "url": row.url,
-        "label": row.label,
-        "kind": row.kind,
-        "ai_brief": row.ai_brief,
-        "aspect_ratio": row.aspect_ratio,
-        "tags": list(row.tags or []),
-        "pinned": row.pinned,
-        "position": row.position,
-        "source_board_id": row.source_board_id,
-        "source_node_short_id": row.source_node_short_id,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-    }
+def _infer_kind_from_node(node: Node) -> str:
+    data = node.data or {}
+    text = " ".join(
+        p
+        for p in (
+            data.get("title"),
+            data.get("aiBrief"),
+            data.get("prompt"),
+            node.type,
+        )
+        if isinstance(p, str)
+    ).lower()
+    if node.type == "character":
+        return "character"
+    if node.type == "Storyboard":
+        return "storyboard_shot"
+    if node.type == "prompt":
+        return "style"
+    if any(word in text for word in ("package", "packaging", "box", "unbox")):
+        return "package"
+    if any(word in text for word in ("background", "location", "room", "cafe", "street", "park", "interior", "exterior")):
+        return "location"
+    if any(word in text for word in ("style", "mood", "palette", "lighting", "aesthetic")):
+        return "style"
+    if node.type == "visual_asset":
+        return "product"
+    return "image"
 
 
-@router.post("")
-def create_reference(body: ReferenceCreate):
-    """Save a media_id to the library.
-
-    Idempotent on media_id: if a row with the same media_id already
-    exists, return that row unchanged (200, not 409). Lets the
-    frontend treat ★ Save as a "set membership" toggle without
-    needing to pre-check.
-    """
+def _create_reference_row(body: ReferenceCreate):
     if body.kind not in _ALLOWED_KINDS:
         raise HTTPException(
             400,
@@ -113,6 +136,72 @@ def create_reference(body: ReferenceCreate):
         s.commit()
         s.refresh(row)
         return _row_dict(row)
+
+
+def _row_dict(row: Reference) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "media_id": row.media_id,
+        "url": row.url,
+        "label": row.label,
+        "kind": row.kind,
+        "ai_brief": row.ai_brief,
+        "aspect_ratio": row.aspect_ratio,
+        "tags": list(row.tags or []),
+        "pinned": row.pinned,
+        "position": row.position,
+        "source_board_id": row.source_board_id,
+        "source_node_short_id": row.source_node_short_id,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.post("")
+def create_reference(body: ReferenceCreate):
+    """Save a media_id to the library.
+
+    Idempotent on media_id: if a row with the same media_id already
+    exists, return that row unchanged (200, not 409). Lets the
+    frontend treat ★ Save as a "set membership" toggle without
+    needing to pre-check.
+    """
+    return _create_reference_row(body)
+
+
+@router.post("/from-node")
+def create_reference_from_node(body: ReferenceFromNodeCreate):
+    """Save a generated/uploaded node output as a reusable asset profile."""
+    with get_session() as s:
+        node = s.get(Node, body.node_id)
+        if node is None:
+            raise HTTPException(404, "node not found")
+        data = node.data or {}
+        primary_media_id = data.get("mediaId")
+        media_id = body.media_id or primary_media_id
+        if not isinstance(media_id, str) or not media_id:
+            raise HTTPException(400, "node has no media_id to save")
+        media_ids = data.get("mediaIds")
+        if body.media_id:
+            allowed_media_ids = set()
+            if isinstance(primary_media_id, str):
+                allowed_media_ids.add(primary_media_id)
+            if isinstance(media_ids, list):
+                allowed_media_ids.update(m for m in media_ids if isinstance(m, str))
+        if body.media_id and body.media_id not in allowed_media_ids:
+            raise HTTPException(400, "media_id is not one of node.mediaIds")
+
+        kind = body.kind or _infer_kind_from_node(node)
+        create = ReferenceCreate(
+            media_id=media_id,
+            kind=kind,
+            label=body.label,
+            ai_brief=data.get("aiBrief") if isinstance(data.get("aiBrief"), str) else None,
+            aspect_ratio=data.get("aspectRatio") if isinstance(data.get("aspectRatio"), str) else None,
+            source_board_id=node.board_id,
+            source_node_short_id=node.short_id,
+            tags=body.tags,
+        )
+    return _create_reference_row(create)
 
 
 @router.get("")

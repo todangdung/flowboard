@@ -5879,16 +5879,39 @@ button:disabled {
   word-break: break-word;
 }
 
+.reference-card__meta {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.reference-card__kind,
 .reference-card__id {
   display: inline-block;
-  align-self: flex-start;
   padding: 1px 6px;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
+  line-height: 1.45;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.reference-card__kind {
+  max-width: 92px;
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  text-transform: lowercase;
+  background: rgba(124, 92, 255, 0.12);
+  border: 1px solid rgba(124, 92, 255, 0.24);
+}
+
+.reference-card__id {
   color: var(--muted);
   background: var(--panel-higher);
-  border-radius: 4px;
   font-variant-numeric: tabular-nums;
 }
 
