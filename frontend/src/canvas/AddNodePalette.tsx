@@ -26,6 +26,8 @@ export function AddNodePalette() {
   const addFlowFromRecipe = useBoardStore((s) => s.addFlowFromRecipe);
   const [sequenceShotCount, setSequenceShotCount] = useState(3);
   const [sequenceDurationSec, setSequenceDurationSec] = useState(4);
+  const [sequenceBrief, setSequenceBrief] = useState("");
+  const [sequenceUseAi, setSequenceUseAi] = useState(false);
 
   function handleAdd(type: NodeType) {
     const position = screenToFlowPosition({
@@ -47,6 +49,8 @@ export function AddNodePalette() {
         ? {
             shotCount: sequenceShotCount,
             shotDurationSec: sequenceDurationSec,
+            brief: sequenceBrief.trim(),
+            useLLM: sequenceUseAi,
           }
         : undefined,
     );
@@ -127,6 +131,30 @@ export function AddNodePalette() {
                   +
                 </button>
               </span>
+              <label className="add-node-shot-brief">
+                <span className="visually-hidden">
+                  Sequence brief / Ý tưởng chuỗi cảnh
+                </span>
+                <input
+                  aria-label="Sequence brief / Ý tưởng chuỗi cảnh"
+                  value={sequenceBrief}
+                  onChange={(event) => setSequenceBrief(event.target.value)}
+                  placeholder="Brief / Ý tưởng"
+                  maxLength={220}
+                />
+              </label>
+              <label
+                className={`add-node-ai-toggle${sequenceUseAi ? " add-node-ai-toggle--active" : ""}`}
+                title="Use AI shot plan / Dùng AI dựng cảnh"
+              >
+                <input
+                  type="checkbox"
+                  checked={sequenceUseAi}
+                  onChange={(event) => setSequenceUseAi(event.target.checked)}
+                  aria-label="Use AI shot plan / Dùng AI dựng cảnh"
+                />
+                <span>AI plan / AI dựng</span>
+              </label>
             </span>
           )}
         </span>

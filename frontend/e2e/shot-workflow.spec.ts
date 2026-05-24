@@ -18,6 +18,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await page.goto("/");
 
     await expect(page.getByRole("button", { name: "Rename board" })).toContainText(boardName);
+    await page
+      .getByLabel("Sequence brief / Ý tưởng chuỗi cảnh")
+      .fill("skincare serum launch");
     await page.getByRole("button", { name: "Increase shot count" }).click();
     await page.getByRole("button", { name: "Increase shot duration" }).click();
     await page
@@ -37,6 +40,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     const dialog = page.getByRole("dialog", { name: /Generate image/i });
     await expect(dialog).toBeVisible();
     await expect(page.locator("#gen-prompt")).toHaveValue(/shot 1\/4/);
+    await expect(page.locator("#gen-prompt")).toHaveValue(/skincare serum launch/);
     await expect(page.getByText("Source references (2)")).toBeVisible();
 
     const detailRes = await request.get(`/api/boards/${board.id}`);
@@ -58,6 +62,21 @@ test("builds storyboard sequence shot workflow from palette", async ({
       detail.nodes
         .filter((node) => node.data.workflowKind === "shot_clip")
         .every((node) => node.data.shotDurationSec === 5),
+    ).toBeTruthy();
+    expect(
+      detail.nodes
+        .filter((node) => node.data.workflowKind === "shot_frame")
+        .every((node) => String(node.data.prompt).includes("skincare serum launch")),
+    ).toBeTruthy();
+    expect(
+      detail.nodes
+        .filter((node) => node.data.workflowKind === "shot_clip")
+        .every((node) => String(node.data.prompt).includes("skincare serum launch")),
+    ).toBeTruthy();
+    expect(
+      detail.nodes
+        .filter((node) => node.data.workflowKind === "shot_frame")
+        .every((node) => node.data.shotPlanSource === "fallback"),
     ).toBeTruthy();
     expect(detail.edges.filter((edge) => edge.ref_role === "first_frame")).toHaveLength(4);
     expect(detail.edges.filter((edge) => edge.ref_role === "storyboard_panel")).toHaveLength(4);

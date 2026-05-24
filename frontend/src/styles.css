@@ -1214,12 +1214,14 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-wrap: wrap;
 }
 
 .add-node-shot-controls {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-wrap: wrap;
 }
 
 .add-node-shot-stepper {
@@ -1262,6 +1264,58 @@ button:disabled {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.add-node-shot-brief input {
+  width: 152px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.add-node-shot-brief input::placeholder {
+  color: var(--muted);
+}
+
+.add-node-shot-brief input:focus {
+  border-color: rgba(124, 92, 255, 0.62);
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.18);
+}
+
+.add-node-ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.add-node-ai-toggle:hover,
+.add-node-ai-toggle--active {
+  border-color: rgba(124, 92, 255, 0.55);
+  background: rgba(124, 92, 255, 0.12);
+  color: var(--text);
+}
+
+.add-node-ai-toggle input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .add-node-divider {

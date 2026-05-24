@@ -610,6 +610,31 @@ export interface VideoRecipePlanResponse {
   plan: VideoRecipePlan;
 }
 
+export interface ShotPlanItem {
+  shot_index: number;
+  title_en: string;
+  title_vi: string;
+  frame_prompt: string;
+  video_prompt: string;
+  duration_sec: number;
+  action: string;
+  camera: string;
+  audio: string;
+  continuity: string;
+  avoid: string;
+}
+
+export interface ShotPlanResponse {
+  recipe_id: VideoRecipeId;
+  label: string;
+  brief: string;
+  shot_count: number;
+  shot_duration_sec: number;
+  source: "llm" | "fallback" | string;
+  source_context: Array<Record<string, unknown>>;
+  shots: ShotPlanItem[];
+}
+
 export interface RecipeWorkflowBuildResponse {
   recipe_id: VideoRecipeId;
   nodes: NodeDTO[];
@@ -631,6 +656,8 @@ export async function buildRecipeWorkflow(input: {
   sources?: Array<{ node_id: number; role: RefRole }>;
   shot_count?: number;
   shot_duration_sec?: number;
+  brief?: string;
+  use_llm?: boolean;
 }): Promise<RecipeWorkflowBuildResponse> {
   const res = await fetch("/api/recipes/build-workflow", {
     method: "POST",
@@ -641,6 +668,26 @@ export async function buildRecipeWorkflow(input: {
     throw new Error(await extractErrorMessage(res));
   }
   return res.json() as Promise<RecipeWorkflowBuildResponse>;
+}
+
+export async function buildShotPlan(input: {
+  board_id: number;
+  recipe_id: VideoRecipeId;
+  sources?: Array<{ node_id: number; role: RefRole }>;
+  shot_count?: number;
+  shot_duration_sec?: number;
+  brief?: string;
+  use_llm?: boolean;
+}): Promise<ShotPlanResponse> {
+  const res = await fetch("/api/recipes/build-shot-plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<ShotPlanResponse>;
 }
 
 export interface RoleSuggestion {

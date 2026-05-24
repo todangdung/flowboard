@@ -261,7 +261,12 @@ interface BoardState {
   addFlowFromRecipe(
     recipeId: VideoRecipeId,
     position: { x: number; y: number },
-    opts?: { shotCount?: number; shotDurationSec?: number },
+    opts?: {
+      shotCount?: number;
+      shotDurationSec?: number;
+      brief?: string;
+      useLLM?: boolean;
+    },
   ): Promise<string | null>;
   // Spawn a brand-new visual_asset node from a saved Reference. Used by
   // both the panel click-to-spawn path and the canvas drop-to-spawn path.
@@ -517,6 +522,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         y: Math.round(position.y),
         shot_count: opts?.shotCount,
         shot_duration_sec: opts?.shotDurationSec,
+        brief: opts?.brief,
+        use_llm: opts?.useLLM,
       });
       const createdNodes = built.nodes.map(nodeFromDto);
       const createdEdges = built.edges.map(edgeFromDto);

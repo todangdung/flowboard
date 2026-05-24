@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -446,6 +446,16 @@ class SourceBinding(BaseModel):
     role: RefRole
 
 
+class ShotPlanBuildRequest(BaseModel):
+    board_id: int
+    recipe_id: str = "storyboard_sequence"
+    brief: str = Field(default="", max_length=2000)
+    shot_count: int = Field(default=3, ge=1, le=6)
+    shot_duration_sec: int = Field(default=4, ge=1, le=10)
+    sources: list[SourceBinding] = Field(default_factory=list)
+    use_llm: bool = True
+
+
 class WorkflowBuildRequest(BaseModel):
     board_id: int
     recipe_id: str
@@ -455,6 +465,8 @@ class WorkflowBuildRequest(BaseModel):
     open_generation: bool = True
     shot_count: int = Field(default=3, ge=1, le=6)
     shot_duration_sec: int = Field(default=4, ge=1, le=10)
+    brief: str = Field(default="", max_length=2000)
+    use_llm: bool = False
 
 
 def _node_dict(node: Node) -> dict:
@@ -486,10 +498,10 @@ def _edge_dict(edge: Edge) -> dict:
 
 
 @router.post("/build-workflow")
-def build_recipe_workflow(body: WorkflowBuildRequest) -> dict:
+async def build_recipe_workflow(body: WorkflowBuildRequest) -> dict:
     recipe_id = normalize_video_recipe_id(body.recipe_id)
     if recipe_id in _SHOT_WORKFLOWS:
-        return _build_shot_workflow(body, recipe_id)
+        return await _build_shot_workflow(body, recipe_id)
     if recipe_id is None or recipe_id not in _WORKFLOWS:
         raise HTTPException(400, f"unsupported recipe_id {body.recipe_id!r}")
     spec = _WORKFLOWS[recipe_id]
@@ -578,6 +590,221 @@ def _shot_id(index: int) -> str:
     return f"shot_{index:02d}"
 
 
+def _clean_text(value: Any, fallback: str, *, limit: int = 1200) -> str:
+    if isinstance(value, str):
+        text = " ".join(value.split())
+        if text:
+            return text[:limit]
+    return fallback
+
+
+def _shot_fallback_item(
+    index: int,
+    total: int,
+    *,
+    brief: str,
+    recipe_label: str,
+    duration_sec: int,
+) -> dict:
+    title_pairs = (
+        ("Hook", "Mở đầu"),
+        ("Context", "Bối cảnh"),
+        ("Action", "Hành động"),
+        ("Proof", "Chứng minh"),
+        ("Hero hold", "Giữ hero"),
+        ("Payoff", "Kết"),
+    )
+    title_en, title_vi = title_pairs[min(index - 1, len(title_pairs) - 1)]
+    if index == total and total > 1:
+        title_en, title_vi = "Payoff", "Kết"
+    if index == 1:
+        action = "establish the subject/product and hook the viewer with one clear visual beat"
+    elif index == total:
+        action = "resolve the story with a clean final hero hold"
+    else:
+        action = "advance the story with one concrete product or character action"
+    camera = "stable vertical framing with motivated micro movement"
+    audio = "music bed and subtle SFX, no speech unless explicitly scripted"
+    continuity = "same subject/product, lighting, location, palette, and visual style"
+    avoid = "random cuts, changed identity, product drift, captions, text overlays, warped hands"
+    subject = brief or recipe_label
+    frame_prompt = (
+        f"Create shot {index}/{total} first frame for: {subject}. "
+        f"Beat: {action}. Keep composition readable, production-ready, "
+        f"and consistent with adjacent shots. Continuity: {continuity}. Avoid: {avoid}."
+    )
+    video_prompt = (
+        f"The uploaded image is the first frame. Generate a {duration_sec}s "
+        f"shot {index}/{total} for: {subject}. Action: {action}. Camera: {camera}. "
+        f"Audio: {audio}. Continuity: {continuity}. Avoid: {avoid}."
+    )
+    return {
+        "shot_index": index,
+        "title_en": title_en,
+        "title_vi": title_vi,
+        "frame_prompt": frame_prompt,
+        "video_prompt": video_prompt,
+        "duration_sec": duration_sec,
+        "action": action,
+        "camera": camera,
+        "audio": audio,
+        "continuity": continuity,
+        "avoid": avoid,
+    }
+
+
+def _normalise_shot_items(
+    raw_items: Any,
+    *,
+    brief: str,
+    recipe_label: str,
+    shot_count: int,
+    duration_sec: int,
+) -> list[dict]:
+    items = raw_items if isinstance(raw_items, list) else []
+    out: list[dict] = []
+    for idx in range(1, shot_count + 1):
+        raw = items[idx - 1] if idx - 1 < len(items) and isinstance(items[idx - 1], dict) else {}
+        fallback = _shot_fallback_item(
+            idx,
+            shot_count,
+            brief=brief,
+            recipe_label=recipe_label,
+            duration_sec=duration_sec,
+        )
+        title_en = _clean_text(raw.get("title_en"), fallback["title_en"], limit=80)
+        title_vi = _clean_text(raw.get("title_vi"), fallback["title_vi"], limit=80)
+        action = _clean_text(raw.get("action"), fallback["action"])
+        camera = _clean_text(raw.get("camera"), fallback["camera"])
+        audio = _clean_text(raw.get("audio"), fallback["audio"])
+        continuity = _clean_text(raw.get("continuity"), fallback["continuity"])
+        avoid = _clean_text(raw.get("avoid"), fallback["avoid"])
+        frame_prompt = _clean_text(raw.get("frame_prompt"), fallback["frame_prompt"], limit=1800)
+        video_prompt = _clean_text(raw.get("video_prompt"), fallback["video_prompt"], limit=1800)
+        out.append(
+            {
+                "shot_index": idx,
+                "title_en": title_en,
+                "title_vi": title_vi,
+                "frame_prompt": frame_prompt,
+                "video_prompt": video_prompt,
+                "duration_sec": duration_sec,
+                "action": action,
+                "camera": camera,
+                "audio": audio,
+                "continuity": continuity,
+                "avoid": avoid,
+            }
+        )
+    return out
+
+
+def _source_context_for_board(board_id: int, sources: list[SourceBinding]) -> list[dict]:
+    with get_session() as s:
+        board = s.get(Board, board_id)
+        if board is None:
+            raise HTTPException(404, "board not found")
+        rows: list[dict] = []
+        for binding in sources:
+            node = s.get(Node, binding.node_id)
+            if node is None:
+                raise HTTPException(404, f"source node {binding.node_id} not found")
+            if node.board_id != board_id:
+                raise HTTPException(400, "source node belongs to another board")
+            data = node.data or {}
+            rows.append(
+                {
+                    "node_id": node.id,
+                    "short_id": node.short_id,
+                    "type": node.type,
+                    "role": binding.role,
+                    "title": data.get("title") if isinstance(data.get("title"), str) else None,
+                    "brief": data.get("aiBrief") if isinstance(data.get("aiBrief"), str) else None,
+                    "prompt": data.get("prompt") if isinstance(data.get("prompt"), str) else None,
+                    "has_media": bool(data.get("mediaId") or data.get("mediaIds")),
+                }
+            )
+        return rows
+
+
+async def _llm_shot_plan(
+    body: ShotPlanBuildRequest,
+    *,
+    recipe_label: str,
+    source_context: list[dict],
+) -> Optional[list[dict]]:
+    brief = body.brief.strip()
+    if not body.use_llm or not brief:
+        return None
+    system_prompt = (
+        "You are a Flowboard short-video director. Return ONLY a JSON array "
+        "with exactly the requested number of shots. Each item must include: "
+        "title_en, title_vi, frame_prompt, video_prompt, action, camera, audio, "
+        "continuity, avoid. Keep prompts model-ready and production-safe. "
+        "Preserve referenced product/character identity; do not invent medical "
+        "or beauty claims."
+    )
+    user_prompt = (
+        f"Recipe: {body.recipe_id} / {recipe_label}\n"
+        f"Shot count: {body.shot_count}\n"
+        f"Duration per shot: {body.shot_duration_sec}s\n"
+        f"Brief: {brief}\n"
+        f"Source assets:\n{json.dumps(source_context, ensure_ascii=False)}\n\n"
+        "For each shot, write a first-frame image prompt and a video prompt. "
+        "Use Vietnamese title in title_vi. Do not return markdown."
+    )
+    try:
+        text = await run_llm(
+            "auto_prompt",
+            user_prompt,
+            system_prompt=system_prompt,
+            timeout=60.0,
+        )
+        parsed = json.loads(_strip_json_fence(text))
+    except (LLMError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+async def _build_shot_plan_payload(
+    body: ShotPlanBuildRequest,
+    *,
+    source_context: Optional[list[dict]] = None,
+) -> dict:
+    recipe_id = normalize_video_recipe_id(body.recipe_id)
+    if recipe_id is None or recipe_id not in _SHOT_WORKFLOWS:
+        raise HTTPException(400, f"unsupported shot recipe_id {body.recipe_id!r}")
+    spec = _SHOT_WORKFLOWS[recipe_id]
+    context = source_context if source_context is not None else _source_context_for_board(
+        body.board_id, body.sources
+    )
+    brief = body.brief.strip()
+    llm_items = await _llm_shot_plan(body, recipe_label=spec.label, source_context=context)
+    source = "llm" if llm_items else "fallback"
+    shots = _normalise_shot_items(
+        llm_items or [],
+        brief=brief,
+        recipe_label=spec.label,
+        shot_count=body.shot_count,
+        duration_sec=body.shot_duration_sec,
+    )
+    return {
+        "recipe_id": recipe_id,
+        "label": spec.label,
+        "brief": brief,
+        "shot_count": body.shot_count,
+        "shot_duration_sec": body.shot_duration_sec,
+        "source": source,
+        "source_context": context,
+        "shots": shots,
+    }
+
+
+@router.post("/build-shot-plan")
+async def build_shot_plan(body: ShotPlanBuildRequest) -> dict:
+    return await _build_shot_plan_payload(body)
+
+
 def _shot_plan_prompt(index: int, total: int, label: str) -> str:
     if index == 1:
         beat = "Hook: establish subject/product and visual problem in one readable frame."
@@ -630,10 +857,24 @@ def _add_edge(
     created_edges.append(edge)
 
 
-def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
+async def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
     spec = _SHOT_WORKFLOWS[recipe_id]
     shot_count = body.shot_count or spec.shot_count
     shot_duration_sec = body.shot_duration_sec
+    source_context = _source_context_for_board(body.board_id, body.sources)
+    shot_plan = await _build_shot_plan_payload(
+        ShotPlanBuildRequest(
+            board_id=body.board_id,
+            recipe_id=recipe_id,
+            brief=body.brief,
+            shot_count=shot_count,
+            shot_duration_sec=shot_duration_sec,
+            sources=body.sources,
+            use_llm=body.use_llm,
+        ),
+        source_context=source_context,
+    )
+    planned_shots = shot_plan["shots"]
 
     with get_session() as s:
         board = s.get(Board, body.board_id)
@@ -688,11 +929,14 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
                 "title": "Storyboard plan / Kế hoạch cảnh",
                 "prompt": (
                     f"Create a {shot_count}-shot short-video storyboard. "
+                    f"Brief: {shot_plan['brief'] or spec.label}. "
                     "Each shot needs one first frame and one generated clip. "
                     "Continuity locks: same subject/product/location, one clear action beat per shot."
                 ),
                 "workflowKind": "storyboard_plan",
                 "videoRecipeId": recipe_id,
+                "shotPlanSource": shot_plan["source"],
+                "brief": shot_plan["brief"],
                 "status": "done",
             },
             status="done",
@@ -705,6 +949,7 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
         clip_nodes: list[Node] = []
         for idx in range(1, shot_count + 1):
             shot = _shot_id(idx)
+            planned = planned_shots[idx - 1]
             frame = Node(
                 board_id=body.board_id,
                 short_id=generate_unique_short_id(s, body.board_id),
@@ -714,12 +959,20 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
                 w=240,
                 h=180,
                 data={
-                    "title": f"Shot {idx} first frame / Cảnh {idx} khung đầu",
-                    "prompt": _shot_plan_prompt(idx, shot_count, spec.label),
+                    "title": f"Shot {idx}: {planned['title_en']} / {planned['title_vi']}",
+                    "prompt": planned["frame_prompt"],
                     "workflowKind": "shot_frame",
                     "shotId": shot,
                     "shotIndex": idx,
                     "shotDurationSec": shot_duration_sec,
+                    "shotTitleEn": planned["title_en"],
+                    "shotTitleVi": planned["title_vi"],
+                    "shotAction": planned["action"],
+                    "shotCamera": planned["camera"],
+                    "shotAudio": planned["audio"],
+                    "shotContinuity": planned["continuity"],
+                    "shotAvoid": planned["avoid"],
+                    "shotPlanSource": shot_plan["source"],
                     "videoRecipeId": recipe_id,
                     "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
                 },
@@ -734,14 +987,20 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
                 w=240,
                 h=180,
                 data={
-                    "title": f"Shot {idx} clip / Cảnh {idx} video",
-                    "prompt": _shot_video_prompt(
-                        idx, shot_count, spec.label, shot_duration_sec
-                    ),
+                    "title": f"Shot {idx} clip: {planned['title_en']} / {planned['title_vi']}",
+                    "prompt": planned["video_prompt"],
                     "workflowKind": "shot_clip",
                     "shotId": shot,
                     "shotIndex": idx,
                     "shotDurationSec": shot_duration_sec,
+                    "shotTitleEn": planned["title_en"],
+                    "shotTitleVi": planned["title_vi"],
+                    "shotAction": planned["action"],
+                    "shotCamera": planned["camera"],
+                    "shotAudio": planned["audio"],
+                    "shotContinuity": planned["continuity"],
+                    "shotAvoid": planned["avoid"],
+                    "shotPlanSource": shot_plan["source"],
                     "videoRecipeId": recipe_id,
                     "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
                 },
@@ -769,6 +1028,8 @@ def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
                 "workflowKind": "timeline",
                 "timelineRecipeId": recipe_id,
                 "timelineShotIds": [_shot_id(i) for i in range(1, shot_count + 1)],
+                "shotPlanSource": shot_plan["source"],
+                "brief": shot_plan["brief"],
             },
             status="idle",
         )

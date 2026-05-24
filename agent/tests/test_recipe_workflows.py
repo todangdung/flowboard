@@ -12,6 +12,89 @@ def _make_board() -> int:
         return b.id
 
 
+def test_build_shot_plan_fallback(client):
+    board_id = _make_board()
+
+    r = client.post(
+        "/api/recipes/build-shot-plan",
+        json={
+            "board_id": board_id,
+            "recipe_id": "storyboard_sequence",
+            "brief": "skincare serum launch",
+            "shot_count": 4,
+            "shot_duration_sec": 5,
+            "use_llm": False,
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["recipe_id"] == "storyboard_sequence"
+    assert body["brief"] == "skincare serum launch"
+    assert body["source"] == "fallback"
+    assert body["shot_count"] == 4
+    assert body["shot_duration_sec"] == 5
+    assert len(body["shots"]) == 4
+    assert body["shots"][0]["title_vi"] == "Mở đầu"
+    assert body["shots"][-1]["title_vi"] == "Kết"
+    assert all(shot["duration_sec"] == 5 for shot in body["shots"])
+    assert "skincare serum launch" in body["shots"][0]["frame_prompt"]
+    assert "Generate a 5s shot 1/4" in body["shots"][0]["video_prompt"]
+
+
+def test_build_shot_plan_llm(client, monkeypatch):
+    from flowboard.routes import recipes
+
+    board_id = _make_board()
+
+    async def fake_run_llm(*args, **kwargs):
+        return """
+        [
+          {
+            "title_en": "Ingredient macro",
+            "title_vi": "Cận cảnh thành phần",
+            "frame_prompt": "Premium macro frame of serum texture on glass.",
+            "video_prompt": "The uploaded image is the first frame. Glide across serum texture.",
+            "action": "show serum texture",
+            "camera": "slow macro slide",
+            "audio": "soft bottle tap",
+            "continuity": "same serum bottle and cool studio light",
+            "avoid": "medical claims"
+          },
+          {
+            "title_en": "Hero apply",
+            "title_vi": "Thoa sản phẩm",
+            "frame_prompt": "Clean beauty hero frame with bottle and hand.",
+            "video_prompt": "The uploaded image is the first frame. Hand applies one drop.",
+            "action": "apply one drop",
+            "camera": "locked portrait close-up",
+            "audio": "soft music bed",
+            "continuity": "same bottle and palette",
+            "avoid": "warped fingers"
+          }
+        ]
+        """
+
+    monkeypatch.setattr(recipes, "run_llm", fake_run_llm)
+    r = client.post(
+        "/api/recipes/build-shot-plan",
+        json={
+            "board_id": board_id,
+            "recipe_id": "storyboard_sequence",
+            "brief": "premium serum launch",
+            "shot_count": 2,
+            "shot_duration_sec": 3,
+            "use_llm": True,
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "llm"
+    assert body["shots"][0]["title_en"] == "Ingredient macro"
+    assert body["shots"][0]["title_vi"] == "Cận cảnh thành phần"
+    assert body["shots"][0]["duration_sec"] == 3
+    assert body["shots"][1]["video_prompt"] == "The uploaded image is the first frame. Hand applies one drop."
+
+
 def test_build_fashion_fit_check_workflow(client):
     board_id = _make_board()
 
@@ -110,6 +193,8 @@ def test_build_storyboard_sequence_shot_workflow(client):
             "y": 60,
             "shot_count": 3,
             "shot_duration_sec": 5,
+            "brief": "skincare serum launch",
+            "use_llm": False,
         },
     )
     assert r.status_code == 200, r.text
@@ -130,12 +215,18 @@ def test_build_storyboard_sequence_shot_workflow(client):
     clips = [n for n in nodes if n["data"].get("workflowKind") == "shot_clip"]
 
     assert plan["type"] == "prompt"
+    assert plan["data"]["brief"] == "skincare serum launch"
+    assert plan["data"]["shotPlanSource"] == "fallback"
     assert timeline["type"] == "note"
+    assert timeline["data"]["brief"] == "skincare serum launch"
+    assert timeline["data"]["shotPlanSource"] == "fallback"
     assert timeline["data"]["timelineShotIds"] == ["shot_01", "shot_02", "shot_03"]
     assert [n["data"]["shotIndex"] for n in frames] == [1, 2, 3]
     assert [n["data"]["shotIndex"] for n in clips] == [1, 2, 3]
     assert all(n["data"]["shotDurationSec"] == 5 for n in frames + clips)
     assert all("Generate a 5s shot" in n["data"]["prompt"] for n in clips)
+    assert all("skincare serum launch" in n["data"]["prompt"] for n in frames + clips)
+    assert all(n["data"]["shotPlanSource"] == "fallback" for n in frames + clips)
     assert all(n["data"]["videoRecipeId"] == "storyboard_sequence" for n in frames + clips)
 
     edges = body["edges"]
