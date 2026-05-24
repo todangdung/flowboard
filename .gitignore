@@ -46,6 +46,7 @@ coverage/
 # comments as source-of-truth, but contains raw OAuth bearer tokens.
 # Keep on disk; never commit.
 /video_model*.md
+.agents/*
+.claude/*
+.kilocode/*
 .clinerules
-.agents/rules/antigravity-rtk-rules.md
-.kilocode/rules/rtk-rules.md
