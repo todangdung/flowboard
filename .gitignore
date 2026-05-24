@@ -36,6 +36,8 @@ storage/
 # Build
 build/
 coverage/
+playwright-report/
+test-results/
 .turbo/
 **/tsconfig.tsbuildinfo
 

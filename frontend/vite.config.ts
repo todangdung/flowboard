@@ -2,6 +2,10 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const agentUrl = process.env.FLOWBOARD_AGENT_URL ?? "http://localhost:8101";
+const agentWsUrl = agentUrl.replace(/^http/, "ws");
+const devPort = Number(process.env.FLOWBOARD_FRONTEND_PORT ?? "5173");
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -10,12 +14,12 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: devPort,
     proxy: {
-      "/api": "http://localhost:8101",
-      "/media": "http://localhost:8101",
+      "/api": agentUrl,
+      "/media": agentUrl,
       "/ws": {
-        target: "ws://localhost:8101",
+        target: agentWsUrl,
         ws: true,
       },
     },
