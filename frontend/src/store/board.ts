@@ -12,7 +12,9 @@ import {
   createEdge,
   deleteEdge,
   ensureBoardProject,
+  buildRecipeWorkflow,
   type Board,
+  type NodeDTO,
   type NodeType,
   type RefRole,
   type VideoRecipeId,
@@ -154,126 +156,35 @@ const TYPE_TITLE: Record<NodeType, string> = {
   Storyboard: "Storyboard",
 };
 
-type FlowScaffoldNode = {
-  key: string;
-  type: NodeType;
-  title: string;
-  dx: number;
-  dy: number;
-  data?: Record<string, unknown>;
-};
-
-type FlowScaffoldEdge = {
-  source: string;
-  target: string;
-  refRole: RefRole;
-};
-
-type FlowScaffold = {
-  nodes: FlowScaffoldNode[];
-  edges: FlowScaffoldEdge[];
-  videoKey: string;
-};
-
-const FLOW_SCAFFOLDS: Record<VideoRecipeId, FlowScaffold | undefined> = {
-  fashion_fit_check: {
-    videoKey: "video",
-    nodes: [
-      { key: "character", type: "character", title: "Fit check character", dx: 0, dy: 0 },
-      { key: "outfit", type: "visual_asset", title: "Outfit / garment ref", dx: 0, dy: 220 },
-      {
-        key: "style",
-        type: "prompt",
-        title: "Fit check direction",
-        dx: 0,
-        dy: 440,
-        data: {
-          prompt:
-            "full outfit visible, mirror or try-on framing, natural small movement, fabric and fit remain readable",
-          status: "done",
-        },
-      },
-      { key: "frame", type: "image", title: "Fit check first frame", dx: 360, dy: 110 },
-      {
-        key: "video",
-        type: "video",
-        title: "Fashion fit check video",
-        dx: 720,
-        dy: 110,
-        data: { videoRecipeId: "fashion_fit_check" },
-      },
-    ],
-    edges: [
-      { source: "character", target: "frame", refRole: "character_ref" },
-      { source: "outfit", target: "frame", refRole: "product_ref" },
-      { source: "style", target: "frame", refRole: "style_ref" },
-      { source: "frame", target: "video", refRole: "first_frame" },
-      { source: "character", target: "video", refRole: "character_ref" },
-      { source: "outfit", target: "video", refRole: "product_ref" },
-      { source: "style", target: "video", refRole: "style_ref" },
-    ],
-  },
-  mirror_selfie: {
-    videoKey: "video",
-    nodes: [
-      { key: "character", type: "character", title: "Selfie character", dx: 0, dy: 0 },
-      {
-        key: "style",
-        type: "prompt",
-        title: "Mirror selfie direction",
-        dx: 0,
-        dy: 220,
-        data: {
-          prompt:
-            "mirror selfie, phone visible but stable, casual handheld feel, reflection geometry remains natural",
-          status: "done",
-        },
-      },
-      { key: "frame", type: "image", title: "Mirror selfie first frame", dx: 360, dy: 80 },
-      {
-        key: "video",
-        type: "video",
-        title: "Mirror selfie video",
-        dx: 720,
-        dy: 80,
-        data: { videoRecipeId: "mirror_selfie" },
-      },
-    ],
-    edges: [
-      { source: "character", target: "frame", refRole: "character_ref" },
-      { source: "style", target: "frame", refRole: "style_ref" },
-      { source: "frame", target: "video", refRole: "first_frame" },
-      { source: "character", target: "video", refRole: "character_ref" },
-      { source: "style", target: "video", refRole: "style_ref" },
-    ],
-  },
-  product_demo: {
-    videoKey: "video",
-    nodes: [
-      { key: "product", type: "visual_asset", title: "Product ref", dx: 0, dy: 0 },
-      { key: "frame", type: "image", title: "Product demo first frame", dx: 360, dy: 0 },
-      {
-        key: "video",
-        type: "video",
-        title: "Product demo video",
-        dx: 720,
-        dy: 0,
-        data: { videoRecipeId: "product_demo" },
-      },
-    ],
-    edges: [
-      { source: "product", target: "frame", refRole: "product_ref" },
-      { source: "frame", target: "video", refRole: "first_frame" },
-      { source: "product", target: "video", refRole: "product_ref" },
-    ],
-  },
-  unbox: undefined,
-  ugc_review: undefined,
-  skincare_tvc: undefined,
-  before_after: undefined,
-  dance: undefined,
-  storyboard_sequence: undefined,
-};
+function nodeFromDto(dto: NodeDTO): FlowNode {
+  return {
+    id: String(dto.id),
+    type: dto.type,
+    position: { x: dto.x, y: dto.y },
+    data: {
+      type: dto.type,
+      shortId: dto.short_id,
+      title: (dto.data["title"] as string | undefined) ?? TYPE_TITLE[dto.type],
+      status: dto.status,
+      prompt: dto.data["prompt"] as string | undefined,
+      thumbnailUrl: dto.data["thumbnailUrl"] as string | undefined,
+      mediaId: dto.data["mediaId"] as string | undefined,
+      mediaIds: dto.data["mediaIds"] as (string | null)[] | undefined,
+      slotErrors: dto.data["slotErrors"] as (string | null)[] | undefined,
+      variantCount: dto.data["variantCount"] as number | undefined,
+      aspectRatio: dto.data["aspectRatio"] as string | undefined,
+      aiBrief: dto.data["aiBrief"] as string | undefined,
+      imageModel: dto.data["imageModel"] as string | undefined,
+      videoQuality: dto.data["videoQuality"] as string | undefined,
+      videoRecipeId: dto.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
+      charCountry: dto.data["charCountry"] as string | undefined,
+      charVibe: dto.data["charVibe"] as string | undefined,
+      charGender: dto.data["charGender"] as string | undefined,
+      storyboardGrid: dto.data["storyboardGrid"] as StoryboardGrid | undefined,
+      error: dto.data["error"] as string | undefined,
+    },
+  };
+}
 
 // ── Persisted active-board id ─────────────────────────────────────────────
 // Survives page reloads so refreshing on project #4 doesn't kick the user
@@ -660,60 +571,21 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const { boardId } = get();
     if (boardId === null) return null;
     if (!isVideoRecipeId(recipeId)) return null;
-    const scaffold = FLOW_SCAFFOLDS[recipeId];
-    if (!scaffold) {
-      set({ error: `No scaffold available for recipe ${recipeId}` });
-      return null;
-    }
-
-    const createdByKey = new Map<string, FlowNode>();
-    const createdEdges: Edge<FlowboardEdgeData>[] = [];
     try {
-      for (const spec of scaffold.nodes) {
-        const data = { title: spec.title, ...(spec.data ?? {}) };
-        const dto = await createNode({
-          board_id: boardId,
-          type: spec.type,
-          x: Math.round(position.x + spec.dx),
-          y: Math.round(position.y + spec.dy),
-          data,
-        });
-        const node: FlowNode = {
-          id: String(dto.id),
-          type: dto.type,
-          position: { x: dto.x, y: dto.y },
-          data: {
-            type: dto.type,
-            shortId: dto.short_id,
-            title: (dto.data["title"] as string | undefined) ?? spec.title,
-            status: dto.status,
-            prompt: dto.data["prompt"] as string | undefined,
-            videoRecipeId: dto.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
-          },
-        };
-        createdByKey.set(spec.key, node);
-      }
-
-      for (const spec of scaffold.edges) {
-        const source = createdByKey.get(spec.source);
-        const target = createdByKey.get(spec.target);
-        if (!source || !target) continue;
-        const dto = await createEdge({
-          board_id: boardId,
-          source_id: parseInt(source.id, 10),
-          target_id: parseInt(target.id, 10),
-          ref_role: spec.refRole,
-        });
-        createdEdges.push(edgeFromDto(dto));
-      }
-
-      const createdNodes = [...createdByKey.values()];
+      const built = await buildRecipeWorkflow({
+        board_id: boardId,
+        recipe_id: recipeId,
+        x: Math.round(position.x),
+        y: Math.round(position.y),
+      });
+      const createdNodes = built.nodes.map(nodeFromDto);
+      const createdEdges = built.edges.map(edgeFromDto);
       set((s) => ({
         nodes: [...s.nodes, ...createdNodes],
         edges: [...s.edges, ...createdEdges],
       }));
 
-      const videoNode = createdByKey.get(scaffold.videoKey);
+      const videoNode = createdNodes.find((n) => n.id === String(built.video_node_id));
       if (videoNode) {
         try {
           const { useGenerationStore } = await import("./generation");

@@ -610,6 +610,33 @@ export interface VideoRecipePlanResponse {
   plan: VideoRecipePlan;
 }
 
+export interface RecipeWorkflowBuildResponse {
+  recipe_id: VideoRecipeId;
+  nodes: NodeDTO[];
+  edges: EdgeDTO[];
+  video_node_id: number | null;
+  frame_node_id: number | null;
+  open_generation: boolean;
+}
+
+export async function buildRecipeWorkflow(input: {
+  board_id: number;
+  recipe_id: VideoRecipeId;
+  x: number;
+  y: number;
+  sources?: Array<{ node_id: number; role: RefRole }>;
+}): Promise<RecipeWorkflowBuildResponse> {
+  const res = await fetch("/api/recipes/build-workflow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<RecipeWorkflowBuildResponse>;
+}
+
 export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
   const res = await fetch("/api/prompt/video-recipes");
   if (!res.ok) {
