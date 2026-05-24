@@ -17,6 +17,7 @@ import {
   type NodeDTO,
   type NodeType,
   type RefRole,
+  type ShotPlanItem,
   type VideoRecipeId,
 } from "../api/client";
 import { isVideoRecipeId } from "../lib/videoRecipes";
@@ -266,6 +267,7 @@ interface BoardState {
       shotDurationSec?: number;
       brief?: string;
       useLLM?: boolean;
+      shotPlan?: ShotPlanItem[];
     },
   ): Promise<string | null>;
   // Spawn a brand-new visual_asset node from a saved Reference. Used by
@@ -524,6 +526,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         shot_duration_sec: opts?.shotDurationSec,
         brief: opts?.brief,
         use_llm: opts?.useLLM,
+        shot_plan: opts?.shotPlan,
       });
       const createdNodes = built.nodes.map(nodeFromDto);
       const createdEdges = built.edges.map(edgeFromDto);

@@ -446,6 +446,20 @@ class SourceBinding(BaseModel):
     role: RefRole
 
 
+class ShotPlanItemInput(BaseModel):
+    shot_index: int = Field(default=1, ge=1, le=6)
+    title_en: str = Field(default="", max_length=120)
+    title_vi: str = Field(default="", max_length=120)
+    frame_prompt: str = Field(default="", max_length=4000)
+    video_prompt: str = Field(default="", max_length=4000)
+    duration_sec: Optional[int] = Field(default=None, ge=1, le=10)
+    action: str = Field(default="", max_length=2000)
+    camera: str = Field(default="", max_length=1200)
+    audio: str = Field(default="", max_length=1200)
+    continuity: str = Field(default="", max_length=2000)
+    avoid: str = Field(default="", max_length=2000)
+
+
 class ShotPlanBuildRequest(BaseModel):
     board_id: int
     recipe_id: str = "storyboard_sequence"
@@ -467,6 +481,7 @@ class WorkflowBuildRequest(BaseModel):
     shot_duration_sec: int = Field(default=4, ge=1, le=10)
     brief: str = Field(default="", max_length=2000)
     use_llm: bool = False
+    shot_plan: Optional[list[ShotPlanItemInput]] = None
 
 
 def _node_dict(node: Node) -> dict:
@@ -598,6 +613,23 @@ def _clean_text(value: Any, fallback: str, *, limit: int = 1200) -> str:
     return fallback
 
 
+def _clean_duration(value: Any, fallback: int) -> int:
+    if isinstance(value, bool):
+        return fallback
+    try:
+        duration = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return min(10, max(1, duration))
+
+
+def _dump_model(value: BaseModel) -> dict:
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return dump()
+    return value.dict()
+
+
 def _shot_fallback_item(
     index: int,
     total: int,
@@ -681,6 +713,7 @@ def _normalise_shot_items(
         avoid = _clean_text(raw.get("avoid"), fallback["avoid"])
         frame_prompt = _clean_text(raw.get("frame_prompt"), fallback["frame_prompt"], limit=1800)
         video_prompt = _clean_text(raw.get("video_prompt"), fallback["video_prompt"], limit=1800)
+        item_duration = _clean_duration(raw.get("duration_sec"), duration_sec)
         out.append(
             {
                 "shot_index": idx,
@@ -688,7 +721,7 @@ def _normalise_shot_items(
                 "title_vi": title_vi,
                 "frame_prompt": frame_prompt,
                 "video_prompt": video_prompt,
-                "duration_sec": duration_sec,
+                "duration_sec": item_duration,
                 "action": action,
                 "camera": camera,
                 "audio": audio,
@@ -800,6 +833,38 @@ async def _build_shot_plan_payload(
     }
 
 
+def _build_custom_shot_plan_payload(
+    body: WorkflowBuildRequest,
+    recipe_id: str,
+    *,
+    source_context: list[dict],
+) -> dict:
+    if not body.shot_plan:
+        raise HTTPException(400, "shot_plan is empty")
+    shot_count = len(body.shot_plan)
+    if shot_count < 1 or shot_count > 6:
+        raise HTTPException(400, "shot_plan length must be between 1 and 6")
+    spec = _SHOT_WORKFLOWS[recipe_id]
+    brief = body.brief.strip()
+    shots = _normalise_shot_items(
+        [_dump_model(item) for item in body.shot_plan],
+        brief=brief,
+        recipe_label=spec.label,
+        shot_count=shot_count,
+        duration_sec=body.shot_duration_sec,
+    )
+    return {
+        "recipe_id": recipe_id,
+        "label": spec.label,
+        "brief": brief,
+        "shot_count": shot_count,
+        "shot_duration_sec": body.shot_duration_sec,
+        "source": "custom",
+        "source_context": source_context,
+        "shots": shots,
+    }
+
+
 @router.post("/build-shot-plan")
 async def build_shot_plan(body: ShotPlanBuildRequest) -> dict:
     return await _build_shot_plan_payload(body)
@@ -859,21 +924,28 @@ def _add_edge(
 
 async def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> dict:
     spec = _SHOT_WORKFLOWS[recipe_id]
-    shot_count = body.shot_count or spec.shot_count
     shot_duration_sec = body.shot_duration_sec
     source_context = _source_context_for_board(body.board_id, body.sources)
-    shot_plan = await _build_shot_plan_payload(
-        ShotPlanBuildRequest(
-            board_id=body.board_id,
-            recipe_id=recipe_id,
-            brief=body.brief,
-            shot_count=shot_count,
-            shot_duration_sec=shot_duration_sec,
-            sources=body.sources,
-            use_llm=body.use_llm,
-        ),
-        source_context=source_context,
-    )
+    if body.shot_plan:
+        shot_plan = _build_custom_shot_plan_payload(
+            body,
+            recipe_id,
+            source_context=source_context,
+        )
+    else:
+        shot_plan = await _build_shot_plan_payload(
+            ShotPlanBuildRequest(
+                board_id=body.board_id,
+                recipe_id=recipe_id,
+                brief=body.brief,
+                shot_count=body.shot_count or spec.shot_count,
+                shot_duration_sec=shot_duration_sec,
+                sources=body.sources,
+                use_llm=body.use_llm,
+            ),
+            source_context=source_context,
+        )
+    shot_count = shot_plan["shot_count"]
     planned_shots = shot_plan["shots"]
 
     with get_session() as s:
@@ -950,6 +1022,7 @@ async def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> di
         for idx in range(1, shot_count + 1):
             shot = _shot_id(idx)
             planned = planned_shots[idx - 1]
+            planned_duration_sec = planned["duration_sec"]
             frame = Node(
                 board_id=body.board_id,
                 short_id=generate_unique_short_id(s, body.board_id),
@@ -964,7 +1037,7 @@ async def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> di
                     "workflowKind": "shot_frame",
                     "shotId": shot,
                     "shotIndex": idx,
-                    "shotDurationSec": shot_duration_sec,
+                    "shotDurationSec": planned_duration_sec,
                     "shotTitleEn": planned["title_en"],
                     "shotTitleVi": planned["title_vi"],
                     "shotAction": planned["action"],
@@ -992,7 +1065,7 @@ async def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> di
                     "workflowKind": "shot_clip",
                     "shotId": shot,
                     "shotIndex": idx,
-                    "shotDurationSec": shot_duration_sec,
+                    "shotDurationSec": planned_duration_sec,
                     "shotTitleEn": planned["title_en"],
                     "shotTitleVi": planned["title_vi"],
                     "shotAction": planned["action"],
@@ -1028,6 +1101,7 @@ async def _build_shot_workflow(body: WorkflowBuildRequest, recipe_id: str) -> di
                 "workflowKind": "timeline",
                 "timelineRecipeId": recipe_id,
                 "timelineShotIds": [_shot_id(i) for i in range(1, shot_count + 1)],
+                "timelineDurationsSec": [shot["duration_sec"] for shot in planned_shots],
                 "shotPlanSource": shot_plan["source"],
                 "brief": shot_plan["brief"],
             },

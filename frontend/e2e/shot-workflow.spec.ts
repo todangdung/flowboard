@@ -24,9 +24,27 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await page.getByRole("button", { name: "Increase shot count" }).click();
     await page.getByRole("button", { name: "Increase shot duration" }).click();
     await page
-      .getByRole("button", { name: /Create Seq \/ Chuỗi cảnh flow/i })
+      .getByRole("button", { name: "Plan storyboard sequence / Lập cảnh chuỗi" })
       .click();
 
+    const planDialog = page.getByRole("dialog", { name: "Shot plan / Kế hoạch cảnh" });
+    await expect(planDialog).toBeVisible();
+    await expect(planDialog.getByText("4 shots / 4 cảnh")).toBeVisible();
+    await planDialog
+      .getByLabel("Shot 2 video prompt / Prompt video cảnh 2")
+      .fill("Custom edited video prompt for serum texture");
+    await planDialog
+      .getByLabel("Shot 2 duration / Thời lượng cảnh 2")
+      .fill("6");
+    await test.info().attach("shot-plan-preview", {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: "image/png",
+    });
+    await page
+      .getByRole("button", { name: "Create workflow / Tạo flow" })
+      .click();
+
+    await expect(planDialog).toBeHidden();
     await expect(page.locator(".node-card")).toHaveCount(13);
     await expect(page.getByText("Timeline / Dòng dựng").first()).toBeVisible();
     await expect(page.locator(".timeline-shot-row")).toHaveCount(4);
@@ -49,35 +67,22 @@ test("builds storyboard sequence shot workflow from palette", async ({
       nodes: Array<{ data: Record<string, unknown>; type: string }>;
       edges: Array<{ ref_role: string | null }>;
     };
-    expect(
-      detail.nodes.filter((node) => node.data.workflowKind === "shot_frame"),
-    ).toHaveLength(4);
-    expect(
-      detail.nodes.filter((node) => node.data.workflowKind === "shot_clip"),
-    ).toHaveLength(4);
+    const frames = detail.nodes
+      .filter((node) => node.data.workflowKind === "shot_frame")
+      .sort((a, b) => Number(a.data.shotIndex) - Number(b.data.shotIndex));
+    const clips = detail.nodes
+      .filter((node) => node.data.workflowKind === "shot_clip")
+      .sort((a, b) => Number(a.data.shotIndex) - Number(b.data.shotIndex));
+    expect(frames).toHaveLength(4);
+    expect(clips).toHaveLength(4);
     expect(
       detail.nodes.filter((node) => node.data.workflowKind === "timeline"),
     ).toHaveLength(1);
-    expect(
-      detail.nodes
-        .filter((node) => node.data.workflowKind === "shot_clip")
-        .every((node) => node.data.shotDurationSec === 5),
-    ).toBeTruthy();
-    expect(
-      detail.nodes
-        .filter((node) => node.data.workflowKind === "shot_frame")
-        .every((node) => String(node.data.prompt).includes("skincare serum launch")),
-    ).toBeTruthy();
-    expect(
-      detail.nodes
-        .filter((node) => node.data.workflowKind === "shot_clip")
-        .every((node) => String(node.data.prompt).includes("skincare serum launch")),
-    ).toBeTruthy();
-    expect(
-      detail.nodes
-        .filter((node) => node.data.workflowKind === "shot_frame")
-        .every((node) => node.data.shotPlanSource === "fallback"),
-    ).toBeTruthy();
+    expect(clips.map((node) => node.data.shotDurationSec)).toEqual([5, 6, 5, 5]);
+    expect(frames.every((node) => String(node.data.prompt).includes("skincare serum launch"))).toBeTruthy();
+    expect(clips[1].data.prompt).toBe("Custom edited video prompt for serum texture");
+    expect(frames.every((node) => node.data.shotPlanSource === "custom")).toBeTruthy();
+    expect(clips.every((node) => node.data.shotPlanSource === "custom")).toBeTruthy();
     expect(detail.edges.filter((edge) => edge.ref_role === "first_frame")).toHaveLength(4);
     expect(detail.edges.filter((edge) => edge.ref_role === "storyboard_panel")).toHaveLength(4);
 

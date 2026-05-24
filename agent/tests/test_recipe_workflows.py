@@ -235,6 +235,92 @@ def test_build_storyboard_sequence_shot_workflow(client):
     assert sum(1 for e in edges if e["source_id"] == plan["id"] and e["ref_role"] == "storyboard_ref") == 3
 
 
+def test_build_storyboard_sequence_uses_custom_shot_plan(client):
+    board_id = _make_board()
+
+    r = client.post(
+        "/api/recipes/build-workflow",
+        json={
+            "board_id": board_id,
+            "recipe_id": "storyboard_sequence",
+            "x": 20,
+            "y": 30,
+            "shot_count": 3,
+            "shot_duration_sec": 5,
+            "brief": "custom serum edit",
+            "shot_plan": [
+                {
+                    "shot_index": 1,
+                    "title_en": "Cold open",
+                    "title_vi": "Mở lạnh",
+                    "frame_prompt": "Custom first frame one",
+                    "video_prompt": "Custom video prompt one",
+                    "duration_sec": 4,
+                    "action": "open on the serum bottle",
+                    "camera": "locked macro",
+                    "audio": "soft click",
+                    "continuity": "silver bottle and blue light",
+                    "avoid": "extra bottles",
+                },
+                {
+                    "shot_index": 2,
+                    "title_en": "Texture proof",
+                    "title_vi": "Chất serum",
+                    "frame_prompt": "Custom first frame two",
+                    "video_prompt": "Custom video prompt two edited",
+                    "duration_sec": 7,
+                    "action": "show texture on glass",
+                    "camera": "slow slide",
+                    "audio": "quiet shimmer",
+                    "continuity": "same surface and light",
+                    "avoid": "medical claims",
+                },
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["shot_count"] == 2
+
+    nodes = body["nodes"]
+    plan = next(n for n in nodes if n["data"].get("workflowKind") == "storyboard_plan")
+    timeline = next(n for n in nodes if n["data"].get("workflowKind") == "timeline")
+    frames = [n for n in nodes if n["data"].get("workflowKind") == "shot_frame"]
+    clips = [n for n in nodes if n["data"].get("workflowKind") == "shot_clip"]
+
+    assert plan["data"]["shotPlanSource"] == "custom"
+    assert timeline["data"]["shotPlanSource"] == "custom"
+    assert timeline["data"]["timelineDurationsSec"] == [4, 7]
+    assert [n["data"]["prompt"] for n in frames] == [
+        "Custom first frame one",
+        "Custom first frame two",
+    ]
+    assert [n["data"]["prompt"] for n in clips] == [
+        "Custom video prompt one",
+        "Custom video prompt two edited",
+    ]
+    assert [n["data"]["shotDurationSec"] for n in frames] == [4, 7]
+    assert [n["data"]["shotDurationSec"] for n in clips] == [4, 7]
+    assert clips[1]["data"]["shotTitleVi"] == "Chất serum"
+
+
+def test_build_storyboard_sequence_empty_custom_plan_falls_back(client):
+    board_id = _make_board()
+
+    r = client.post(
+        "/api/recipes/build-workflow",
+        json={
+            "board_id": board_id,
+            "recipe_id": "storyboard_sequence",
+            "shot_plan": [],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["shot_count"] == 3
+    assert any(n["data"].get("shotPlanSource") == "fallback" for n in body["nodes"])
+
+
 def test_storyboard_sequence_can_bind_existing_character(client):
     board_id = _make_board()
     with get_session() as s:

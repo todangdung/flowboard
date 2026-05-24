@@ -630,7 +630,7 @@ export interface ShotPlanResponse {
   brief: string;
   shot_count: number;
   shot_duration_sec: number;
-  source: "llm" | "fallback" | string;
+  source: "llm" | "fallback" | "custom" | string;
   source_context: Array<Record<string, unknown>>;
   shots: ShotPlanItem[];
 }
@@ -658,6 +658,7 @@ export async function buildRecipeWorkflow(input: {
   shot_duration_sec?: number;
   brief?: string;
   use_llm?: boolean;
+  shot_plan?: ShotPlanItem[];
 }): Promise<RecipeWorkflowBuildResponse> {
   const res = await fetch("/api/recipes/build-workflow", {
     method: "POST",
