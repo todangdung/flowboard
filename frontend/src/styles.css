@@ -4204,6 +4204,87 @@ button:disabled {
   color: #f59e0b;
 }
 
+.role-suggest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-suggest__btn,
+.role-suggest__apply {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.role-suggest__btn:hover:not(:disabled),
+.role-suggest__apply:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.42);
+}
+
+.role-suggest__btn:disabled,
+.role-suggest__apply:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.role-suggest__error {
+  font-size: 11px;
+  color: #f87171;
+  overflow-wrap: anywhere;
+}
+
+.role-suggest__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-suggest__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.role-suggest__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.role-suggest__source,
+.role-suggest__role,
+.role-suggest__reason {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-suggest__source {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.role-suggest__role {
+  color: #7dd3fc;
+}
+
+.role-suggest__reason {
+  color: var(--muted);
+}
+
 .recipe-plan__sections {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

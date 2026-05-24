@@ -637,6 +637,43 @@ export async function buildRecipeWorkflow(input: {
   return res.json() as Promise<RecipeWorkflowBuildResponse>;
 }
 
+export interface RoleSuggestion {
+  edge_id: number;
+  source_node_id: number;
+  source_short_id: string;
+  source_type: NodeType;
+  title: string | null;
+  current_role: RefRole | null;
+  suggested_role: RefRole;
+  confidence: number;
+  reason: string;
+  source: "heuristic" | "llm" | string;
+  needs_change: boolean;
+}
+
+export interface RoleClassifyResponse {
+  node_id: number;
+  recipe_id: VideoRecipeId | null;
+  source: "heuristic" | "llm" | string;
+  suggestions: RoleSuggestion[];
+}
+
+export async function classifyReferenceRoles(input: {
+  node_id: number;
+  recipe_id?: "auto" | VideoRecipeId;
+  use_llm?: boolean;
+}): Promise<RoleClassifyResponse> {
+  const res = await fetch("/api/recipes/classify-roles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<RoleClassifyResponse>;
+}
+
 export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
   const res = await fetch("/api/prompt/video-recipes");
   if (!res.ok) {

@@ -23,10 +23,12 @@ import {
 import {
   autoPrompt as autoPromptApi,
   autoPromptBatch as autoPromptBatchApi,
+  classifyReferenceRoles,
   getVideoRecipePlan,
   mediaUrl,
   patchEdge,
   patchNode,
+  type RoleSuggestion,
   type VideoRecipePlan,
 } from "../api/client";
 import {
@@ -243,6 +245,9 @@ export function GenerationDialog() {
   const [videoRecipe, setVideoRecipe] = useState<"auto" | VideoRecipeId>("auto");
   const [recipePlan, setRecipePlan] = useState<VideoRecipePlan | null>(null);
   const [recipePlanLoading, setRecipePlanLoading] = useState(false);
+  const [roleSuggestions, setRoleSuggestions] = useState<RoleSuggestion[]>([]);
+  const [roleSuggestLoading, setRoleSuggestLoading] = useState(false);
+  const [roleSuggestError, setRoleSuggestError] = useState<string | null>(null);
   // Storyboard layout. The node dispatches via the standard image
   // handler with a locked template prompt wrapping the user's topic
   // into a single composite NxN grid. See lib/storyboardPrompt.ts.
@@ -482,6 +487,9 @@ export function GenerationDialog() {
       setVideoRecipe(savedRecipeKey);
       setRecipePlan(null);
       setRecipePlanLoading(false);
+      setRoleSuggestions([]);
+      setRoleSuggestLoading(false);
+      setRoleSuggestError(null);
       setCharGender(null);
       setCharCountry(null);
       setCharVibe("clean");
@@ -647,6 +655,37 @@ export function GenerationDialog() {
         error: `Couldn't set reference role: ${err instanceof Error ? err.message : String(err)}`,
       });
     }
+  }
+
+  async function suggestRoles() {
+    if (!rfId) return;
+    const dbId = parseInt(rfId, 10);
+    if (isNaN(dbId)) return;
+    setRoleSuggestLoading(true);
+    setRoleSuggestError(null);
+    try {
+      const res = await classifyReferenceRoles({
+        node_id: dbId,
+        recipe_id: hasStoryboardUpstream ? "storyboard_sequence" : videoRecipe,
+        use_llm: true,
+      });
+      setRoleSuggestions(res.suggestions);
+    } catch (err) {
+      setRoleSuggestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRoleSuggestLoading(false);
+    }
+  }
+
+  async function applyRoleSuggestion(item: RoleSuggestion) {
+    await updateRefRoleForEdge(String(item.edge_id), item.suggested_role);
+    setRoleSuggestions((items) =>
+      items.map((x) =>
+        x.edge_id === item.edge_id
+          ? { ...x, current_role: item.suggested_role, needs_change: false }
+          : x,
+      ),
+    );
   }
 
   function applyVideoRecipe(nextRecipe: "auto" | VideoRecipeId) {
@@ -1033,6 +1072,51 @@ export function GenerationDialog() {
                     );
                   })}
                 </div>
+                {recipePlan.missing_roles.length > 0 && (
+                  <div className="role-suggest">
+                    <button
+                      type="button"
+                      className="role-suggest__btn"
+                      onClick={suggestRoles}
+                      disabled={roleSuggestLoading || isWorking}
+                    >
+                      {roleSuggestLoading ? "Suggesting…" : "Suggest roles"}
+                    </button>
+                    {roleSuggestError && (
+                      <span className="role-suggest__error">{roleSuggestError}</span>
+                    )}
+                  </div>
+                )}
+                {roleSuggestions.length > 0 && (
+                  <div className="role-suggest__list">
+                    {roleSuggestions.map((item) => (
+                      <div key={item.edge_id} className="role-suggest__item">
+                        <div className="role-suggest__main">
+                          <span className="role-suggest__source">
+                            #{item.source_short_id} · {item.title || item.source_type}
+                          </span>
+                          <span className="role-suggest__role">
+                            {item.current_role
+                              ? labelForRefRole(item.current_role)
+                              : "Auto"}{" "}
+                            → {labelForRefRole(item.suggested_role)}
+                          </span>
+                          <span className="role-suggest__reason">
+                            {Math.round(item.confidence * 100)}% · {item.reason}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="role-suggest__apply"
+                          onClick={() => applyRoleSuggestion(item)}
+                          disabled={!item.needs_change || isWorking}
+                        >
+                          {item.needs_change ? "Apply" : "Applied"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {recipePlanSections && (
                   <details className="recipe-plan__details">
                     <summary className="recipe-plan__summary">
