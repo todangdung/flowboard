@@ -251,3 +251,130 @@ Expected result shape:
 
 If `mode === "dom"` and `http_fallback_reason === "TURNSTILE_REQUIRED"`, the
 fallback ladder did its job.
+
+---
+
+## DOM Automation Debug Guide (2026-05-25)
+
+Post-mortem từ quá trình fix 3 lỗi liên tiếp trên `injected_chatgpt_dom.js`.
+Mục đích: lần sau ChatGPT đổi UI, debug nhanh hơn.
+
+### Nguồn tham khảo đáng tin cậy
+
+| Repo | Dùng để làm gì |
+|---|---|
+| `tmp/chatgpt.js` (KudoAI/chatgpt.js) | Selectors chuẩn, `send()` pattern, `isIdle()` structure |
+| `extension/CHATGPT_NOTES.md` § Selectors reference | Selectors đã verify cho Flowboard — đọc đây trước |
+
+**Quy tắc**: khi selector bị nghi ngờ, đọc `tmp/chatgpt.js/src/chatgpt.js` object `selectors` (line ~33) trước khi đoán. KudoAI maintain repo này actively.
+
+**Giới hạn của KudoAI**: `isIdle()` chờ `<pre>` trước khi check stop-button → broken cho text-only response ("OK"). Không copy `isIdle()` cho completion detection của chúng ta.
+
+---
+
+### Bug 1: `DOM_NO_NEW_MESSAGE` (v0.0.10)
+
+**Triệu chứng**: `waitForIdleDOM` timeout sau 10s dù ChatGPT đã hiện "OK" trên màn hình.
+
+**Root cause**: Selector `asstMsg` trong code dùng `div[data-message-author-role=assistant]` nhưng `CHATGPT_NOTES.md` § Selectors reference đã ghi đúng là `[data-message-author-role=assistant]` (không có `div`). Code bị drift so với doc.
+
+**Cách phát hiện**: So sánh selector trong code với `CHATGPT_NOTES.md` và `tmp/chatgpt.js/src/chatgpt.js` line 58.
+
+**Fix**: Bỏ tag `div`. Thêm combined condition `stopBtn || count > beforeCount` để handle instant response dưới 200ms poll interval.
+
+```js
+// Sai
+asstMsg: 'div[data-message-author-role=assistant]'
+// Đúng
+asstMsg: '[data-message-author-role=assistant]'
+```
+
+---
+
+### Bug 2: `DOM_STREAM_TIMEOUT` (v0.0.11)
+
+**Triệu chứng**: stability loop chạy đủ 120s rồi throw, dù response đã xong.
+
+**Root cause**: `innerText` của toàn bộ container `[data-message-author-role=assistant]` thay đổi liên tục sau khi stream xong — ChatGPT mount action buttons (copy, thumbs, share) vào trong container, làm `innerText` reset `stableSince` mãi mãi.
+
+**Cách phát hiện**:
+```js
+// Chạy trong DevTools SAU khi ChatGPT trả lời xong
+const last = document.querySelectorAll('[data-message-author-role=assistant]');
+setInterval(() => console.log(last[last.length-1]?.innerText?.length), 200);
+// Nếu length thay đổi liên tục → container có dynamic children
+```
+
+**Fix**:
+1. Tách `waitForIdleDOM` thành 3 phase: start → stop-button gone → stability
+2. Phase 3 dùng `stableMs * 3` deadline rồi `return true` (không throw) vì stream đã xong
+3. Đọc text từ inner prose element thay vì toàn container:
+
+```js
+const proseEl = last?.querySelector('.markdown, .prose, [class*="markdown"], [class*="prose"]') || last;
+```
+
+---
+
+### Bug 3: `beforeCount` stale — navigation race (v0.0.12)
+
+**Triệu chứng**: Lần test thứ 2 trở đi bị `DOM_NO_NEW_MESSAGE` dù selector đúng. Lần đầu trên tab mới thì OK.
+
+**Root cause**: `startNewChatDOM()` click new chat link rồi `waitFor(composer)` — nhưng `#prompt-textarea` tồn tại cả ở trang cũ lẫn trang mới. Hàm return ngay với composer của trang cũ (conversation cũ). `beforeCount` snapshot N messages cũ. Sau khi navigate, response mới = 1 message, `1 > N` = false → timeout.
+
+**Timeline lỗi**:
+```
+[old chat: 3 assistant msgs] → click new chat
+startNewChatDOM() → waitFor(#prompt-textarea) → RETURN (vẫn còn trang cũ!)
+beforeCount = 3
+navigate → old msgs clear → count = 0
+new response → count = 1
+waitFor(1 > 3) → TIMEOUT → DOM_NO_NEW_MESSAGE
+```
+
+**Fix**: Trong `startNewChatDOM`, wait `location.pathname === '/'` trước khi return. Trong `runGenerationDOM`, wait `asstMsg.length === 0` trước khi snapshot `beforeCount`.
+
+```js
+// startNewChatDOM
+await waitFor(() => location.pathname === '/', { timeout: 3000 });
+
+// runGenerationDOM  
+await waitFor(() => document.querySelectorAll(SEL.asstMsg).length === 0, { timeout: 2000 });
+const beforeCount = document.querySelectorAll(SEL.asstMsg).length;
+```
+
+---
+
+### Checklist debug DOM mode
+
+Khi DOM mode fail, chạy theo thứ tự này trong DevTools:
+
+```js
+// 1. Extension loaded?
+console.log('DOM helper:', !!window.__FLOWBOARD_CHATGPT_DOM__);
+console.log('loaded at:', window.__FLOWBOARD_CHATGPT_DOM__?._loadedAt);
+
+// 2. Selectors hiện tại có match không?
+console.log('composer:', !!document.querySelector('#prompt-textarea'));
+console.log('sendBtn:', !!document.querySelector('button[data-testid=send-button]'));
+console.log('stopBtn:', !!document.querySelector('button[data-testid=stop-button]'));
+console.log('asstMsg:', document.querySelectorAll('[data-message-author-role=assistant]').length);
+console.log('url:', location.pathname);
+
+// 3. Sau khi ChatGPT trả lời, inspect container text stability:
+const msgs = document.querySelectorAll('[data-message-author-role=assistant]');
+const last = msgs[msgs.length - 1];
+console.log('tag:', last?.tagName);
+console.log('innerText snippet:', last?.innerText?.substring(0, 100));
+console.log('children count:', last?.children?.length);
+
+// 4. Smoke test đơn giản nhất:
+const out = await window.__FLOWBOARD_CHATGPT_DOM__.runGenerationDOM('Reply with the word "OK".');
+console.log('TEXT:', out.text, '| MODE:', out.mode);
+```
+
+**Nếu selector không match**: so với `tmp/chatgpt.js/src/chatgpt.js` line 33-67, update `SEL` trong `injected_chatgpt_dom.js`.
+
+**Nếu `innerText` length thay đổi sau stream**: ChatGPT thêm UI mới vào container. Tìm class prose/markdown chính xác hơn để dùng làm text source.
+
+**Nếu `location.pathname` không đổi về `/`**: ChatGPT thay đổi routing. Update `startNewChatDOM` wait condition.
