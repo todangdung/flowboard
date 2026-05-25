@@ -552,21 +552,11 @@
 
   async function runGeneration(prompt, model, imageBlob, imageName) {
     const token = await getAccessToken();
-    // Upload the image attachment first when present. We do this before
-    // chat-requirements so a failure here surfaces as `FILE_REGISTER_*`
-    // rather than burning a proof-of-work compute that we'd then drop.
-    const attachment = imageBlob
-      ? await uploadImageAsAttachment(imageBlob, imageName, token)
-      : null;
-    const body = buildRequestBody(prompt, model, attachment);
 
-    // Free-tier accounts gate the conversation endpoint behind a
-    // chat-requirements handshake (proof-of-work + sentinel token).
-    // Plus accounts may skip it (server returns 404) — we run the call
-    // unconditionally and just add whichever headers the server hands
-    // us. Pre-flighting also lets us surface unsolvable challenges
-    // (arkose / turnstile) as a clean error before burning the PoW
-    // compute.
+    // Pre-flight chat-requirements FIRST so a turnstile/arkose gate
+    // throws before we burn an image upload that would then orphan
+    // when the DOM fallback re-uploads the same blob (observed: two
+    // identical attachments hitting ChatGPT in one turn).
     const sentinelHeaders = {};
     let requirements = null;
     try {
@@ -602,6 +592,15 @@
         if (proofToken) sentinelHeaders['openai-sentinel-proof-token'] = proofToken;
       }
     }
+
+    // Upload the image AFTER chat-requirements clears. Any pre-flight
+    // gate (arkose / turnstile) has already thrown above, so we don't
+    // leak a registered file when the DOM fallback re-uploads the same
+    // bytes via paste.
+    const attachment = imageBlob
+      ? await uploadImageAsAttachment(imageBlob, imageName, token)
+      : null;
+    const body = buildRequestBody(prompt, model, attachment);
 
     const buildHeaders = (authToken) => ({
       'authorization': 'Bearer ' + authToken,
