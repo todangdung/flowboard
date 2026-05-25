@@ -37,6 +37,16 @@
  * UI refresh the file's top-most consts are the only thing that needs
  * patching.
  */
+// Double-init guard. See injected_chatgpt.js for the rationale —
+// background.js can re-inject content_chatgpt.js, re-loading both
+// MAIN-world scripts. Without the guard the helper object on
+// window.__FLOWBOARD_CHATGPT_DOM__ stays consistent but the IIFE
+// re-runs its closures, leaving multiple SEL maps and waitFor
+// pollers floating around.
+if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
+  console.log('[Flowboard] injected_chatgpt_dom.js already loaded; skipping re-init');
+} else {
+  window.__FLOWBOARD_CHATGPT_DOM_INJECTED__ = true;
 (function () {
   // Selectors mirror KudoAI/chatgpt.js v4.3.0 (src/chatgpt.js) where
   // they overlap, with a couple of pragmatic fallbacks for the cases
@@ -298,11 +308,13 @@
   async function waitForIdleDOM(beforeCount, { stableMs = DEFAULT_STABLE_MS, timeout = DEFAULT_TIMEOUT_MS } = {}) {
     // Phase 1: wait for generation to START — stop-button appears (streaming)
     // OR a new assistant message lands (instant sub-200ms response).
+    // 30 s timeout (was 12 s) — DALL-E mode shows neither stop-button
+    // nor asstMsg for ~10-15 s while the tool planner spins up.
     const started = await waitFor(
       () =>
         document.querySelector(SEL.stopBtn) ||
         document.querySelectorAll(SEL.asstMsg).length > beforeCount,
-      { timeout: 12000, interval: SAMPLE_INTERVAL_MS },
+      { timeout: 30000, interval: SAMPLE_INTERVAL_MS },
     );
     if (!started) throw new Error('DOM_NO_NEW_MESSAGE');
 
@@ -548,3 +560,4 @@
   };
   console.log('[Flowboard] DOM helper loaded at', window.__FLOWBOARD_CHATGPT_DOM__._loadedAt);
 })();
+}

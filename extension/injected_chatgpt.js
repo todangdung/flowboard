@@ -19,6 +19,18 @@
  * The function is a pure parser — easy to unit-test by feeding fixture
  * chunks via a fake reader.
  */
+// Guard against double-registration. Background.js re-injects
+// content_chatgpt.js when the message channel goes stale, which re-
+// loads this MAIN-world script and (without the guard) attaches a
+// SECOND window.addEventListener('FLOWBOARD_CHATGPT_GEN', ...). Two
+// listeners → two concurrent runGenerationWithImages → two parallel
+// typePromptDOM loops with different jitter → interleaved characters
+// arriving at ChatGPT (observed: "Vẽ cho tôi" rendered as
+// "V tcôhio  cho toôni" with chars woven together).
+if (window.__FLOWBOARD_CHATGPT_INJECTED__) {
+  console.log('[Flowboard] injected_chatgpt.js already loaded; skipping re-init');
+} else {
+  window.__FLOWBOARD_CHATGPT_INJECTED__ = true;
 (function () {
   // ChatGPT's bootstrap path keeps moving — Apr 2026 the auth session
   // endpoint at `/backend-api/auth/session` returns 404 because the
@@ -780,3 +792,4 @@
     }
   });
 })();
+}
