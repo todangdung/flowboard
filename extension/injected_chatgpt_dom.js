@@ -177,11 +177,18 @@
    *
    *  Fallback dispatches a synthetic beforeinput + textContent path
    *  in case execCommand returns false (Firefox-style refusal). */
-  function typePromptDOM(composer, text) {
+  // Random integer in [min, max] inclusive — used for humanized typing
+  // jitter so the inter-keystroke timing matches a real user instead of
+  // a uniform 30 ms machine cadence (OpenAI fingerprints keystroke
+  // entropy server-side per leaked anti-bot heuristics).
+  function rand(min, max) {
+    return min + Math.floor(Math.random() * (max - min + 1));
+  }
+
+  async function typePromptDOM(composer, text) {
     composer.focus();
     // Clear any prior selection / stale composer text first so we
-    // never append to leftover content. Slate listens for beforeinput
-    // with inputType='deleteContent' to drop its own internal value.
+    // never append to leftover content.
     const sel = window.getSelection();
     sel.removeAllRanges();
     const range = document.createRange();
@@ -189,21 +196,27 @@
     sel.addRange(range);
     try { document.execCommand('delete', false); } catch (_) { /* tolerate */ }
 
-    // Insert via execCommand → fires a single beforeinput Slate
-    // intercepts (Slate calls preventDefault so execCommand RETURNS
-    // FALSE even though Slate inserted the text via its own model).
-    // Do NOT dispatch a fallback InputEvent afterwards — that produced
-    // 2-3× duplication because Slate processed both the real and the
-    // synthetic event (observed: "đây là ảnh gì?" sent 3× concatenated).
-    // Verify via composer.textContent and only fall back if insertion
-    // truly failed.
-    try { document.execCommand('insertText', false, text); } catch (_) { /* tolerate */ }
+    // Per-character typing. Each insertText fires a single beforeinput
+    // Slate intercepts and accepts. Inter-key delay 35-110 ms with
+    // occasional 150-350 ms "thinking pauses" every 6-12 chars to
+    // mimic a real typist's irregular cadence.
+    let nextPauseAt = rand(6, 12);
+    for (let i = 0; i < text.length; i++) {
+      try { document.execCommand('insertText', false, text[i]); } catch (_) { /* tolerate */ }
+      if (i === text.length - 1) break;
+      if (i + 1 >= nextPauseAt) {
+        await sleep(rand(150, 350));
+        nextPauseAt = i + 1 + rand(6, 12);
+      } else {
+        await sleep(rand(35, 110));
+      }
+    }
 
-    // If Slate's model accepted the insert, composer DOM has visible text.
-    if ((composer.innerText || composer.textContent || '').includes(text)) return;
+    // Slate accepted the typed chars → done.
+    if ((composer.innerText || composer.textContent || '').trim().length > 0) return;
 
-    // Real fallback path — execCommand neither inserted nor Slate
-    // processed it. Replace <p> manually and fire ONE input event.
+    // Fallback: composer empty after looping. Replace <p> manually
+    // and fire ONE input event so send-button enables.
     const msgP = document.createElement('p');
     msgP.textContent = text;
     const existing = composer.querySelector('p');
@@ -436,11 +449,21 @@
     // After SPA navigation the DOM update is async — URL flips to '/'
     // before React removes old <div data-message-author-role> nodes.
     await waitFor(() => document.querySelectorAll(SEL.asstMsg).length === 0, { timeout: 2000 });
+    // Humanize: small pause after landing on new-chat before touching
+    // the composer (mimics a user reading the empty page).
+    await sleep(rand(250, 600));
     const beforeCount = document.querySelectorAll(SEL.asstMsg).length;
-    typePromptDOM(composer, prompt.trim());
+    await typePromptDOM(composer, prompt.trim());
     if (imageBlob) {
+      // Brief pause between finishing the prompt and attaching the
+      // image — matches the natural beat where a user reaches for
+      // their clipboard / file picker.
+      await sleep(rand(400, 900));
       await attachImageDOM(composer, imageBlob, imageName);
     }
+    // Final "review before send" pause. Real users almost never send
+    // 0 ms after the last keystroke.
+    await sleep(rand(500, 1200));
     await clickSendDOM(composer);
     await waitForIdleDOM(beforeCount);
     return await extractResponseDOM();
