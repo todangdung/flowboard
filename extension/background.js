@@ -665,6 +665,10 @@ async function handleChatGPTRequest(msg) {
     return;
   }
 
+  // Chrome MV3 service workers terminate after ~30 s of idle. Calling any
+  // Chrome API resets the timer. We ping every 20 s so we stay alive for
+  // the full ChatGPT generation regardless of when keepAlive last fired.
+  const _swKeepAlive = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
   setState('running');
   try {
     // Find or spawn a chatgpt.com tab. Auto-open is background only — we
@@ -732,6 +736,7 @@ async function handleChatGPTRequest(msg) {
     }
     sendToAgent({ id, error: errors.length ? errors[0] : 'NO_LIVE_CHATGPT_TAB' });
   } finally {
+    clearInterval(_swKeepAlive);
     setState('idle');
   }
 }
