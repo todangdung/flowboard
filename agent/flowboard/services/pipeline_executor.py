@@ -635,6 +635,10 @@ async def run_pipeline(
                 text = result.get("text")
                 if isinstance(text, str):
                     patch["text"] = text
+                    # responseText mirrors the single-node dispatch path so
+                    # NodeCard renders the response and the upstream-text
+                    # lookup in GenerationDialog finds it in both code paths.
+                    patch["responseText"] = text
                 conversation_id = result.get("conversation_id")
                 if isinstance(conversation_id, str):
                     patch["conversationId"] = conversation_id

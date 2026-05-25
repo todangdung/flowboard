@@ -354,12 +354,19 @@ export function GenerationDialog() {
   // Upstream chatgpt nodes whose text output can prefill the prompt field
   // when this node has no static prompt. Mirrors the backend fallback in
   // pipeline_executor.py so single-node dispatch and pipeline run agree.
+  // Upstream chatgpt node text — check both responseText (single-node dispatch)
+  // and text (pipeline executor) so the lookup works regardless of how the
+  // upstream chatgpt node was last run.
   const chatgptSourceText = rfId
-    ? edges
-        .filter((e) => e.target === rfId)
-        .map((e) => nodes.find((n) => n.id === e.source))
-        .find((n) => n?.data.type === "chatgpt" && typeof n.data.text === "string" && n.data.text.trim())
-        ?.data.text as string | undefined
+    ? (() => {
+        for (const e of edges.filter((e2) => e2.target === rfId)) {
+          const n = nodes.find((n2) => n2.id === e.source);
+          if (n?.data.type !== "chatgpt") continue;
+          const t = ((n.data.responseText as string | undefined) || (n.data.text as string | undefined) || "").trim();
+          if (t) return t;
+        }
+        return undefined;
+      })()
     : undefined;
 
   const refSourceNodes = (!isVideo || isOmniVideo) && rfId
