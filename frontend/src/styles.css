@@ -2278,6 +2278,49 @@ button:disabled {
   border-color: var(--accent);
 }
 
+.chatgpt-quota-hint {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0;
+  padding: 4px 6px;
+  background: rgba(255, 200, 0, 0.08);
+  border-radius: 4px;
+  border-left: 2px solid rgba(255, 200, 0, 0.4);
+  line-height: 1.4;
+}
+
+/* Image-in handle: teal dot */
+.node-handle--image-in::after {
+  background: #22d3ee !important;
+  border-color: #22d3ee !important;
+  width: 6px !important;
+  height: 6px !important;
+  margin: -3px 0 0 -3px !important;
+}
+
+/* Image-out handle: amber dot */
+.node-handle--image-out::after {
+  background: #f59e0b !important;
+  border-color: #f59e0b !important;
+  width: 6px !important;
+  height: 6px !important;
+  margin: -3px 0 0 -3px !important;
+}
+
+.node-handle--image-in:hover::after,
+.react-flow__handle.connecting.node-handle--image-in::after {
+  background: #22d3ee !important;
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.28) !important;
+}
+
+.node-handle--image-out:hover::after,
+.react-flow__handle.connecting.node-handle--image-out::after {
+  background: #f59e0b !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.28) !important;
+}
+
 /* note */
 
 .node-card--note .node-body {

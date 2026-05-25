@@ -1493,6 +1493,28 @@ function ChatGPTBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) 
   const responseText = data.responseText ?? "";
   const errorText = data.error ?? "";
 
+  const CHATGPT_ERROR_LABELS: Record<string, string> = {
+    TURNSTILE_REQUIRED: "Cloudflare check — đang dùng DOM mode",
+    ARKOSE_REQUIRED: "Arkose check — đang dùng DOM mode",
+    RATE_LIMITED: "Quá nhiều request — thử lại sau",
+    DOM_STREAM_TIMEOUT: "ChatGPT timeout (120s)",
+    DOM_NO_NEW_MESSAGE: "ChatGPT không phản hồi",
+    DOM_NO_COMPOSER: "Không tìm thấy ô soạn thảo",
+    DOM_ATTACH_THUMB_MISSING: "Upload ảnh thất bại",
+    NO_ACCESS_TOKEN: "Cần đăng nhập ChatGPT",
+    MISSING_PROMPT: "Thiếu prompt",
+  };
+  const friendlyError = errorText
+    ? (CHATGPT_ERROR_LABELS[errorText] ?? errorText)
+    : "";
+
+  // Show hint when generation succeeded but produced no images
+  const showNoImageHint =
+    data.status === "done" &&
+    !!responseText &&
+    (data.mediaIds == null || data.mediaIds.length === 0) &&
+    (data.assetPointers != null && (data.assetPointers as string[]).length > 0 === false);
+
   return (
     <div className="node-body node-body--chatgpt">
       {editing ? (
@@ -1549,8 +1571,13 @@ function ChatGPTBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) 
           ))}
         </div>
       )}
-      {errorText && !responseText && (
-        <pre className="chatgpt-error">⚠ {errorText}</pre>
+      {friendlyError && (
+        <pre className="chatgpt-error">⚠ {friendlyError}</pre>
+      )}
+      {showNoImageHint && (
+        <p className="chatgpt-quota-hint">
+          Không có ảnh trong phản hồi — có thể đã hết quota DALL-E hôm nay (free tier)
+        </p>
       )}
     </div>
   );
@@ -1652,6 +1679,16 @@ export function NodeCard(props: NodeProps<FlowNode>) {
     >
       <StatusStrip status={data.status} />
       <Handle type="target" position={Position.Left} className="node-handle" />
+      {data.type === "chatgpt" && (
+        <Handle
+          type="target"
+          id="image-in"
+          position={Position.Left}
+          className="node-handle node-handle--image-in"
+          style={{ top: "72%" }}
+          title="Image input — nối node ảnh vào đây để gửi kèm ChatGPT"
+        />
+      )}
 
       <div className="node-header">
         <span className="node-icon" aria-hidden="true">{ICON[data.type] ?? "□"}</span>
@@ -1695,6 +1732,16 @@ export function NodeCard(props: NodeProps<FlowNode>) {
       <NodeBody rfId={props.id} data={data} />
 
       <Handle type="source" position={Position.Right} className="node-handle" />
+      {data.type === "chatgpt" && (data.mediaIds?.length ?? 0) > 0 && (
+        <Handle
+          type="source"
+          id="image-out"
+          position={Position.Right}
+          className="node-handle node-handle--image-out"
+          style={{ top: "72%" }}
+          title="Image output — nối sang node ảnh/video downstream"
+        />
+      )}
     </div>
   );
 }
