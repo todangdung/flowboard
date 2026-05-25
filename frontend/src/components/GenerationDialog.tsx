@@ -351,6 +351,17 @@ export function GenerationDialog() {
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
     : [];
 
+  // Upstream chatgpt nodes whose text output can prefill the prompt field
+  // when this node has no static prompt. Mirrors the backend fallback in
+  // pipeline_executor.py so single-node dispatch and pipeline run agree.
+  const chatgptSourceText = rfId
+    ? edges
+        .filter((e) => e.target === rfId)
+        .map((e) => nodes.find((n) => n.id === e.source))
+        .find((n) => n?.data.type === "chatgpt" && typeof n.data.text === "string" && n.data.text.trim())
+        ?.data.text as string | undefined
+    : undefined;
+
   const refSourceNodes = (!isVideo || isOmniVideo) && rfId
     ? edges
         .filter((e) => e.target === rfId)
@@ -637,13 +648,19 @@ export function GenerationDialog() {
     }
     if (isChatGPT) {
       // ChatGPT path: simple prompt → extension → text + (M2) images.
-      // No aspect, no variants, no refs. Caller-typed prompt only.
-      if (!prompt.trim()) {
+      // If the node has no static prompt, fall back to the first upstream
+      // prompt node's text — same resolution the pipeline executor applies
+      // so single-node dispatch and pipeline run behave consistently.
+      const effectivePrompt =
+        prompt.trim() ||
+        promptSourceNodes.find((s) => s.text.trim())?.text.trim() ||
+        "";
+      if (!effectivePrompt) {
         closeGenerationDialog();
         return;
       }
       dispatchGeneration(rfId, {
-        prompt,
+        prompt: effectivePrompt,
         kind: "chatgpt",
       });
       closeGenerationDialog();
@@ -676,11 +693,14 @@ export function GenerationDialog() {
       closeGenerationDialog();
       return;
     }
-    // Image / video branch — if user left the prompt blank, synthesise
-    // from upstream briefs (composition prompt for image, motion prompt
-    // for video) before dispatching. For image with variants > 1 use the
-    // batch endpoint so each variant gets its own pose-distinct prompt.
-    let finalPrompt = prompt;
+    // Image / video branch — if user left the prompt blank, try upstream
+    // chatgpt text first (no API call needed), then fall back to server-side
+    // auto-prompt synthesis from upstream briefs.
+    let finalPrompt = prompt.trim() || chatgptSourceText?.trim() || "";
+    if (finalPrompt && chatgptSourceText && !prompt.trim()) {
+      // Prefill the textarea so the user can see and edit what will be sent.
+      setPrompt(finalPrompt);
+    }
     let perVariantPrompts: string[] | undefined;
     if (!finalPrompt.trim()) {
       const dbId = parseInt(rfId, 10);
