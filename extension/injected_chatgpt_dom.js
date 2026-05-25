@@ -57,7 +57,11 @@
     // attach-button image, blob/data URL preview inside composer).
     attachThumb: '[data-testid="attachment-thumbnail"], [data-testid="attachments-preview-card"], [data-testid="attachments-preview-img"], [data-testid*="attachment"], button[aria-label*="ttach" i] img, [class*="composer"] img[src^="blob:"], [class*="composer"] img[src^="data:"]',
     newChat: 'a[href="/"]:has(svg), nav a[href="/"]',
-    cdnImg: 'img[src*="oaiusercontent"], img[src*="files.oaiusercontent"]',
+    // Match every oaiusercontent regional CDN variant (sdmntpr*, files,
+    // dalle), plus cdn.openai.com (older path) and chatgpt.com-served
+    // /files/* relative URLs. Lazy-load placeholders (data:, blob:) are
+    // filtered downstream in extractResponseDOM, not here.
+    cdnImg: 'img[src*="oaiusercontent"], img[src*="cdn.openai.com"], img[src*="/files/file-"]',
     paragenRoot: '[data-paragen-root]',
     turnContainer: '[data-turn-id-container],[data-turn-id]',
   };
@@ -340,6 +344,41 @@
     return true;
   }
 
+  /** DALL-E renders in the assistant message AFTER the text stream
+   *  finishes — usually 1-4 s after stop-button disappears. Poll the
+   *  last assistant block until the CDN-image count is stable for
+   *  `stableMs` so extractResponseDOM doesn't snapshot mid-render. */
+  async function waitForImagesStableDOM({ stableMs = 1500, timeout = 30000 } = {}) {
+    const target = (() => {
+      const msgs = document.querySelectorAll(SEL.asstMsg);
+      return msgs[msgs.length - 1];
+    })();
+    if (!target) return;
+    const isReal = (src) =>
+      typeof src === 'string' && src && !src.startsWith('data:') && !src.startsWith('blob:');
+    const countReal = () =>
+      Array.from(target.querySelectorAll(SEL.cdnImg)).filter((i) => isReal(i.src)).length;
+    const deadline = Date.now() + timeout;
+    let lastCount = -1;
+    let stableSince = null;
+    while (Date.now() < deadline) {
+      const c = countReal();
+      if (c !== lastCount) {
+        lastCount = c;
+        stableSince = null;
+      } else if (c === 0) {
+        // No image arrived — give it a brief chance to start, then exit.
+        if (stableSince === null) stableSince = Date.now();
+        if (Date.now() - stableSince >= stableMs) return;
+      } else if (stableSince === null) {
+        stableSince = Date.now();
+      } else if (Date.now() - stableSince >= stableMs) {
+        return;
+      }
+      await sleep(200);
+    }
+  }
+
   /** Read the last assistant message: text from innerText, images from
    *  CDN-hosted `<img>` tags. Each CDN image is fetched same-origin so
    *  Cloudflare cookies attach; the bytes are base64-encoded and packed
@@ -375,6 +414,16 @@
     for (const img of cdnImgs) {
       const src = img.src;
       if (!src) continue;
+      // Skip placeholders / inline data URIs / blob previews. The CDN
+      // selector is broad enough that lazy-load placeholders sneak in
+      // before the real DALL-E URL swaps in.
+      if (src.startsWith('data:') || src.startsWith('blob:')) continue;
+      // Skip avatars/icons (≤ 64 px on either side). DALL-E outputs are
+      // ≥ 512 px and the assistant block sometimes nests a profile
+      // glyph that would otherwise be ingested as a stray image.
+      const w = img.naturalWidth || img.width || 0;
+      const h = img.naturalHeight || img.height || 0;
+      if (w && h && (w < 96 || h < 96)) continue;
       try {
         const resp = await fetch(src, { credentials: 'include' });
         if (!resp.ok) {
@@ -466,6 +515,10 @@
     await sleep(rand(500, 1200));
     await clickSendDOM(composer);
     await waitForIdleDOM(beforeCount);
+    // DALL-E images render AFTER the text stream finishes. Block until
+    // the assistant message's image count settles so we don't snapshot
+    // a half-rendered turn (no-op when ChatGPT replies text-only).
+    await waitForImagesStableDOM();
     return await extractResponseDOM();
   }
 
@@ -476,6 +529,7 @@
     startNewChatDOM,
     attachImageDOM,
     typePromptDOM,
+    waitForImagesStableDOM,
     clickSendDOM,
     waitForIdleDOM,
     extractResponseDOM,
