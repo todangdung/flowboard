@@ -31,10 +31,19 @@
   // (rather than throwing), so the caller can fall through to the next.
   const CONVERSATION_URL = '/backend-api/conversation';
   const CHAT_REQUIREMENTS_URL = '/backend-api/sentinel/chat-requirements';
+  const FILES_URL = '/backend-api/files';
   const AUTH_FETCH_FALLBACKS = [
     '/api/auth/session',          // NextAuth.js default (current best guess)
     '/backend-api/auth/session',  // legacy custom OpenAI endpoint
   ];
+
+  const MIME_TO_EXT = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+  };
 
   let cachedAccessToken = null;
 
@@ -54,6 +63,157 @@
    *  unit-test sandbox can stub it without breaking image dispatch. */
   function uuid() {
     return crypto.randomUUID();
+  }
+
+  /** Read width/height from an image blob via createImageBitmap, falling back
+   *  to a hidden <img> element when bitmap decoding fails (animated GIFs and
+   *  oversized images sometimes do). Returns {width, height} — both default
+   *  to 0 if every probe fails, which the attachment metadata still accepts. */
+  async function readImageDims(blob) {
+    try {
+      if (typeof createImageBitmap === 'function') {
+        const bmp = await createImageBitmap(blob);
+        const out = { width: bmp.width, height: bmp.height };
+        if (typeof bmp.close === 'function') bmp.close();
+        return out;
+      }
+    } catch {
+      // fall through to <img> path
+    }
+    return await new Promise((resolve) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const out = { width: img.naturalWidth || 0, height: img.naturalHeight || 0 };
+        URL.revokeObjectURL(url);
+        resolve(out);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve({ width: 0, height: 0 });
+      };
+      img.src = url;
+    });
+  }
+
+  /** Upload an image blob to ChatGPT's file storage. Three-step flow
+   *  mirrored from lanqian528/chat2api `chatgpt/ChatService.py`
+   *  (`get_upload_url`, `upload`, `get_download_url_from_upload`):
+   *    1. POST /backend-api/files with the full chat2api body shape —
+   *       `reset_rate_limits: false` + `timezone_offset_min` are
+   *       required by the server in 2026; missing them returns 400.
+   *    2. PUT raw bytes to the signed Azure Blob URL with the full
+   *       Azure header set: `x-ms-blob-type` + `x-ms-version`. Without
+   *       `x-ms-version` Azure returns 403 on some regions.
+   *    3. POST /backend-api/files/{file_id}/uploaded — confirms upload
+   *       and surfaces the CDN `download_url`.
+   *    4. Poll /backend-api/files/{file_id} for
+   *       `retrieval_index_status === "success"`. The conversation
+   *       endpoint rejects asset_pointers whose retrieval indexing has
+   *       not converged, so this poll is mandatory not optional.
+   *
+   *  Returns `{file_id, name, size, mime, width, height}` for embedding
+   *  into the conversation body. Throws a structured code on any step
+   *  failure so the agent surface gives an actionable error. */
+  async function uploadImageAsAttachment(blob, name, token) {
+    const mime = blob.type || 'image/png';
+    const ext = MIME_TO_EXT[mime.toLowerCase()] || '.png';
+    const fileName = name || `flowboard-${Date.now()}${ext}`;
+    // chat2api convention: send the browser's actual timezone offset
+    // in minutes, signed so positive = west of UTC (matches JS's
+    // Date.getTimezoneOffset).
+    const timezoneOffsetMin = new Date().getTimezoneOffset();
+
+    // Step 1: register the file.
+    const reg = await fetch(FILES_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'authorization': 'Bearer ' + token,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        file_name: fileName,
+        file_size: blob.size,
+        reset_rate_limits: false,
+        timezone_offset_min: timezoneOffsetMin,
+        use_case: 'multimodal',
+      }),
+    });
+    if (!reg.ok) throw new Error(`FILE_REGISTER_${reg.status}`);
+    const regJson = await reg.json();
+    const uploadUrl = regJson.upload_url;
+    const fileId = regJson.file_id;
+    if (typeof uploadUrl !== 'string' || !uploadUrl) throw new Error('NO_UPLOAD_URL');
+    if (typeof fileId !== 'string' || !fileId) throw new Error('NO_FILE_ID');
+
+    // Step 2: PUT the raw bytes to Azure Blob. Headers cribbed from
+    // chat2api `ChatService.upload`: `x-ms-version: 2020-04-08`
+    // covers the regional rollouts that otherwise return 403.
+    const putResp = await fetch(uploadUrl, {
+      method: 'PUT',
+      credentials: 'omit',
+      headers: {
+        'accept': 'application/json, text/plain, */*',
+        'content-type': mime,
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-version': '2020-04-08',
+      },
+      body: blob,
+    });
+    // Azure Blob returns 201 Created on success — chat2api's check
+    // uses status_code == 201 explicitly. We accept any 2xx so a
+    // future Azure rollout that switches to 200 doesn't break us.
+    if (!putResp.ok) throw new Error(`FILE_PUT_${putResp.status}`);
+
+    // Step 3: notify ChatGPT the upload completed.
+    const confirm = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}/uploaded`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'authorization': 'Bearer ' + token,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    if (!confirm.ok) throw new Error(`FILE_CONFIRM_${confirm.status}`);
+
+    // Step 4: wait for retrieval indexing. chat2api polls 30 times at
+    // 1 s — same cap here. The conversation call right after will
+    // reject the asset_pointer with a 422 if we skip this step.
+    let indexed = false;
+    for (let i = 0; i < 30; i++) {
+      const probe = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}`, {
+        credentials: 'include',
+        headers: {
+          'authorization': 'Bearer ' + token,
+          'accept': 'application/json',
+        },
+      });
+      if (probe.ok) {
+        let probeJson = {};
+        try { probeJson = await probe.json(); } catch { /* tolerate */ }
+        if (probeJson?.retrieval_index_status === 'success') {
+          indexed = true;
+          break;
+        }
+      }
+      // 1 s sleep mirrors chat2api's poll cadence — slower than the
+      // typical 200-300 ms indexing latency, but lighter on the
+      // server than tighter polling.
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (!indexed) throw new Error('FILE_INDEX_TIMEOUT');
+
+    const { width, height } = await readImageDims(blob);
+    return {
+      file_id: fileId,
+      name: fileName,
+      size: blob.size,
+      mime,
+      width,
+      height,
+    };
   }
 
   /** Resolve a `file-service://file-XXXX` asset pointer to bytes.
@@ -274,15 +434,54 @@
     throw new Error(`NO_ACCESS_TOKEN[ctx_miss,${errors.join(',')}]`);
   }
 
-  function buildRequestBody(prompt, model) {
+  function buildRequestBody(prompt, model, attachment) {
+    // When an image attachment is supplied, switch the user message to
+    // ChatGPT's `multimodal_text` shape. Order matters — the image
+    // descriptor must precede the prompt text in `parts[]` for the
+    // model to treat the text as referencing the image. The asset
+    // descriptor uses bare `{asset_pointer, width, height, size_bytes}`
+    // (NO content_type field on the descriptor itself — that field
+    // only appears on the *response* side when ChatGPT echoes images).
+    // The attachments[] metadata entry uses camelCase `mimeType` to
+    // match what the ChatGPT web UI emits.
+    const content = attachment
+      ? {
+          content_type: 'multimodal_text',
+          parts: [
+            {
+              asset_pointer: 'file-service://' + attachment.file_id,
+              size_bytes: attachment.size,
+              width: attachment.width || 0,
+              height: attachment.height || 0,
+            },
+            prompt,
+          ],
+        }
+      : { content_type: 'text', parts: [prompt] };
+
+    const metadata = attachment
+      ? {
+          attachments: [
+            {
+              id: attachment.file_id,
+              name: attachment.name,
+              size: attachment.size,
+              mimeType: attachment.mime,
+              width: attachment.width || 0,
+              height: attachment.height || 0,
+            },
+          ],
+        }
+      : {};
+
     return {
       action: 'next',
       messages: [
         {
           id: crypto.randomUUID(),
           author: { role: 'user' },
-          content: { content_type: 'text', parts: [prompt] },
-          metadata: {},
+          content,
+          metadata,
         },
       ],
       // `auto` lets ChatGPT route to the appropriate underlying model
@@ -372,9 +571,15 @@
     };
   }
 
-  async function runGeneration(prompt, model) {
+  async function runGeneration(prompt, model, imageBlob, imageName) {
     const token = await getAccessToken();
-    const body = buildRequestBody(prompt, model);
+    // Upload the image attachment first when present. We do this before
+    // chat-requirements so a failure here surfaces as `FILE_REGISTER_*`
+    // rather than burning a proof-of-work compute that we'd then drop.
+    const attachment = imageBlob
+      ? await uploadImageAsAttachment(imageBlob, imageName, token)
+      : null;
+    const body = buildRequestBody(prompt, model, attachment);
 
     // Free-tier accounts gate the conversation endpoint behind a
     // chat-requirements handshake (proof-of-work + sentinel token).
@@ -467,9 +672,60 @@
     return await parseSSEStream(iter);
   }
 
-  async function runGenerationWithImages(prompt, model) {
+  // Errors that mean HTTP-direct cannot proceed but the DOM fallback
+  // (which uses the page's own JS to render Cloudflare's challenge
+  // widgets) can still drive a successful generation. Keep this list
+  // narrow — fallback to DOM is slower (10-30 s) and brittle to UI
+  // changes, so we only swap modes when the HTTP path is fundamentally
+  // gated rather than transiently failing.
+  const FALLBACK_ERROR_CODES = new Set([
+    'TURNSTILE_REQUIRED',
+    'ARKOSE_REQUIRED',
+    'NO_ACCESS_TOKEN',
+  ]);
+  const FALLBACK_ERROR_PREFIXES = [
+    'CONVERSATION_HTTP_403',
+    'CONVERSATION_HTTP_429',
+    'CHAT_REQ_403',
+    'CHAT_REQ_429',
+    'PoW_FAILED',
+  ];
+
+  function isFallbackError(err) {
+    const m = (err && err.message) || '';
+    if (FALLBACK_ERROR_CODES.has(m)) return true;
+    if (m.startsWith('NO_ACCESS_TOKEN')) return true;
+    return FALLBACK_ERROR_PREFIXES.some((p) => m.startsWith(p));
+  }
+
+  async function runGenerationWithImages(prompt, model, imageBlob, imageName) {
+    // HTTP-direct first — when it works it is faster (no DOM polling),
+    // hits the proper conversation endpoint, and survives UI refreshes
+    // unscathed. Only fall back when the failure mode is one the DOM
+    // path can plausibly fix.
+    try {
+      return await runGenerationWithImagesHTTP(prompt, model, imageBlob, imageName);
+    } catch (err) {
+      if (!isFallbackError(err)) throw err;
+      const dom = window.__FLOWBOARD_CHATGPT_DOM__;
+      if (!dom || typeof dom.runGenerationDOM !== 'function') {
+        // DOM helper missing → re-throw the original error so the
+        // caller surfaces the actual block, not a misleading
+        // "DOM mode unavailable" string.
+        throw err;
+      }
+      console.warn(`[Flowboard] HTTP-direct blocked (${err.message}); falling back to DOM mode`);
+      const result = await dom.runGenerationDOM(prompt, imageBlob, imageName);
+      // Tag the result so the agent's activity log can show which path
+      // produced the answer. Useful when triaging "why is this slow?"
+      // reports.
+      return { ...result, http_fallback_reason: err.message };
+    }
+  }
+
+  async function runGenerationWithImagesHTTP(prompt, model, imageBlob, imageName) {
     const token = await getAccessToken();
-    const parsed = await runGeneration(prompt, model);
+    const parsed = await runGeneration(prompt, model, imageBlob, imageName);
 
     // M2: resolve any asset_pointers into bytes. Each pointer maps to
     // exactly one image attachment — DALL-E variants come as multiple
@@ -500,13 +756,28 @@
         }
       }
     }
-    return { ...parsed, images };
+    return { ...parsed, images, mode: 'http' };
+  }
+
+  /** Decode a base64 string into a Blob with the given MIME. The agent
+   *  ships images as base64 over the WS channel; we round-trip through
+   *  binary so the file-upload PUT receives raw bytes (Azure Blob rejects
+   *  text/plain bodies). Chunked decoding mirrors arrayBufferToBase64. */
+  function base64ToBlob(b64, mime) {
+    const binary = atob(b64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime || 'application/octet-stream' });
   }
 
   window.addEventListener('FLOWBOARD_CHATGPT_GEN', async (e) => {
-    const { requestId, prompt, model } = e.detail || {};
+    const { requestId, prompt, model, image_b64, image_mime, image_name } = e.detail || {};
     try {
-      const result = await runGenerationWithImages(prompt, model);
+      const imageBlob = image_b64
+        ? base64ToBlob(image_b64, image_mime || 'image/png')
+        : null;
+      const result = await runGenerationWithImages(prompt, model, imageBlob, image_name);
       window.dispatchEvent(new CustomEvent('FLOWBOARD_CHATGPT_RESULT', {
         detail: {
           requestId,
@@ -514,6 +785,10 @@
           asset_pointers: result.asset_pointers,
           images: result.images,
           conversation_id: result.conversation_id,
+          mode: result.mode || null,
+          http_fallback_reason: result.http_fallback_reason || null,
+          paragen: result.paragen || false,
+          assistant_count: result.assistant_count || null,
         },
       }));
     } catch (err) {

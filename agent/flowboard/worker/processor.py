@@ -557,6 +557,7 @@ async def _handle_edit_image(params: dict) -> tuple[dict, Optional[str]]:
 
 async def _handle_gen_chatgpt(params: dict) -> tuple[dict, Optional[str]]:
     import base64
+    from mimetypes import guess_type
 
     prompt = params.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
@@ -565,7 +566,63 @@ async def _handle_gen_chatgpt(params: dict) -> tuple[dict, Optional[str]]:
     if not isinstance(model, str) or not model.strip():
         model = None
 
-    resp = await flow_client.chatgpt_request(prompt=prompt.strip(), model=model)
+    # Optional upstream image — pipeline executor resolves a single
+    # upstream `mediaId` from image/character/visual_asset nodes and
+    # plumbs it through here. The handler loads bytes from the local
+    # media cache (already populated by the upstream node's generation
+    # step), base64-encodes for transit, and lets the extension run the
+    # three-step file upload to ChatGPT.
+    image_b64: Optional[str] = None
+    image_mime: Optional[str] = None
+    image_name: Optional[str] = None
+    image_media_id = params.get("image_media_id")
+    if isinstance(image_media_id, str) and image_media_id:
+        if not media_service.is_valid_media_id(image_media_id):
+            return {}, "invalid_image_media_id"
+        path = media_service.cached_path(image_media_id)
+        if path is None:
+            # Asset row may have a remote URL but no local cache yet —
+            # fetch it on demand. The fetch helper writes the bytes
+            # back into the cache so a re-run is a no-op.
+            cached = await media_service.fetch_and_cache(image_media_id)
+            if cached is None:
+                return {}, "upstream_image_missing"
+            raw_bytes, mime_from_fetch, _ = cached
+            image_mime = mime_from_fetch
+        else:
+            try:
+                raw_bytes = path.read_bytes()
+            except OSError as exc:
+                logger.warning("chatgpt: read upstream image failed: %s", exc)
+                return {}, "upstream_image_read_failed"
+            # Sniff mime from extension via the existing media table.
+            # The cache file extension is set by media_service so this
+            # is deterministic; we only fall back to image/png to keep
+            # the request alive on an unmapped extension.
+            ext = path.suffix.lower()
+            ext_to_mime = {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".webp": "image/webp",
+                ".gif": "image/gif",
+            }
+            image_mime = ext_to_mime.get(ext) or (guess_type(str(path))[0] or "image/png")
+        if not raw_bytes:
+            return {}, "upstream_image_empty"
+        image_b64 = base64.b64encode(raw_bytes).decode("ascii")
+        # Stable, recognisable filename so the user sees something
+        # meaningful if they later inspect the file in ChatGPT's
+        # files panel. Avoid spaces (some endpoints reject them).
+        image_name = f"flowboard-{image_media_id[:8]}"
+
+    resp = await flow_client.chatgpt_request(
+        prompt=prompt.strip(),
+        model=model,
+        image_b64=image_b64,
+        image_mime=image_mime,
+        image_name=image_name,
+    )
     if resp.get("error"):
         return resp, str(resp["error"])[:200]
 
@@ -574,6 +631,27 @@ async def _handle_gen_chatgpt(params: dict) -> tuple[dict, Optional[str]]:
     asset_pointers = data.get("asset_pointers") if isinstance(data.get("asset_pointers"), list) else []
     conversation_id = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else None
     images = data.get("images") if isinstance(data.get("images"), list) else []
+    # Mode telemetry from M2 fallback ladder. `mode` is "http" on the
+    # direct conversation endpoint or "dom" when the page-automation
+    # fallback drove the generation. `http_fallback_reason` carries the
+    # underlying HTTP error code that triggered the swap, so the
+    # activity log can explain why a request was slow.
+    mode = data.get("mode") if isinstance(data.get("mode"), str) else None
+    http_fallback_reason = (
+        data.get("http_fallback_reason")
+        if isinstance(data.get("http_fallback_reason"), str)
+        else None
+    )
+    # Paragen telemetry — `paragen=True` means ChatGPT served the
+    # parallel-generation experiment (two candidate replies). We
+    # auto-picked the first candidate; the agent surfaces this so the
+    # UI can show users which mode produced their answer.
+    paragen = bool(data.get("paragen")) if data.get("paragen") is not None else False
+    assistant_count = (
+        data.get("assistant_count")
+        if isinstance(data.get("assistant_count"), int)
+        else None
+    )
 
     # Ingest any inline image bytes the extension downloaded. Each image
     # arrives as `{media_id, bytes_b64, mime, asset_pointer}`. The
@@ -619,6 +697,10 @@ async def _handle_gen_chatgpt(params: dict) -> tuple[dict, Optional[str]]:
             "conversation_id": conversation_id,
             "media_ids": media_ids,
             "image_errors": ingest_errors or None,
+            "mode": mode,
+            "http_fallback_reason": http_fallback_reason,
+            "paragen": paragen,
+            "assistant_count": assistant_count,
         },
         None,
     )

@@ -653,6 +653,13 @@ async function handleChatGPTRequest(msg) {
   const { id, params } = msg;
   const prompt = params?.prompt;
   const model = params?.model || null;
+  // Optional image attachment — agent sends bytes as base64 over the WS
+  // channel. JSON.stringify of a 1080p image runs ~2-3 MB which the
+  // browser handles fine; if we ever need to support larger uploads,
+  // switch this to a chunked transfer.
+  const image_b64 = typeof params?.image_b64 === 'string' ? params.image_b64 : null;
+  const image_mime = typeof params?.image_mime === 'string' ? params.image_mime : null;
+  const image_name = typeof params?.image_name === 'string' ? params.image_name : null;
   if (typeof prompt !== 'string' || !prompt.trim()) {
     sendToAgent({ id, error: 'MISSING_PROMPT' });
     return;
@@ -690,7 +697,7 @@ async function handleChatGPTRequest(msg) {
       const live = await reviveTabIfNeeded(tab);
       if (!live) continue;
       try {
-        const result = await sendChatGPTToTab(live.id, id, prompt, model);
+        const result = await sendChatGPTToTab(live.id, id, prompt, model, image_b64, image_mime, image_name);
         if (result?.error) {
           // Surface the content-script error (e.g. RATE_LIMITED) up to
           // the agent verbatim — the worker maps it to a clean error code.
@@ -704,6 +711,11 @@ async function handleChatGPTRequest(msg) {
             text: result?.text ?? '',
             asset_pointers: result?.asset_pointers ?? [],
             conversation_id: result?.conversation_id ?? null,
+            images: result?.images ?? [],
+            mode: result?.mode ?? null,
+            http_fallback_reason: result?.http_fallback_reason ?? null,
+            paragen: result?.paragen ?? false,
+            assistant_count: result?.assistant_count ?? null,
           },
         });
         return;
@@ -724,14 +736,18 @@ async function handleChatGPTRequest(msg) {
   }
 }
 
-async function sendChatGPTToTab(tabId, requestId, prompt, model) {
+async function sendChatGPTToTab(tabId, requestId, prompt, model, image_b64, image_mime, image_name) {
+  const payload = {
+    type: 'CHATGPT_GEN',
+    requestId,
+    prompt,
+    model,
+    image_b64,
+    image_mime,
+    image_name,
+  };
   try {
-    return await chrome.tabs.sendMessage(tabId, {
-      type: 'CHATGPT_GEN',
-      requestId,
-      prompt,
-      model,
-    });
+    return await chrome.tabs.sendMessage(tabId, payload);
   } catch (error) {
     const msg = error?.message || '';
     const shouldInject =
@@ -745,12 +761,7 @@ async function sendChatGPTToTab(tabId, requestId, prompt, model) {
       files: ['content_chatgpt.js'],
     });
     await sleep(200);
-    return await chrome.tabs.sendMessage(tabId, {
-      type: 'CHATGPT_GEN',
-      requestId,
-      prompt,
-      model,
-    });
+    return await chrome.tabs.sendMessage(tabId, payload);
   }
 }
 

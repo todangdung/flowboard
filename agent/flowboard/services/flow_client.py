@@ -380,6 +380,9 @@ class FlowClient:
         self,
         prompt: str,
         model: Optional[str] = None,
+        image_b64: Optional[str] = None,
+        image_mime: Optional[str] = None,
+        image_name: Optional[str] = None,
         timeout: Optional[float] = 150.0,
     ) -> dict:
         """Proxy a ChatGPT generation through the extension's chatgpt.com tab.
@@ -389,17 +392,30 @@ class FlowClient:
         accounts (HAR replay broke per gpt4free #2354, and service-worker
         fetches trip Cloudflare's anti-bot fingerprint check).
 
+        When ``image_b64`` is supplied, the MAIN-world script first uploads
+        the bytes via the three-step ``/backend-api/files`` flow, then sends
+        a ``multimodal_text`` message referencing the resulting
+        ``file-service://`` asset. The image upload is performed before
+        chat-requirements so a file-API failure surfaces cleanly without
+        burning a proof-of-work compute.
+
         Returns the WS envelope. On success the response payload sits under
-        ``["data"]`` with ``text``, ``asset_pointers`` (M2), and
-        ``conversation_id``. On failure the WS envelope has ``["error"]``.
+        ``["data"]`` with ``text``, ``asset_pointers``, ``conversation_id``,
+        and (M1+) ``images``. On failure the WS envelope has ``["error"]``.
 
         The 150 s default timeout exceeds the content script's 120 s cap
         (extension/content_chatgpt.js) so the inner timeout wins and the
         caller sees a structured error rather than a bare ``timeout``.
         """
+        params: dict[str, Any] = {"prompt": prompt, "model": model}
+        if image_b64:
+            params["image_b64"] = image_b64
+            params["image_mime"] = image_mime or "image/png"
+            if image_name:
+                params["image_name"] = image_name
         return await self._send(
             "chatgpt_request",
-            {"prompt": prompt, "model": model},
+            params,
             timeout=timeout,
         )
 

@@ -148,6 +148,19 @@ async function runTests() {
     assert.equal(result.text, 'after malformed');
   });
 
+  await test('multimodal echo — assistant text describes user-uploaded image', async () => {
+    // M1 image-input path: user sends a multimodal_text message with an
+    // image attachment. ChatGPT replies with plain text describing the
+    // image (the asset never bounces back as an asset_pointer because
+    // the model doesn't generate images here). Parser must still
+    // accumulate the longest text delta as the final answer.
+    const fixture = fs.readFileSync(path.join(EXT_DIR, 'tests/fixtures/chatgpt_sse_multimodal_echo.txt'), 'utf8');
+    const result = await parseSSEStream(asyncIterFromString(fixture));
+    assert.equal(result.text, 'Tôi thấy một con mèo nhỏ đang nằm trên ghế xanh.');
+    deepEqualJSON(result.asset_pointers, []);
+    assert.equal(result.conversation_id, 'conv-multimodal-001');
+  });
+
   await test('stream without [DONE] still flushes final accumulated state', async () => {
     // Real fetch readers always close; we test that even if [DONE]
     // never arrives, the parser yields what it has when the iterator

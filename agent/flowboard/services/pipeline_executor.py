@@ -133,7 +133,7 @@ def _normalise_endpoint(raw: Any) -> Optional[str]:
 # ── Materialisation ────────────────────────────────────────────────────────
 
 
-_VALID_NODE_TYPES = {"character", "image", "video", "prompt", "note", "Storyboard"}
+_VALID_NODE_TYPES = {"character", "image", "video", "prompt", "note", "Storyboard", "chatgpt"}
 
 
 # ── Rerun helpers ─────────────────────────────────────────────────────────
@@ -507,7 +507,7 @@ async def run_pipeline(
             _stamp_node_status(nid, "error", error="upstream_failed")
             continue
 
-        if node.type not in ("image", "video"):
+        if node.type not in ("image", "video", "chatgpt"):
             # character/prompt/note nodes have no generation step.
             continue
 
@@ -516,19 +516,39 @@ async def run_pipeline(
             # No prompt → leave node idle. Not an error.
             continue
 
-        # Resolve project_id from board → BoardFlowProject.
-        project_id = _project_id_for_board(board_id)
-        if project_id is None:
-            failed_nodes.add(nid)
-            _stamp_node_status(nid, "error", error="no_project")
-            continue
+        # ChatGPT nodes don't bind to a Flow project — they route through
+        # the extension to chatgpt.com. Skip the project resolution gate
+        # for them so a board without a Flow link still executes them.
+        project_id: Optional[str] = None
+        if node.type != "chatgpt":
+            project_id = _project_id_for_board(board_id)
+            if project_id is None:
+                failed_nodes.add(nid)
+                _stamp_node_status(nid, "error", error="no_project")
+                continue
 
         # Image: collect upstream character mediaIds.
         # Video: pick the first upstream image's mediaId as start.
+        # ChatGPT: pick the first upstream image's mediaId as attachment.
         upstream_node_ids = incoming.get(nid, ())
         upstream_nodes = [node_by_id[u] for u in upstream_node_ids if u in node_by_id]
 
-        if node.type == "image":
+        if node.type == "chatgpt":
+            # Optional image input — first upstream image/character/visual_asset
+            # node's mediaId becomes the attachment. ChatGPT accepts at most
+            # one image per turn, so we don't bother collecting more.
+            image_media_id: Optional[str] = None
+            for u in upstream_nodes:
+                if u.type in ("image", "character", "visual_asset", "Storyboard"):
+                    mid = (u.data or {}).get("mediaId")
+                    if isinstance(mid, str) and mid:
+                        image_media_id = mid
+                        break
+            params = {"prompt": prompt.strip()}
+            if image_media_id:
+                params["image_media_id"] = image_media_id
+            req_type = "gen_chatgpt"
+        elif node.type == "image":
             ref_media_ids = [
                 (u.data or {}).get("mediaId")
                 for u in upstream_nodes
@@ -586,6 +606,17 @@ async def run_pipeline(
             patch: dict[str, Any] = {"mediaIds": media_ids}
             if media_id:
                 patch["mediaId"] = media_id
+            # ChatGPT nodes also carry text output — surface it on the
+            # node so downstream prompt/note nodes can read it, and so
+            # the frontend can render the response without poking at
+            # the request row directly.
+            if node.type == "chatgpt":
+                text = result.get("text")
+                if isinstance(text, str):
+                    patch["text"] = text
+                conversation_id = result.get("conversation_id")
+                if isinstance(conversation_id, str):
+                    patch["conversationId"] = conversation_id
             _stamp_node_status(nid, "done", data_patch=patch)
             # Refresh in-memory snapshot so downstream nodes see the new mediaId.
             with get_session() as s:

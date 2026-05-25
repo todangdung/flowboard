@@ -8,10 +8,12 @@
  */
 (function () {
   // Inject SHA3-512 first (defines window.sha3_512) — the chat-requirements
-  // proof-of-work for free-tier ChatGPT depends on it. injected_chatgpt.js
-  // is appended second so it can reference the helper at module init.
+  // proof-of-work for free-tier ChatGPT depends on it. injected_chatgpt_dom.js
+  // ships before injected_chatgpt.js so the latter's fallback ladder can
+  // reach `window.__FLOWBOARD_CHATGPT_DOM__` at the moment of the first
+  // request (rather than racing the load order on a slow Cloudflare edge).
   const root = document.head || document.documentElement;
-  for (const file of ['sha3.js', 'injected_chatgpt.js']) {
+  for (const file of ['sha3.js', 'injected_chatgpt_dom.js', 'injected_chatgpt.js']) {
     const s = document.createElement('script');
     s.src = chrome.runtime.getURL(file);
     s.onload = () => s.remove();
@@ -22,7 +24,7 @@
 chrome.runtime.onMessage.addListener((msg, _, reply) => {
   if (msg.type !== 'CHATGPT_GEN') return;
 
-  const { requestId, prompt, model } = msg;
+  const { requestId, prompt, model, image_b64, image_mime, image_name } = msg;
 
   const handler = (e) => {
     if (e.detail?.requestId === requestId) {
@@ -43,7 +45,7 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
   window.addEventListener('FLOWBOARD_CHATGPT_RESULT', handler);
 
   window.dispatchEvent(new CustomEvent('FLOWBOARD_CHATGPT_GEN', {
-    detail: { requestId, prompt, model },
+    detail: { requestId, prompt, model, image_b64, image_mime, image_name },
   }));
 
   return true; // keep channel open for async reply

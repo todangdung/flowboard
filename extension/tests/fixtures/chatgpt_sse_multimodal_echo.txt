@@ -1,0 +1,8 @@
+data: {"conversation_id": "conv-multimodal-001", "message": {"id": "m1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["Tôi thấy "]}}}
+
+data: {"conversation_id": "conv-multimodal-001", "message": {"id": "m1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["Tôi thấy một con mèo nhỏ "]}}}
+
+data: {"conversation_id": "conv-multimodal-001", "message": {"id": "m1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["Tôi thấy một con mèo nhỏ đang nằm trên ghế xanh."]}}}
+
+data: [DONE]
+

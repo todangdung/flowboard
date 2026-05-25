@@ -108,7 +108,7 @@ async def test_gen_chatgpt_passes_model_override():
     verbatim. Used by future Settings panel for explicit model pinning."""
     captured: dict = {}
 
-    async def fake(prompt: str, model: str | None = None):
+    async def fake(prompt: str, model: str | None = None, **kw):
         captured["prompt"] = prompt
         captured["model"] = model
         return {"status": 200, "data": {"text": "ok", "asset_pointers": [], "conversation_id": None}}
@@ -231,7 +231,7 @@ async def test_gen_chatgpt_drops_blank_model():
     extension uses ChatGPT's default routing (`auto`)."""
     captured: dict = {}
 
-    async def fake(prompt: str, model: str | None = None):
+    async def fake(prompt: str, model: str | None = None, **kw):
         captured["model"] = model
         return {"status": 200, "data": {"text": "ok", "asset_pointers": [], "conversation_id": None}}
 
@@ -239,3 +239,136 @@ async def test_gen_chatgpt_drops_blank_model():
         await proc._handle_gen_chatgpt({"prompt": "hi", "model": "   "})
 
     assert captured["model"] is None
+
+
+@pytest.mark.asyncio
+async def test_gen_chatgpt_loads_upstream_image_and_passes_b64(tmp_path, monkeypatch):
+    """When `image_media_id` is supplied and the bytes live in the local
+    media cache, the handler reads them, base64-encodes, and forwards on
+    `flow_client.chatgpt_request` along with the sniffed MIME type."""
+    import base64
+
+    from flowboard.services import media as media_service
+
+    media_id = "11111111-1111-1111-1111-111111111111"
+    img_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    cached_file = tmp_path / f"{media_id}.png"
+    cached_file.write_bytes(img_bytes)
+
+    monkeypatch.setattr(media_service, "is_valid_media_id", lambda mid: True)
+    monkeypatch.setattr(proc.media_service, "is_valid_media_id", lambda mid: True)
+    monkeypatch.setattr(media_service, "cached_path", lambda mid: cached_file)
+    monkeypatch.setattr(proc.media_service, "cached_path", lambda mid: cached_file)
+
+    captured: dict = {}
+
+    async def fake(prompt: str, model: str | None = None, **kw):
+        captured["prompt"] = prompt
+        captured["model"] = model
+        captured["image_b64"] = kw.get("image_b64")
+        captured["image_mime"] = kw.get("image_mime")
+        captured["image_name"] = kw.get("image_name")
+        return {
+            "status": 200,
+            "data": {"text": "ok", "asset_pointers": [], "conversation_id": None},
+        }
+
+    with patch.object(proc.flow_client, "chatgpt_request", new=fake):
+        result, err = await proc._handle_gen_chatgpt({
+            "prompt": "describe this",
+            "image_media_id": media_id,
+        })
+
+    assert err is None
+    assert result["text"] == "ok"
+    assert captured["image_b64"] == base64.b64encode(img_bytes).decode("ascii")
+    assert captured["image_mime"] == "image/png"
+    assert captured["image_name"].startswith("flowboard-11111111")
+
+
+@pytest.mark.asyncio
+async def test_gen_chatgpt_fetches_uncached_upstream_image(monkeypatch):
+    """If the upstream image is registered with a remote URL but not yet
+    cached locally, the handler falls back to `fetch_and_cache` to pull
+    bytes on demand. The fetch helper's tuple (bytes, mime, path) drives
+    the resulting payload."""
+    import base64
+
+    from flowboard.services import media as media_service
+
+    media_id = "22222222-2222-2222-2222-222222222222"
+    img_bytes = b"webp-bytes-go-here"
+
+    monkeypatch.setattr(media_service, "is_valid_media_id", lambda mid: True)
+    monkeypatch.setattr(proc.media_service, "is_valid_media_id", lambda mid: True)
+    monkeypatch.setattr(media_service, "cached_path", lambda mid: None)
+    monkeypatch.setattr(proc.media_service, "cached_path", lambda mid: None)
+
+    fake_path = type("P", (), {"suffix": ".webp"})()
+
+    async def fake_fetch(mid: str):
+        return img_bytes, "image/webp", fake_path
+
+    monkeypatch.setattr(media_service, "fetch_and_cache", fake_fetch)
+    monkeypatch.setattr(proc.media_service, "fetch_and_cache", fake_fetch)
+
+    captured: dict = {}
+
+    async def fake_chatgpt(prompt: str, model: str | None = None, **kw):
+        captured["image_mime"] = kw.get("image_mime")
+        captured["image_b64"] = kw.get("image_b64")
+        return {
+            "status": 200,
+            "data": {"text": "k", "asset_pointers": [], "conversation_id": None},
+        }
+
+    with patch.object(proc.flow_client, "chatgpt_request", new=fake_chatgpt):
+        result, err = await proc._handle_gen_chatgpt({
+            "prompt": "look",
+            "image_media_id": media_id,
+        })
+
+    assert err is None
+    assert captured["image_mime"] == "image/webp"
+    assert captured["image_b64"] == base64.b64encode(img_bytes).decode("ascii")
+
+
+@pytest.mark.asyncio
+async def test_gen_chatgpt_rejects_invalid_media_id(monkeypatch):
+    """Malformed media_id is short-circuited with `invalid_image_media_id`
+    so a typo at the upstream node never reaches the extension."""
+    from flowboard.services import media as media_service
+
+    monkeypatch.setattr(media_service, "is_valid_media_id", lambda mid: False)
+    monkeypatch.setattr(proc.media_service, "is_valid_media_id", lambda mid: False)
+
+    result, err = await proc._handle_gen_chatgpt({
+        "prompt": "x",
+        "image_media_id": "not-a-uuid",
+    })
+    assert err == "invalid_image_media_id"
+
+
+@pytest.mark.asyncio
+async def test_gen_chatgpt_missing_upstream_image_fails_loud(monkeypatch):
+    """Media_id is valid, but neither cache nor remote URL yields bytes.
+    Handler returns `upstream_image_missing` so the worker stamps a
+    descriptive error on the request row."""
+    from flowboard.services import media as media_service
+
+    monkeypatch.setattr(media_service, "is_valid_media_id", lambda mid: True)
+    monkeypatch.setattr(proc.media_service, "is_valid_media_id", lambda mid: True)
+    monkeypatch.setattr(media_service, "cached_path", lambda mid: None)
+    monkeypatch.setattr(proc.media_service, "cached_path", lambda mid: None)
+
+    async def fake_fetch(mid: str):
+        return None
+
+    monkeypatch.setattr(media_service, "fetch_and_cache", fake_fetch)
+    monkeypatch.setattr(proc.media_service, "fetch_and_cache", fake_fetch)
+
+    result, err = await proc._handle_gen_chatgpt({
+        "prompt": "x",
+        "image_media_id": "33333333-3333-3333-3333-333333333333",
+    })
+    assert err == "upstream_image_missing"
