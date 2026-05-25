@@ -178,32 +178,11 @@
     });
     if (!confirm.ok) throw new Error(`FILE_CONFIRM_${confirm.status}`);
 
-    // Step 4: wait for retrieval indexing. chat2api polls 30 times at
-    // 1 s — same cap here. The conversation call right after will
-    // reject the asset_pointer with a 422 if we skip this step.
-    let indexed = false;
-    for (let i = 0; i < 30; i++) {
-      const probe = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}`, {
-        credentials: 'include',
-        headers: {
-          'authorization': 'Bearer ' + token,
-          'accept': 'application/json',
-        },
-      });
-      if (probe.ok) {
-        let probeJson = {};
-        try { probeJson = await probe.json(); } catch { /* tolerate */ }
-        if (probeJson?.retrieval_index_status === 'success') {
-          indexed = true;
-          break;
-        }
-      }
-      // 1 s sleep mirrors chat2api's poll cadence — slower than the
-      // typical 200-300 ms indexing latency, but lighter on the
-      // server than tighter polling.
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    if (!indexed) throw new Error('FILE_INDEX_TIMEOUT');
+    // gpt4free's upload_files (OpenaiChat.py) goes straight from /uploaded
+    // to the conversation call without polling retrieval_index_status —
+    // the field appears to be document-RAG specific, never reaching
+    // 'success' for plain multimodal images. The conversation call
+    // tolerates the un-indexed asset_pointer for image use_case.
 
     const { width, height } = await readImageDims(blob);
     return {
