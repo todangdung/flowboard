@@ -162,29 +162,59 @@
 
   /** Type a prompt into the contenteditable composer.
    *
-   *  Pattern adapted from KudoAI/chatgpt.js v4.3.0 src/chatgpt.js:1551
-   *  (`chatgpt.send` for env='chatgpt'). The composer is a slate-react
-   *  contenteditable whose children are `<p>` blocks; replacing the
-   *  first paragraph's element wholesale + dispatching a bubbling
-   *  `input` Event reliably enables the send button across the React
-   *  composer revisions ChatGPT has shipped. `execCommand` paths broke
-   *  in late 2025 on the new Slate-based composer because the value
-   *  tracker no longer subscribes to those mutations.
+   *  ChatGPT's composer is a Slate-React contenteditable. Slate ignores
+   *  raw DOM mutations it didn't author and re-syncs from its internal
+   *  value model on the next render — so setting textContent + an
+   *  `input` event leaves the composer visually populated for ~one
+   *  frame, then Slate clears it and the send fires empty (observed
+   *  symptom: image arrives but assistant asks "what do you want me
+   *  to do with this image?").
    *
-   *  Falls back to `textContent` assignment when the composer has no
-   *  `<p>` child (rare empty-state path right after navigation). */
+   *  `document.execCommand('insertText')` is the only path that
+   *  routes through the same beforeinput → input → value-update chain
+   *  Slate subscribes to. It's marked deprecated but Chrome keeps it
+   *  shipping precisely because automation tooling depends on it.
+   *
+   *  Fallback dispatches a synthetic beforeinput + textContent path
+   *  in case execCommand returns false (Firefox-style refusal). */
   function typePromptDOM(composer, text) {
     composer.focus();
+    // Place caret at end. Without this, execCommand may insert at the
+    // wrong position if a previous Slate selection range is stale.
+    const range = document.createRange();
+    range.selectNodeContents(composer);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    let ok = false;
+    try {
+      ok = document.execCommand('insertText', false, text);
+    } catch (_) {
+      ok = false;
+    }
+    if (ok) return;
+
+    // execCommand refused — fall through to a synthetic beforeinput
+    // + textContent assignment. Slate may still drop this, but at
+    // least one event class fires so we don't silently send empty.
+    composer.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: text,
+    }));
     const msgP = document.createElement('p');
     msgP.textContent = text;
     const existing = composer.querySelector('p');
-    if (existing) {
-      existing.replaceWith(msgP);
-    } else {
-      composer.textContent = '';
-      composer.appendChild(msgP);
-    }
-    composer.dispatchEvent(new Event('input', { bubbles: true }));
+    if (existing) existing.replaceWith(msgP);
+    else { composer.textContent = ''; composer.appendChild(msgP); }
+    composer.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: text,
+    }));
   }
 
   /** Submit the composer.
