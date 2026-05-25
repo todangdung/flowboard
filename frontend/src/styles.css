@@ -4096,6 +4096,94 @@ button:disabled {
   border-color: #86efac;
 }
 
+.result-viewer__btn--redo {
+  border-color: rgba(251, 191, 36, 0.55);
+  color: #fde68a;
+}
+
+.result-viewer__btn--redo:hover:not(:disabled) {
+  background: rgba(146, 64, 14, 0.18);
+  border-color: #fbbf24;
+}
+
+.result-viewer__btn--redo-active,
+.result-viewer__btn--redo-active:hover {
+  background: #92400e;
+  color: #fff7ed;
+  border-color: #fbbf24;
+}
+
+.result-viewer__btn--skip {
+  border-color: rgba(148, 163, 184, 0.55);
+  color: #cbd5e1;
+}
+
+.result-viewer__btn--skip:hover:not(:disabled) {
+  background: rgba(71, 85, 105, 0.20);
+  border-color: #94a3b8;
+}
+
+.result-viewer__btn--skip-active,
+.result-viewer__btn--skip-active:hover {
+  background: #475569;
+  color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.result-viewer__review-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-viewer__review-pill {
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-high);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.result-viewer__review-pill--good {
+  border-color: rgba(134, 239, 172, 0.55);
+  background: rgba(22, 101, 52, 0.18);
+  color: #bbf7d0;
+}
+
+.result-viewer__review-pill--redo {
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(146, 64, 14, 0.18);
+  color: #fde68a;
+}
+
+.result-viewer__review-pill--skip {
+  border-color: rgba(148, 163, 184, 0.55);
+  background: rgba(71, 85, 105, 0.20);
+  color: #cbd5e1;
+}
+
+.result-viewer__review-note {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-high);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 8px;
+}
+
+.result-viewer__review-note:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* Footer hint */
 
 .result-viewer__footer-hint {
@@ -6273,6 +6361,31 @@ button:disabled {
   margin-left: 6px;
   color: #bbf7d0;
   font-weight: 700;
+}
+
+.timeline-shot-row__review {
+  margin-left: 6px;
+  font-weight: 700;
+}
+
+.timeline-shot-row--review-good .timeline-shot-row__review {
+  color: #bbf7d0;
+}
+
+.timeline-shot-row--review-redo {
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.timeline-shot-row--review-redo .timeline-shot-row__review {
+  color: #fde68a;
+}
+
+.timeline-shot-row--review-skip {
+  opacity: 0.72;
+}
+
+.timeline-shot-row--review-skip .timeline-shot-row__review {
+  color: #cbd5e1;
 }
 
 /* ── References panel (right sidebar) ──────────────────────────────────── */

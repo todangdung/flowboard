@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGenerationStore } from "../store/generation";
-import { useBoardStore } from "../store/board";
+import { useBoardStore, type FlowboardNodeData } from "../store/board";
 import { useSettingsStore } from "../store/settings";
 import { useReferencesStore } from "../store/references";
 import { getMediaStatus, mediaUrl, patchNode, type MediaStatus } from "../api/client";
@@ -35,6 +35,11 @@ const VIDEO_QUALITY_LABELS: Record<string, string> = {
   abra_r2v_6s: "Omni Flash · 6s",
   abra_r2v_8s: "Omni Flash · 8s",
   abra_r2v_10s: "Omni Flash · 10s",
+};
+const REVIEW_LABELS: Record<string, string> = {
+  good: "good / tốt",
+  redo: "redo / làm lại",
+  skip: "skip / bỏ qua",
 };
 
 /** Format Flow's aspect-ratio enum to the human label shown on the node
@@ -93,6 +98,7 @@ export function ResultViewer() {
   // called unconditionally on every render in the same order.
   const [savedFlash, setSavedFlash] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reviewNoteDraft, setReviewNoteDraft] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -204,6 +210,7 @@ export function ResultViewer() {
       setMediaReady(false);
       setStatus(null);
       triggerRef.current = document.activeElement;
+      setReviewNoteDraft(typeof data?.reviewNote === "string" ? data.reviewNote : "");
     } else {
       if (pollTimerRef.current !== null) {
         clearInterval(pollTimerRef.current);
@@ -214,6 +221,10 @@ export function ResultViewer() {
       }
     }
   }, [rfId]);
+
+  useEffect(() => {
+    setReviewNoteDraft(typeof data?.reviewNote === "string" ? data.reviewNote : "");
+  }, [rfId, data?.reviewNote]);
 
   // Reset media state when active variant changes
   useEffect(() => {
@@ -473,29 +484,195 @@ export function ResultViewer() {
     }
   }
 
-  async function handleMarkBest() {
-    if (!rfId || !data || !currentMediaId) return;
+  async function saveReviewVerdict(verdict: "good" | "redo" | "skip"): Promise<boolean> {
+    if (!rfId || !data) return false;
     const reviewedAt = new Date().toISOString();
-    const patch = {
-      mediaId: currentMediaId,
-      bestMediaId: currentMediaId,
-      bestVariantIdx: activeIdx,
-      reviewVerdict: "good" as const,
-      reviewedAt,
-    };
+    const note = reviewNoteDraft.trim();
+    let serverPatch: Record<string, unknown>;
+    let localPatch: Partial<FlowboardNodeData>;
+    if (verdict === "good") {
+      if (!currentMediaId) return false;
+      serverPatch = {
+        mediaId: currentMediaId,
+        bestMediaId: currentMediaId,
+        bestVariantIdx: activeIdx,
+        reviewVerdict: verdict,
+        reviewNote: note || null,
+        reviewedAt,
+      };
+      localPatch = {
+        mediaId: currentMediaId,
+        bestMediaId: currentMediaId,
+        bestVariantIdx: activeIdx,
+        reviewVerdict: verdict,
+        reviewNote: note || undefined,
+        reviewedAt,
+      };
+    } else {
+      serverPatch = {
+        bestMediaId: null,
+        bestVariantIdx: null,
+        reviewVerdict: verdict,
+        reviewNote: note || null,
+        reviewedAt,
+      };
+      localPatch = {
+        bestMediaId: undefined,
+        bestVariantIdx: undefined,
+        reviewVerdict: verdict,
+        reviewNote: note || undefined,
+        reviewedAt,
+      };
+    }
     const dbId = parseInt(rfId, 10);
     if (!isNaN(dbId)) {
       try {
-        await patchNode(dbId, { data: patch });
+        await patchNode(dbId, { data: serverPatch });
       } catch (err) {
         useGenerationStore.setState({
-          error: `Couldn't mark best variant: ${err instanceof Error ? err.message : String(err)}`,
+          error: `Couldn't save review: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return false;
+      }
+    }
+    useBoardStore.getState().updateNodeData(rfId, localPatch);
+    try {
+      await useBoardStore.getState().invalidateTimelineExportsForClip(rfId);
+    } catch (err) {
+      useGenerationStore.setState({
+        error: `Couldn't clear stale export: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  async function handleMarkBest() {
+    await saveReviewVerdict("good");
+  }
+
+  async function handleRedoFromNote() {
+    if (!rfId || !data || !currentMediaId || llmBusy) return;
+    const saved = await saveReviewVerdict("redo");
+    if (!saved) return;
+    const newRfId = await useBoardStore
+      .getState()
+      .cloneNodeWithUpstream(rfId);
+    if (!newRfId) return;
+    const fix = reviewNoteDraft.trim() || "Fix the marked issue only.";
+    const title = `${data.title} (redo)`;
+    const prompt = [
+      data.prompt ?? "",
+      `Redo from reviewed variant v${activeIdx + 1}. Fix only: ${fix}. Preserve the same subject, product/logo, character identity, wardrobe, lighting, location, camera language, audio mode, and claim/safety constraints.`,
+    ].filter(Boolean).join("\n\n");
+    const shotData: Record<string, unknown> = {};
+    for (const key of [
+      "workflowKind",
+      "shotId",
+      "shotIndex",
+      "shotDurationSec",
+      "shotTitleEn",
+      "shotTitleVi",
+      "shotAction",
+      "shotCamera",
+      "shotAudio",
+      "shotContinuity",
+      "shotAvoid",
+      "shotPlanSource",
+      "videoRecipeId",
+      "aspectRatio",
+    ]) {
+      const value = data[key];
+      if (value !== undefined) shotData[key] = value;
+    }
+    const redoPatch = {
+      title,
+      prompt,
+      status: "idle" as const,
+      variantCount: 1,
+      mediaId: undefined,
+      mediaIds: undefined,
+      slotErrors: undefined,
+      renderedAt: undefined,
+      error: undefined,
+      reviewVerdict: undefined,
+      reviewNote: undefined,
+      reviewedAt: undefined,
+      bestMediaId: undefined,
+      bestVariantIdx: undefined,
+      ...shotData,
+    };
+    useBoardStore.getState().updateNodeData(newRfId, redoPatch);
+    const dbId = parseInt(newRfId, 10);
+    if (!isNaN(dbId)) {
+      try {
+        await patchNode(dbId, {
+          status: "idle",
+          data: {
+            ...redoPatch,
+            mediaId: null,
+            mediaIds: null,
+            slotErrors: null,
+            renderedAt: null,
+            error: null,
+            reviewVerdict: null,
+            reviewNote: null,
+            reviewedAt: null,
+            bestMediaId: null,
+            bestVariantIdx: null,
+          },
+        });
+      } catch (err) {
+        useGenerationStore.setState({
+          error: `Couldn't prepare redo clip: ${err instanceof Error ? err.message : String(err)}`,
         });
         return;
       }
     }
-    useBoardStore.getState().updateNodeData(rfId, patch);
+    try {
+      await useBoardStore.getState().rewireTimelineStoryboardPanels(rfId, newRfId);
+    } catch (err) {
+      useGenerationStore.setState({
+        error: `Couldn't rewire timeline redo: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return;
+    }
+    closeResultViewer();
+    openGenerationDialog(newRfId, prompt);
   }
+
+  async function handleSkipVariant() {
+    await saveReviewVerdict("skip");
+  }
+
+  async function handleRedoOnly() {
+    await saveReviewVerdict("redo");
+  }
+
+  const reviewVerdict = data.reviewVerdict;
+  const reviewIsRedo = reviewVerdict === "redo";
+  const reviewIsSkip = reviewVerdict === "skip";
+  const reviewIsGood = reviewVerdict === "good";
+
+  /*
+    Layout note: review controls live in the detail panel, not the media
+    tile, matching Flowkit's sidecar review-board pattern.
+  */
+  const reviewNoteControl = (
+    <div className="result-viewer__review-panel">
+      <div className={`result-viewer__review-pill result-viewer__review-pill--${reviewVerdict ?? "none"}`}>
+        {reviewVerdict ? REVIEW_LABELS[reviewVerdict] : "unreviewed / chưa duyệt"}
+      </div>
+      <textarea
+        className="result-viewer__review-note"
+        aria-label="Review note"
+        value={reviewNoteDraft}
+        onChange={(event) => setReviewNoteDraft(event.target.value)}
+        placeholder="Fix note / ghi chú"
+        rows={3}
+      />
+    </div>
+  );
 
   return (
     <div
@@ -714,7 +891,17 @@ export function ResultViewer() {
                 <dd>v{bestIdx + 1}</dd>
               </>
             )}
+            {reviewVerdict && (
+              <>
+                <dt>review</dt>
+                <dd>{REVIEW_LABELS[reviewVerdict]}</dd>
+              </>
+            )}
           </dl>
+
+          <hr className="result-viewer__divider" />
+          <span className="result-viewer__section-label">REVIEW</span>
+          {reviewNoteControl}
 
           <div className="result-viewer__actions">
             {llmBusy && (
@@ -770,7 +957,7 @@ export function ResultViewer() {
             <button
               className={
                 "result-viewer__btn result-viewer__btn--best"
-                + (currentIsBest ? " result-viewer__btn--best-active" : "")
+                + (currentIsBest && reviewIsGood ? " result-viewer__btn--best-active" : "")
               }
               onClick={handleMarkBest}
               disabled={!currentMediaId}
@@ -780,7 +967,38 @@ export function ResultViewer() {
                   : "Use this variant as the active clip/image for downstream generation and export"
               }
             >
-              {currentIsBest ? "✓ Best variant" : "Mark best"}
+              {currentIsBest && reviewIsGood ? "✓ Best variant" : "Mark best"}
+            </button>
+            <button
+              className={
+                "result-viewer__btn result-viewer__btn--redo"
+                + (reviewIsRedo ? " result-viewer__btn--redo-active" : "")
+              }
+              onClick={handleRedoOnly}
+              disabled={!currentMediaId}
+              title="Mark this clip as needing redo"
+            >
+              {reviewIsRedo ? "Redo marked" : "Mark redo"}
+            </button>
+            {isVideo && (
+              <button
+                className="result-viewer__btn result-viewer__btn--redo"
+                onClick={handleRedoFromNote}
+                disabled={!currentMediaId || llmBusy}
+                title="Create a redo clip node with same upstream refs"
+              >
+                Redo from note
+              </button>
+            )}
+            <button
+              className={
+                "result-viewer__btn result-viewer__btn--skip"
+                + (reviewIsSkip ? " result-viewer__btn--skip-active" : "")
+              }
+              onClick={handleSkipVariant}
+              title="Omit this clip from timeline export, even if this slot has no media"
+            >
+              {reviewIsSkip ? "Skipped" : "Skip"}
             </button>
             <button
               className={

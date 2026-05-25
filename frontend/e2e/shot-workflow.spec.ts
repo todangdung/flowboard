@@ -337,6 +337,367 @@ test("marks a rendered variant as best from result viewer", async ({
   }
 });
 
+test("marks redo with note and opens redo clip clone", async ({
+  page,
+  request,
+}) => {
+  const boardName = `Redo review e2e ${Date.now()}`;
+  const boardRes = await request.post("/api/boards", {
+    data: { name: boardName },
+  });
+  expect(boardRes.ok()).toBeTruthy();
+  const board = (await boardRes.json()) as { id: number; name: string };
+  const nodeRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "video",
+      x: 80,
+      y: 80,
+      status: "done",
+      data: {
+        title: "Review Clip",
+        prompt: "show the product logo clearly",
+        mediaId: "redo-a",
+        mediaIds: ["redo-a"],
+        variantCount: 1,
+        workflowKind: "shot_clip",
+        shotId: "shot-1",
+        shotIndex: 1,
+        shotDurationSec: 6,
+      },
+    },
+  });
+  expect(nodeRes.ok()).toBeTruthy();
+  const node = (await nodeRes.json()) as { id: number };
+  const frameRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "image",
+      x: 80,
+      y: 300,
+      status: "done",
+      data: {
+        title: "Shot 1 frame",
+        mediaId: "redo-frame",
+        mediaIds: ["redo-frame"],
+        workflowKind: "shot_frame",
+        shotId: "shot-1",
+        shotIndex: 1,
+        shotDurationSec: 6,
+      },
+    },
+  });
+  const timelineRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "note",
+      x: 640,
+      y: 80,
+      status: "done",
+      data: {
+        title: "Timeline",
+        workflowKind: "timeline",
+        timelineShotIds: ["shot-1"],
+        exportMediaId: "old-redo-export",
+        exportedAt: "2026-05-25T00:00:00.000Z",
+        exportClipCount: 1,
+        exportSize: "1080x1920",
+      },
+    },
+  });
+  expect(frameRes.ok()).toBeTruthy();
+  expect(timelineRes.ok()).toBeTruthy();
+  const frame = (await frameRes.json()) as { id: number };
+  const timeline = (await timelineRes.json()) as { id: number };
+  for (const edge of [
+    { source_id: frame.id, target_id: node.id, ref_role: "first_frame" },
+    { source_id: node.id, target_id: timeline.id, ref_role: "storyboard_panel" },
+  ]) {
+    const edgeRes = await request.post("/api/edges", {
+      data: { board_id: board.id, kind: "ref", ...edge },
+    });
+    expect(edgeRes.ok()).toBeTruthy();
+  }
+
+  try {
+    await page.route("**/api/auth/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          email: "redo@example.test",
+          name: "Redo",
+          picture: null,
+          verified_email: true,
+          paygate_tier: "PAYGATE_TIER_ONE",
+          sku: "WS_PRO",
+          credits: 100,
+        }),
+      });
+    });
+    await page.route(/\/api\/media\/redo-a\/status$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ available: false, has_url: false }),
+      });
+    });
+    await page.route(/\/media\/redo-a(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "video/mp4",
+        body: "",
+      });
+    });
+
+    await page.addInitScript((boardId) => {
+      localStorage.setItem("flowboard.activeBoardId", String(boardId));
+    }, board.id);
+    await page.goto("/");
+
+    await page.locator(".video-tile").first().click();
+    const viewer = page.getByRole("dialog", { name: "Review Clip" });
+    await expect(viewer).toBeVisible();
+    await viewer.getByLabel("Review note").fill("logo drifts off label");
+    await viewer.getByRole("button", { name: "Redo from note" }).click();
+
+    await expect(page.getByRole("dialog", { name: /Generate video/i })).toBeVisible();
+    await expect.poll(async () => {
+      const detailRes = await request.get(`/api/boards/${board.id}`);
+      expect(detailRes.ok()).toBeTruthy();
+      const detail = (await detailRes.json()) as {
+        nodes: Array<{ id: number; data: Record<string, unknown>; type: string }>;
+        edges: Array<{
+          source_id: number;
+          target_id: number;
+          ref_role: string | null;
+        }>;
+      };
+      const redo = detail.nodes.find((entry) =>
+        entry.id !== node.id
+        && entry.type === "video"
+        && String(entry.data.title).includes("(redo)")
+      );
+      const timelineNode = detail.nodes.find((entry) => entry.id === timeline.id);
+      return {
+        original: detail.nodes.find((entry) => entry.id === node.id)?.data,
+        redo: redo?.data,
+        timelineHasExport: Boolean(timelineNode?.data.exportMediaId),
+        storyboardPointsToRedo: Boolean(
+          redo
+          && detail.edges.some((edge) =>
+            edge.ref_role === "storyboard_panel"
+            && edge.source_id === redo.id
+            && edge.target_id === timeline.id,
+          ),
+        ),
+        storyboardPointsToOriginal: detail.edges.some((edge) =>
+          edge.ref_role === "storyboard_panel"
+          && edge.source_id === node.id
+          && edge.target_id === timeline.id,
+        ),
+        firstFramePointsToRedo: Boolean(
+          redo
+          && detail.edges.some((edge) =>
+            edge.ref_role === "first_frame"
+            && edge.source_id === frame.id
+            && edge.target_id === redo.id,
+          ),
+        ),
+      };
+    }).toMatchObject({
+      original: {
+        reviewVerdict: "redo",
+        reviewNote: "logo drifts off label",
+      },
+      redo: {
+        title: "Review Clip (redo)",
+        prompt: expect.stringContaining("logo drifts off label"),
+        workflowKind: "shot_clip",
+        shotId: "shot-1",
+        shotIndex: 1,
+        shotDurationSec: 6,
+      },
+      timelineHasExport: false,
+      storyboardPointsToRedo: true,
+      storyboardPointsToOriginal: false,
+      firstFramePointsToRedo: true,
+    });
+  } finally {
+    await request.delete(`/api/boards/${board.id}`);
+  }
+});
+
+test("skips blocked no-media clip and exports remaining timeline", async ({
+  page,
+  request,
+}) => {
+  const boardName = `Skip no-media e2e ${Date.now()}`;
+  const boardRes = await request.post("/api/boards", {
+    data: { name: boardName },
+  });
+  expect(boardRes.ok()).toBeTruthy();
+  const board = (await boardRes.json()) as { id: number; name: string };
+  const blockedRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "video",
+      x: 80,
+      y: 80,
+      status: "error",
+      data: {
+        title: "Blocked Clip",
+        prompt: "blocked variant",
+        mediaIds: [null],
+        slotErrors: ["PUBLIC_ERROR_UNSAFE_GENERATION"],
+        variantCount: 1,
+        workflowKind: "shot_clip",
+        shotId: "shot-1",
+        shotIndex: 1,
+        error: "PUBLIC_ERROR_UNSAFE_GENERATION",
+      },
+    },
+  });
+  const keptRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "video",
+      x: 360,
+      y: 80,
+      status: "done",
+      data: {
+        title: "Kept Clip",
+        prompt: "usable variant",
+        mediaId: "skip-keep",
+        mediaIds: ["skip-keep"],
+        variantCount: 1,
+        workflowKind: "shot_clip",
+        shotId: "shot-2",
+        shotIndex: 2,
+      },
+    },
+  });
+  const timelineRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "note",
+      x: 640,
+      y: 80,
+      status: "done",
+      data: {
+        title: "Timeline",
+        workflowKind: "timeline",
+        timelineShotIds: ["shot-1", "shot-2"],
+        exportMediaId: "old-skip-export",
+        exportedAt: "2026-05-25T00:00:00.000Z",
+        exportClipCount: 2,
+        exportSize: "1080x1920",
+      },
+    },
+  });
+  expect(blockedRes.ok()).toBeTruthy();
+  expect(keptRes.ok()).toBeTruthy();
+  expect(timelineRes.ok()).toBeTruthy();
+  const blocked = (await blockedRes.json()) as { id: number };
+  const kept = (await keptRes.json()) as { id: number };
+  const timeline = (await timelineRes.json()) as { id: number };
+  for (const source of [blocked.id, kept.id]) {
+    const edgeRes = await request.post("/api/edges", {
+      data: {
+        board_id: board.id,
+        kind: "ref",
+        source_id: source,
+        target_id: timeline.id,
+        ref_role: "storyboard_panel",
+      },
+    });
+    expect(edgeRes.ok()).toBeTruthy();
+  }
+  let exportCount = 0;
+
+  try {
+    await page.route("**/api/auth/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          email: "skip@example.test",
+          name: "Skip",
+          picture: null,
+          verified_email: true,
+          paygate_tier: "PAYGATE_TIER_ONE",
+          sku: "WS_PRO",
+          credits: 100,
+        }),
+      });
+    });
+    await page.route(/\/media\/skip-keep(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "video/mp4",
+        body: "",
+      });
+    });
+    await page.route("**/api/exports/timelines/*", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      exportCount += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          timeline_node_id: timeline.id,
+          media_id: "new-skip-export",
+          url: "/media/new-skip-export",
+          clip_count: 1,
+          source_media_ids: ["skip-keep"],
+          width: 1080,
+          height: 1920,
+        }),
+      });
+    });
+
+    await page.addInitScript((boardId) => {
+      localStorage.setItem("flowboard.activeBoardId", String(boardId));
+    }, board.id);
+    await page.goto("/");
+
+    await page.locator(".video-tile--blocked").click();
+    const viewer = page.getByRole("dialog", { name: "Blocked Clip" });
+    await expect(viewer).toBeVisible();
+    await expect(viewer.getByRole("button", { name: "Skip" })).toBeEnabled();
+    await viewer.getByRole("button", { name: "Skip" }).click();
+
+    await expect.poll(async () => {
+      const detailRes = await request.get(`/api/boards/${board.id}`);
+      expect(detailRes.ok()).toBeTruthy();
+      const detail = (await detailRes.json()) as {
+        nodes: Array<{ id: number; data: Record<string, unknown> }>;
+      };
+      return {
+        blockedVerdict: detail.nodes.find((entry) => entry.id === blocked.id)?.data.reviewVerdict,
+        timelineHasExport: Boolean(
+          detail.nodes.find((entry) => entry.id === timeline.id)?.data.exportMediaId,
+        ),
+      };
+    }).toEqual({
+      blockedVerdict: "skip",
+      timelineHasExport: false,
+    });
+
+    await page.keyboard.press("Escape");
+    const exportRunner = page.getByRole("button", { name: "Export short / Xuất video" });
+    await expect(exportRunner).toBeEnabled();
+    await expect(page.getByRole("link", { name: "Open export / Mở file" })).toHaveCount(0);
+    await exportRunner.click();
+    await expect.poll(() => exportCount).toBe(1);
+  } finally {
+    await request.delete(`/api/boards/${board.id}`);
+  }
+});
+
 test("timeline clip runner uses best-selected frame variant", async ({
   page,
   request,

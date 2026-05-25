@@ -1042,7 +1042,7 @@ function VideoBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
     // tile is dead and the user has no way to understand why it's
     // empty.
     const onClick =
-      mid || slotBlocked
+      mid || slotBlocked || slotError || isError
         ? () => useGenerationStore.getState().openResultViewer(rfId, i)
         : undefined;
     // Pick the i-th source variant if available; fall back to the
@@ -1513,6 +1513,11 @@ const STATUS_LABEL_VI: Record<NodeStatus, string> = {
   done: "xong",
   error: "lỗi",
 };
+const REVIEW_LABEL_VI: Record<"good" | "redo" | "skip", string> = {
+  good: "good / tốt",
+  redo: "redo / làm lại",
+  skip: "skip / bỏ qua",
+};
 
 function isNodeBusy(data: FlowboardNodeData): boolean {
   return data.status === "queued" || data.status === "running";
@@ -1552,17 +1557,28 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       !!frame
       && nodeMediaIds(frame.data).length > 0
       && nodeMediaIds(clip.data).length === 0
+      && clip.data.reviewVerdict !== "skip"
       && !isNodeBusy(clip.data),
   );
   const framesReady = shotPairs.filter(({ frame }) => !!frame && nodeMediaIds(frame.data).length > 0).length;
   const clipsReady = shotPairs.filter(({ clip }) => nodeMediaIds(clip.data).length > 0).length;
+  const redoCount = shotPairs.filter(({ clip }) => clip.data.reviewVerdict === "redo").length;
+  const skippedCount = shotPairs.filter(({ clip }) => clip.data.reviewVerdict === "skip").length;
+  const nonSkipClipCount = shotPairs.length - skippedCount;
+  const exportableClipCount = shotPairs.filter(
+    ({ clip }) =>
+      nodeMediaIds(clip.data).length > 0
+      && clip.data.reviewVerdict !== "skip",
+  ).length;
   const allFramesReady = shotPairs.length > 0 && framesReady === shotPairs.length;
   const runnerBlocked = paygateTier === null;
   const canRunFrames = frameTargets.length > 0 && runnerBusy === null && !runnerBlocked;
   const canRunClips = allFramesReady && clipTargets.length > 0 && runnerBusy === null && !runnerBlocked;
   const canExport =
     shotPairs.length > 0
-    && clipsReady === shotPairs.length
+    && nonSkipClipCount > 0
+    && exportableClipCount === nonSkipClipCount
+    && redoCount === 0
     && !exportBusy;
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
@@ -1684,7 +1700,15 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
             void runExport();
           }}
           disabled={!canExport}
-          title={clipsReady === shotPairs.length ? undefined : "Generate clips first / Tạo video trước"}
+          title={
+            redoCount > 0
+              ? "Fix redo clips first / Sửa cảnh redo trước"
+              : exportableClipCount === 0
+                ? "No exportable clips / Không có cảnh xuất"
+                : exportableClipCount === nonSkipClipCount
+                  ? undefined
+                  : "Generate non-skipped clips first / Tạo video cảnh chưa bỏ trước"
+          }
         >
           {exportBusy ? "Exporting / Đang xuất" : "Export short / Xuất video"}
         </button>
@@ -1702,6 +1726,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       </div>
       <div className="timeline-run-summary">
         {framesReady}/{shotPairs.length} frames / ảnh · {clipsReady}/{shotPairs.length} clips / video
+        {exportableClipCount !== clipsReady ? ` · ${exportableClipCount} exportable / xuất` : ""}
+        {skippedCount > 0 ? ` · ${skippedCount} skip / bỏ` : ""}
+        {redoCount > 0 ? ` · ${redoCount} redo blocks export` : ""}
         {data.exportMediaId ? ` · export ${data.exportClipCount ?? clipsReady} clips` : ""}
       </div>
       {exportError && (
@@ -1714,12 +1741,13 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const index = clip.data.shotIndex ?? 0;
           const hasMedia = nodeMediaIds(clip.data).length > 0;
           const bestIdx = bestVariantIndex(clip.data);
+          const reviewVerdict = clip.data.reviewVerdict;
           const status = clip.data.status ?? "idle";
           return (
             <button
               key={clip.id}
               type="button"
-              className={`timeline-shot-row timeline-shot-row--${status}`}
+              className={`timeline-shot-row timeline-shot-row--${status}${reviewVerdict ? ` timeline-shot-row--review-${reviewVerdict}` : ""}`}
               onClick={() => {
                 if (hasMedia) {
                   useGenerationStore.getState().openResultViewer(clip.id, bestIdx ?? 0);
@@ -1739,6 +1767,11 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 {hasMedia && bestIdx !== null && (
                   <span className="timeline-shot-row__best">
                     best v{bestIdx + 1}
+                  </span>
+                )}
+                {reviewVerdict && (
+                  <span className="timeline-shot-row__review">
+                    {REVIEW_LABEL_VI[reviewVerdict]}
                   </span>
                 )}
               </span>

@@ -21,8 +21,9 @@ Completed vertical slices:
   dispatch prompts/request params.
 - Iteration tools: video results can be saved as references, refined from the
   current prompt, or extended into a cloned follow-up clip node.
-- Quality review loop: rendered variants can be marked as best; that choice is
-  visible on canvas/timeline and becomes the active media used by export.
+- Quality review loop: rendered variants can be marked best/good, redo, or
+  skip with notes; best choices feed downstream/export, redo blocks export,
+  and skip clips are omitted from export.
 - Export: timeline clips can be stitched through ffmpeg and registered as a
   final `/media/{id}` video asset.
 - Reusable tests: backend export/status/recipe tests and Playwright shot

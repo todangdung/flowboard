@@ -61,6 +61,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   bestVariantIdx?: number;
   bestMediaId?: string;
   reviewVerdict?: "good" | "redo" | "skip";
+  reviewNote?: string;
   reviewedAt?: string;
   // The aspect-ratio enum the asset was generated / uploaded at — used to
   // default-match downstream gen dialogs (e.g. a 9:16 visual_asset feeds
@@ -194,6 +195,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       bestVariantIdx: dto.data["bestVariantIdx"] as number | undefined,
       bestMediaId: dto.data["bestMediaId"] as string | undefined,
       reviewVerdict: dto.data["reviewVerdict"] as "good" | "redo" | "skip" | undefined,
+      reviewNote: dto.data["reviewNote"] as string | undefined,
       reviewedAt: dto.data["reviewedAt"] as string | undefined,
       aspectRatio: dto.data["aspectRatio"] as string | undefined,
       aiBrief: dto.data["aiBrief"] as string | undefined,
@@ -318,6 +320,12 @@ interface BoardState {
   // "New variant +" — gives the user a fresh canvas to gen another shot
   // sharing the original's source refs.
   cloneNodeWithUpstream(rfId: string): Promise<string | null>;
+  // Timeline exports become stale when any linked shot clip review state
+  // changes. Clear persisted export fields on every dependent timeline.
+  invalidateTimelineExportsForClip(rfId: string): Promise<void>;
+  // Redo clips replace the original shot clip on timeline storyboard_panel
+  // edges so the old redo-marked source no longer blocks export.
+  rewireTimelineStoryboardPanels(sourceRfId: string, replacementRfId: string): Promise<void>;
 
   updateNodeData(rfId: string, partial: Partial<FlowboardNodeData>): void;
   /** Merge `partial` into edge.data — used to refresh the local cache
@@ -758,6 +766,81 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       }
     }
     return newNode.id;
+  },
+
+  async invalidateTimelineExportsForClip(rfId) {
+    const { nodes, edges } = get();
+    const timelineIds = Array.from(new Set(
+      edges
+        .filter((e) => e.source === rfId && e.data?.refRole === "storyboard_panel")
+        .map((e) => e.target)
+        .filter((targetId) => {
+          const target = nodes.find((n) => n.id === targetId);
+          return target?.data.workflowKind === "timeline";
+        }),
+    ));
+    if (timelineIds.length === 0) return;
+
+    const localPatch: Partial<FlowboardNodeData> = {
+      status: "idle",
+      exportMediaId: undefined,
+      exportedAt: undefined,
+      exportClipCount: undefined,
+      exportSize: undefined,
+    };
+    for (const timelineId of timelineIds) {
+      get().updateNodeData(timelineId, localPatch);
+    }
+
+    await Promise.all(
+      timelineIds.map(async (timelineId) => {
+        const dbId = parseInt(timelineId, 10);
+        if (isNaN(dbId)) return;
+        await patchNode(dbId, {
+          status: "idle",
+          data: {
+            exportMediaId: null,
+            exportedAt: null,
+            exportClipCount: null,
+            exportSize: null,
+          },
+        });
+      }),
+    );
+  },
+
+  async rewireTimelineStoryboardPanels(sourceRfId, replacementRfId) {
+    const { boardId, nodes, edges } = get();
+    if (boardId === null) return;
+    const replacementId = parseInt(replacementRfId, 10);
+    if (isNaN(replacementId)) return;
+    const timelineEdges = edges.filter((e) => {
+      if (e.source !== sourceRfId || e.data?.refRole !== "storyboard_panel") {
+        return false;
+      }
+      const target = nodes.find((n) => n.id === e.target);
+      return target?.data.workflowKind === "timeline";
+    });
+
+    for (const edge of timelineEdges) {
+      const targetId = parseInt(edge.target, 10);
+      const oldEdgeId = parseInt(edge.id, 10);
+      if (isNaN(targetId) || isNaN(oldEdgeId)) continue;
+      const created = await createEdge({
+        board_id: boardId,
+        source_id: replacementId,
+        target_id: targetId,
+        source_variant_idx: (edge.data?.sourceVariantIdx ?? null) as number | null,
+        ref_role: "storyboard_panel",
+      });
+      await deleteEdge(oldEdgeId);
+      set((s) => ({
+        edges: [
+          ...s.edges.filter((existing) => existing.id !== edge.id),
+          edgeFromDto(created),
+        ],
+      }));
+    }
   },
 
   async deleteEdgeByRfId(rfId) {

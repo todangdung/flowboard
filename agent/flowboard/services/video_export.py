@@ -132,6 +132,22 @@ def _first_clip_media_id(node: Node) -> str:
     raise VideoExportError(f"shot_{data.get('shotIndex') or node.id}_has_no_media")
 
 
+def _exportable_clips(clips: list[Node]) -> list[Node]:
+    out: list[Node] = []
+    for clip in clips:
+        data = clip.data or {}
+        verdict = data.get("reviewVerdict")
+        shot = data.get("shotIndex") or clip.id
+        if verdict == "redo":
+            raise VideoExportError(f"shot_{shot}_needs_redo")
+        if verdict == "skip":
+            continue
+        out.append(clip)
+    if not out:
+        raise VideoExportError("timeline_has_no_exportable_clips")
+    return out
+
+
 def _normalise_clip(
     source: Path,
     target: Path,
@@ -253,13 +269,14 @@ async def export_timeline(
     timeline, clips = _timeline_clips(timeline_node_id)
     if not clips:
         raise VideoExportError("timeline_has_no_clips")
+    export_clips = _exportable_clips(clips)
 
     work_dir = EXPORT_DIR / f"timeline-{timeline_node_id}-{uuid.uuid4().hex[:8]}"
     work_dir.mkdir(parents=True, exist_ok=True)
     normalised: list[Path] = []
     media_ids: list[str] = []
     try:
-        for index, clip in enumerate(clips, start=1):
+        for index, clip in enumerate(export_clips, start=1):
             media_id = _first_clip_media_id(clip)
             media_ids.append(media_id)
             source = await _resolve_media_path(media_id)
@@ -293,7 +310,7 @@ async def export_timeline(
         _stamp_timeline(
             timeline.id,  # type: ignore[arg-type]
             media_id=export_media_id,
-            clip_count=len(clips),
+            clip_count=len(export_clips),
             width=width,
             height=height,
         )
@@ -301,7 +318,7 @@ async def export_timeline(
             "timeline_node_id": timeline_node_id,
             "media_id": export_media_id,
             "url": f"/media/{export_media_id}",
-            "clip_count": len(clips),
+            "clip_count": len(export_clips),
             "source_media_ids": media_ids,
             "width": width,
             "height": height,

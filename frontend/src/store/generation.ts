@@ -197,6 +197,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       bestVariantIdx: undefined,
       bestMediaId: undefined,
       reviewVerdict: undefined,
+      reviewNote: undefined,
       reviewedAt: undefined,
     });
 
@@ -405,6 +406,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               bestVariantIdx: undefined,
               bestMediaId: undefined,
               reviewVerdict: undefined,
+              reviewNote: undefined,
               reviewedAt: undefined,
               ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
               ...(stampedVideoQuality ? { videoQuality: stampedVideoQuality } : {}),
@@ -439,6 +441,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                   bestVariantIdx: null,
                   bestMediaId: null,
                   reviewVerdict: null,
+                  reviewNote: null,
                   reviewedAt: null,
                   // `null` clears stale error from a previous attempt
                   // when this run was clean; otherwise persist the
@@ -557,6 +560,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       bestVariantIdx: undefined,
       bestMediaId: undefined,
       reviewVerdict: undefined,
+      reviewNote: undefined,
       reviewedAt: undefined,
     });
 
@@ -618,6 +622,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             bestVariantIdx: undefined,
             bestMediaId: undefined,
             reviewVerdict: undefined,
+            reviewNote: undefined,
             reviewedAt: undefined,
             ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
           });
@@ -639,6 +644,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                 bestVariantIdx: null,
                 bestMediaId: null,
                 reviewVerdict: null,
+                reviewNote: null,
                 reviewedAt: null,
                 ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
               },
