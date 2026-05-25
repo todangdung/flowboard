@@ -515,6 +515,16 @@
     await sleep(rand(500, 1200));
     await clickSendDOM(composer);
     await waitForIdleDOM(beforeCount);
+    // DALL-E mode: ChatGPT's stop-button disappears early (the text
+    // "tool" turn completes in seconds) while the actual assistant
+    // message containing the generated image arrives 20-60 s later.
+    // Wait for at least one assistant block past `beforeCount` to
+    // exist before extracting, otherwise extractResponseDOM throws
+    // DOM_NO_ASSISTANT_MESSAGE the moment the placeholder disappears.
+    await waitFor(
+      () => document.querySelectorAll(SEL.asstMsg).length > beforeCount,
+      { timeout: 90000, interval: 250 },
+    );
     // DALL-E images render AFTER the text stream finishes. Block until
     // the assistant message's image count settles so we don't snapshot
     // a half-rendered turn (no-op when ChatGPT replies text-only).
