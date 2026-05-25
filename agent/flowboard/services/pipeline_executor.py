@@ -511,9 +511,36 @@ async def run_pipeline(
             # character/prompt/note nodes have no generation step.
             continue
 
-        prompt = (node.data or {}).get("prompt")
-        if not isinstance(prompt, str) or not prompt.strip():
-            # No prompt → leave node idle. Not an error.
+        # Upstream nodes must be resolved before prompt fallback logic.
+        upstream_node_ids = incoming.get(nid, ())
+        upstream_nodes = [node_by_id[u] for u in upstream_node_ids if u in node_by_id]
+
+        prompt = ((node.data or {}).get("prompt") or "")
+        if not isinstance(prompt, str):
+            prompt = ""
+        prompt = prompt.strip()
+
+        if not prompt:
+            # Allow upstream text to substitute for a missing static prompt:
+            #   chatgpt node  ← upstream prompt node's data["prompt"]
+            #   image/video   ← upstream chatgpt node's data["text"]
+            if node.type == "chatgpt":
+                for u in upstream_nodes:
+                    if u.type == "prompt":
+                        t = ((u.data or {}).get("prompt") or "").strip()
+                        if t:
+                            prompt = t
+                            break
+            elif node.type in ("image", "video"):
+                for u in upstream_nodes:
+                    if u.type == "chatgpt":
+                        t = ((u.data or {}).get("text") or "").strip()
+                        if t:
+                            prompt = t
+                            break
+
+        if not prompt:
+            # Still nothing → leave node idle. Not an error.
             continue
 
         # ChatGPT nodes don't bind to a Flow project — they route through
@@ -527,12 +554,6 @@ async def run_pipeline(
                 _stamp_node_status(nid, "error", error="no_project")
                 continue
 
-        # Image: collect upstream character mediaIds.
-        # Video: pick the first upstream image's mediaId as start.
-        # ChatGPT: pick the first upstream image's mediaId as attachment.
-        upstream_node_ids = incoming.get(nid, ())
-        upstream_nodes = [node_by_id[u] for u in upstream_node_ids if u in node_by_id]
-
         if node.type == "chatgpt":
             # Optional image input — first upstream image/character/visual_asset
             # node's mediaId becomes the attachment. ChatGPT accepts at most
@@ -544,7 +565,7 @@ async def run_pipeline(
                     if isinstance(mid, str) and mid:
                         image_media_id = mid
                         break
-            params = {"prompt": prompt.strip()}
+            params = {"prompt": prompt}
             if image_media_id:
                 params["image_media_id"] = image_media_id
             req_type = "gen_chatgpt"
