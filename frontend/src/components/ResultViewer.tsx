@@ -41,6 +41,53 @@ const REVIEW_LABELS: Record<string, string> = {
   redo: "redo / làm lại",
   skip: "skip / bỏ qua",
 };
+const VIDEO_ITERATION_METADATA_KEYS: (keyof FlowboardNodeData)[] = [
+  "workflowKind",
+  "shotId",
+  "shotIndex",
+  "shotDurationSec",
+  "shotTitleEn",
+  "shotTitleVi",
+  "shotAction",
+  "shotCamera",
+  "shotAudio",
+  "shotContinuity",
+  "shotAvoid",
+  "shotPlanSource",
+  "timelineRecipeId",
+  "videoRecipeId",
+  "videoAudioMode",
+  "aspectRatio",
+];
+
+function buildVideoIterationPatch(
+  data: FlowboardNodeData,
+  title: string,
+  prompt: string,
+): Partial<FlowboardNodeData> {
+  const inherited: Record<string, unknown> = {};
+  for (const key of VIDEO_ITERATION_METADATA_KEYS) {
+    const value = data[key];
+    if (value !== undefined) inherited[key] = value;
+  }
+  return {
+    title,
+    prompt,
+    status: "idle",
+    variantCount: 1,
+    mediaId: undefined,
+    mediaIds: undefined,
+    slotErrors: undefined,
+    renderedAt: undefined,
+    error: undefined,
+    reviewVerdict: undefined,
+    reviewNote: undefined,
+    reviewedAt: undefined,
+    bestMediaId: undefined,
+    bestVariantIdx: undefined,
+    ...inherited,
+  };
+}
 
 /** Format Flow's aspect-ratio enum to the human label shown on the node
  *  card. Returns "—" when the value is missing or unrecognised so the
@@ -402,13 +449,6 @@ export function ResultViewer() {
     openGenerationDialog(rfId, data.prompt ?? "");
   }
 
-  function handleRefineOneThing() {
-    if (!rfId || !data || llmBusy) return;
-    const seed = `${data.prompt ?? ""}\n\nRefine one thing: `;
-    closeResultViewer();
-    openGenerationDialog(rfId, seed);
-  }
-
   async function handleExtendVideo() {
     if (!rfId || !data || data.type !== "video" || llmBusy) return;
     const newRfId = await useBoardStore
@@ -565,43 +605,7 @@ export function ResultViewer() {
       data.prompt ?? "",
       `Redo from reviewed variant v${activeIdx + 1}. Fix only: ${fix}. Preserve the same subject, product/logo, character identity, wardrobe, lighting, location, camera language, audio mode, and claim/safety constraints.`,
     ].filter(Boolean).join("\n\n");
-    const shotData: Record<string, unknown> = {};
-    for (const key of [
-      "workflowKind",
-      "shotId",
-      "shotIndex",
-      "shotDurationSec",
-      "shotTitleEn",
-      "shotTitleVi",
-      "shotAction",
-      "shotCamera",
-      "shotAudio",
-      "shotContinuity",
-      "shotAvoid",
-      "shotPlanSource",
-      "videoRecipeId",
-      "aspectRatio",
-    ]) {
-      const value = data[key];
-      if (value !== undefined) shotData[key] = value;
-    }
-    const redoPatch = {
-      title,
-      prompt,
-      status: "idle" as const,
-      variantCount: 1,
-      mediaId: undefined,
-      mediaIds: undefined,
-      slotErrors: undefined,
-      renderedAt: undefined,
-      error: undefined,
-      reviewVerdict: undefined,
-      reviewNote: undefined,
-      reviewedAt: undefined,
-      bestMediaId: undefined,
-      bestVariantIdx: undefined,
-      ...shotData,
-    };
+    const redoPatch = buildVideoIterationPatch(data, title, prompt);
     useBoardStore.getState().updateNodeData(newRfId, redoPatch);
     const dbId = parseInt(newRfId, 10);
     if (!isNaN(dbId)) {
@@ -634,6 +638,77 @@ export function ResultViewer() {
     } catch (err) {
       useGenerationStore.setState({
         error: `Couldn't rewire timeline redo: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return;
+    }
+    closeResultViewer();
+    openGenerationDialog(newRfId, prompt);
+  }
+
+  async function handleRefineVideoFromNote() {
+    if (!rfId || !data || data.type !== "video" || !currentMediaId || llmBusy) return;
+    const note = reviewNoteDraft.trim();
+    const reviewedAt = new Date().toISOString();
+    if (note) {
+      useBoardStore.getState().updateNodeData(rfId, { reviewNote: note, reviewedAt });
+      const sourceDbId = parseInt(rfId, 10);
+      if (!isNaN(sourceDbId)) {
+        try {
+          await patchNode(sourceDbId, {
+            data: { reviewNote: note, reviewedAt },
+          });
+        } catch (err) {
+          useGenerationStore.setState({
+            error: `Couldn't save refine note: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          return;
+        }
+      }
+    }
+
+    const newRfId = await useBoardStore
+      .getState()
+      .cloneNodeWithUpstream(rfId);
+    if (!newRfId) return;
+    const fix = note || "Improve only one small issue without changing the scene identity.";
+    const title = `${data.title} (refine)`;
+    const prompt = [
+      data.prompt ?? "",
+      `Refine reviewed variant v${activeIdx + 1}. Change only: ${fix}. Preserve the same shot timing, subject, product/logo, character identity, wardrobe, lighting, location, camera language, audio mode, and claim/safety constraints.`,
+    ].filter(Boolean).join("\n\n");
+    const refinePatch = buildVideoIterationPatch(data, title, prompt);
+    useBoardStore.getState().updateNodeData(newRfId, refinePatch);
+    const dbId = parseInt(newRfId, 10);
+    if (!isNaN(dbId)) {
+      try {
+        await patchNode(dbId, {
+          status: "idle",
+          data: {
+            ...refinePatch,
+            mediaId: null,
+            mediaIds: null,
+            slotErrors: null,
+            renderedAt: null,
+            error: null,
+            reviewVerdict: null,
+            reviewNote: null,
+            reviewedAt: null,
+            bestMediaId: null,
+            bestVariantIdx: null,
+          },
+        });
+      } catch (err) {
+        useGenerationStore.setState({
+          error: `Couldn't prepare refine clip: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return;
+      }
+    }
+    try {
+      await useBoardStore.getState().rewireTimelineStoryboardPanels(rfId, newRfId);
+    } catch (err) {
+      useGenerationStore.setState({
+        error: `Couldn't rewire timeline refine: ${err instanceof Error ? err.message : String(err)}`,
       });
       return;
     }
@@ -925,11 +1000,11 @@ export function ResultViewer() {
             {isVideo && (
               <button
                 className="result-viewer__btn"
-                onClick={handleRefineOneThing}
-                disabled={llmBusy}
-                title="Keep this clip setup and change only one thing"
+                onClick={handleRefineVideoFromNote}
+                disabled={!currentMediaId || llmBusy}
+                title="Create a refined clip node from this review note and replace the timeline shot"
               >
-                Refine one thing
+                Refine video from note
               </button>
             )}
             {isVideo && (

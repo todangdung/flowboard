@@ -29,6 +29,9 @@ Completed vertical slices:
 - Export version/stale UX: timeline exports are stamped with version/source
   metadata, review or clip-set changes mark existing exports stale without
   deleting the old link, and re-export supersedes stale output as fresh.
+- Video refine loop: reviewed clips can spawn a refined replacement from the
+  review note while preserving shot metadata/upstream refs and marking the
+  timeline export stale.
 - Reusable tests: backend export/status/recipe tests and Playwright shot
   workflow coverage verify the full mocked sequence path.
 

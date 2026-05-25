@@ -539,6 +539,316 @@ test("marks redo with note and opens redo clip clone", async ({
   }
 });
 
+test("refines video from note and supersedes timeline clip", async ({
+  page,
+  request,
+}) => {
+  const boardName = `Refine video e2e ${Date.now()}`;
+  const boardRes = await request.post("/api/boards", {
+    data: { name: boardName },
+  });
+  expect(boardRes.ok()).toBeTruthy();
+  const board = (await boardRes.json()) as { id: number; name: string };
+  const frameRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "image",
+      x: 80,
+      y: 300,
+      status: "done",
+      data: {
+        title: "Shot 1 frame",
+        mediaId: "refine-frame",
+        mediaIds: ["refine-frame"],
+        workflowKind: "shot_frame",
+        shotId: "shot-1",
+        shotIndex: 1,
+        shotDurationSec: 6,
+        aspectRatio: "IMAGE_ASPECT_RATIO_PORTRAIT",
+      },
+    },
+  });
+  const clipRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "video",
+      x: 80,
+      y: 80,
+      status: "done",
+      data: {
+        title: "Clip A",
+        prompt: "hold the subject in frame",
+        mediaId: "refine-a",
+        mediaIds: ["refine-a"],
+        variantCount: 1,
+        workflowKind: "shot_clip",
+        shotId: "shot-1",
+        shotIndex: 1,
+        shotDurationSec: 6,
+        aspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+        videoRecipeId: "auto",
+        videoAudioMode: "ambient",
+      },
+    },
+  });
+  const timelineRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "note",
+      x: 640,
+      y: 80,
+      status: "done",
+      data: {
+        title: "Timeline",
+        workflowKind: "timeline",
+        timelineShotIds: ["shot-1"],
+        exportMediaId: "old-refine-export",
+        exportedAt: "2026-05-25T00:00:00.000Z",
+        exportClipCount: 1,
+        exportSize: "1080x1920",
+        exportStatus: "fresh",
+        exportVersion: 1,
+        exportSourceMediaIds: ["refine-a"],
+      },
+    },
+  });
+  expect(frameRes.ok()).toBeTruthy();
+  expect(clipRes.ok()).toBeTruthy();
+  expect(timelineRes.ok()).toBeTruthy();
+  const frame = (await frameRes.json()) as { id: number };
+  const clip = (await clipRes.json()) as { id: number };
+  const timeline = (await timelineRes.json()) as { id: number };
+  for (const edge of [
+    { source_id: frame.id, target_id: clip.id, ref_role: "first_frame" },
+    { source_id: clip.id, target_id: timeline.id, ref_role: "storyboard_panel" },
+  ]) {
+    const edgeRes = await request.post("/api/edges", {
+      data: { board_id: board.id, kind: "ref", ...edge },
+    });
+    expect(edgeRes.ok()).toBeTruthy();
+  }
+  const requestRows = new Map<
+    number,
+    {
+      id: number;
+      node_id: number | null;
+      type: string;
+      params: Record<string, unknown>;
+    }
+  >();
+  let nextRequestId = 8000;
+
+  try {
+    await page.route("**/api/auth/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          email: "refine@example.test",
+          name: "Refine",
+          picture: null,
+          verified_email: true,
+          paygate_tier: "PAYGATE_TIER_ONE",
+          sku: "WS_PRO",
+          credits: 100,
+        }),
+      });
+    });
+    await page.route("**/api/boards/*/project", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ flow_project_id: "flow_refine_project", created: false }),
+      });
+    });
+    await page.route("**/api/requests", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      const payload = JSON.parse(route.request().postData() ?? "{}") as {
+        node_id?: number;
+        type: string;
+        params: Record<string, unknown>;
+      };
+      const id = nextRequestId++;
+      const row = {
+        id,
+        node_id: payload.node_id ?? null,
+        type: payload.type,
+        params: payload.params,
+      };
+      requestRows.set(id, row);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...row,
+          status: "queued",
+          result: {},
+          error: null,
+          created_at: new Date().toISOString(),
+          finished_at: null,
+        }),
+      });
+    });
+    await page.route(/\/api\/requests\/\d+$/, async (route) => {
+      const id = Number(route.request().url().split("/").pop());
+      const row = requestRows.get(id);
+      if (!row) {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...row,
+          status: "done",
+          result: {
+            media_ids: [`refined-${row.node_id ?? id}`],
+            slot_errors: [null],
+          },
+          error: null,
+          created_at: new Date().toISOString(),
+          finished_at: new Date().toISOString(),
+        }),
+      });
+    });
+    await page.route(/\/api\/media\/refine-a\/status$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ available: false, has_url: false }),
+      });
+    });
+    await page.route(/\/media\/refine-a(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "video/mp4",
+        body: "",
+      });
+    });
+
+    await page.addInitScript((boardId) => {
+      localStorage.setItem("flowboard.activeBoardId", String(boardId));
+    }, board.id);
+    await page.goto("/");
+
+    await page.locator(".video-tile").first().click();
+    const viewer = page.getByRole("dialog", { name: "Clip A" });
+    await expect(viewer).toBeVisible();
+    await viewer.getByLabel("Review note").fill("tighten framing");
+    await viewer.getByRole("button", { name: "Refine video from note" }).click();
+
+    const genDialog = page.getByRole("dialog", { name: /Generate video/i });
+    await expect(genDialog).toBeVisible();
+    await expect(genDialog.getByLabel("Motion prompt")).toHaveValue(/tighten framing/);
+
+    let refinedId: number | null = null;
+    await expect.poll(async () => {
+      const detailRes = await request.get(`/api/boards/${board.id}`);
+      expect(detailRes.ok()).toBeTruthy();
+      const detail = (await detailRes.json()) as {
+        nodes: Array<{ id: number; data: Record<string, unknown>; type: string }>;
+        edges: Array<{
+          source_id: number;
+          target_id: number;
+          ref_role: string | null;
+        }>;
+      };
+      const refined = detail.nodes.find((entry) =>
+        entry.id !== clip.id
+        && entry.type === "video"
+        && String(entry.data.title).includes("(refine)")
+      );
+      refinedId = refined?.id ?? null;
+      const timelineNode = detail.nodes.find((entry) => entry.id === timeline.id);
+      return {
+        refinedId: refined?.id ?? null,
+        originalNote: detail.nodes.find((entry) => entry.id === clip.id)?.data.reviewNote,
+        refined: refined?.data,
+        timelineExportMediaId: timelineNode?.data.exportMediaId,
+        timelineExportStatus: timelineNode?.data.exportStatus,
+        timelineExportVersion: timelineNode?.data.exportVersion,
+        storyboardPointsToRefine: Boolean(
+          refined
+          && detail.edges.some((edge) =>
+            edge.ref_role === "storyboard_panel"
+            && edge.source_id === refined.id
+            && edge.target_id === timeline.id,
+          ),
+        ),
+        storyboardPointsToOriginal: detail.edges.some((edge) =>
+          edge.ref_role === "storyboard_panel"
+          && edge.source_id === clip.id
+          && edge.target_id === timeline.id,
+        ),
+        firstFramePointsToRefine: Boolean(
+          refined
+          && detail.edges.some((edge) =>
+            edge.ref_role === "first_frame"
+            && edge.source_id === frame.id
+            && edge.target_id === refined.id,
+          ),
+        ),
+      };
+    }).toMatchObject({
+      refinedId: expect.any(Number),
+      originalNote: "tighten framing",
+      refined: {
+        title: "Clip A (refine)",
+        prompt: expect.stringContaining("tighten framing"),
+        workflowKind: "shot_clip",
+        shotId: "shot-1",
+        shotIndex: 1,
+        shotDurationSec: 6,
+        videoRecipeId: "auto",
+        videoAudioMode: "ambient",
+      },
+      timelineExportMediaId: "old-refine-export",
+      timelineExportStatus: "stale",
+      timelineExportVersion: 1,
+      storyboardPointsToRefine: true,
+      storyboardPointsToOriginal: false,
+      firstFramePointsToRefine: true,
+    });
+
+    const generateButton = genDialog.getByRole("button", { name: "Generate ⌘↵" });
+    await expect(generateButton).toBeEnabled();
+    await generateButton.click();
+    await expect
+      .poll(() => Array.from(requestRows.values()).filter((row) => row.type === "gen_video").length)
+      .toBe(1);
+    const [videoRequest] = Array.from(requestRows.values()).filter(
+      (row) => row.type === "gen_video",
+    );
+    expect(refinedId).not.toBeNull();
+    const refinedNodeId = refinedId as number;
+    expect(videoRequest.node_id).toBe(refinedNodeId);
+    expect(videoRequest.params.project_id).toBe("flow_refine_project");
+    expect(videoRequest.params.start_media_id).toBe("refine-frame");
+    expect(videoRequest.params.start_media_ids).toBeUndefined();
+    expect(videoRequest.params.aspect_ratio).toBe("VIDEO_ASPECT_RATIO_PORTRAIT");
+    expect(String(videoRequest.params.prompt)).toContain("tighten framing");
+
+    await expect.poll(async () => {
+      const detailRes = await request.get(`/api/boards/${board.id}`);
+      expect(detailRes.ok()).toBeTruthy();
+      const detail = (await detailRes.json()) as {
+        nodes: Array<{ id: number; data: Record<string, unknown> }>;
+      };
+      return detail.nodes.find((entry) => entry.id === refinedNodeId)?.data.mediaId;
+    }).toBe(`refined-${refinedNodeId}`);
+  } finally {
+    await request.delete(`/api/boards/${board.id}`);
+  }
+});
+
 test("skips blocked no-media clip and exports remaining timeline", async ({
   page,
   request,
