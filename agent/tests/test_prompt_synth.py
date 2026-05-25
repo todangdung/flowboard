@@ -1315,10 +1315,12 @@ def test_route_lists_video_recipe_catalog(client):
         assert by_id[recipe_id]["default_camera"] in ("static", "dynamic")
         assert by_id[recipe_id]["default_aspect_ratio"].startswith("VIDEO_ASPECT_RATIO_")
         assert "video_prompt" in by_id[recipe_id]["prompt_contract"].lower()
+        assert "claim safety" in by_id[recipe_id]["safety_hint"].lower()
 
     assert "product_ref" in by_id["product_demo"]["required_roles"]
     assert "first_frame" in by_id["product_demo"]["required_roles"]
     assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
+    assert "medical claims" in by_id["skincare_tvc"]["avoid_hint"]
 
 
 def test_route_product_demo_recipe_plan_ready(client):
@@ -1389,6 +1391,7 @@ def test_route_product_demo_recipe_plan_ready(client):
     assert "first_frame" in plan["present_roles"]
     assert "clear serum bottle" in plan["prompt_sections"]["refs"]
     assert "Preserve exact product" in plan["prompt_sections"]["preserve"]
+    assert "guaranteed efficacy" in plan["prompt_sections"]["safety"]
     assert "invented labels" in plan["prompt_sections"]["avoid"]
 
 

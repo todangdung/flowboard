@@ -3,7 +3,7 @@ import { useGenerationStore } from "../store/generation";
 import { useBoardStore } from "../store/board";
 import { useSettingsStore } from "../store/settings";
 import { useReferencesStore } from "../store/references";
-import { getMediaStatus, mediaUrl, type MediaStatus } from "../api/client";
+import { getMediaStatus, mediaUrl, patchNode, type MediaStatus } from "../api/client";
 import { countryLabel, vibeLabel } from "../constants/character";
 
 const ICON: Record<string, string> = {
@@ -392,6 +392,33 @@ export function ResultViewer() {
     openGenerationDialog(rfId, data.prompt ?? "");
   }
 
+  function handleRefineOneThing() {
+    if (!rfId || !data || llmBusy) return;
+    const seed = `${data.prompt ?? ""}\n\nRefine one thing: `;
+    closeResultViewer();
+    openGenerationDialog(rfId, seed);
+  }
+
+  async function handleExtendVideo() {
+    if (!rfId || !data || data.type !== "video" || llmBusy) return;
+    const newRfId = await useBoardStore
+      .getState()
+      .cloneNodeWithUpstream(rfId);
+    if (!newRfId) return;
+    const title = `${data.title} (extend)`;
+    const prompt = [
+      data.prompt ?? "",
+      "Extend as the next connected beat after this clip. Preserve the same subject, product, wardrobe, lighting, location, camera language, audio mode, and commercial claim/safety constraints. Add one new action beat only.",
+    ].filter(Boolean).join("\n\n");
+    useBoardStore.getState().updateNodeData(newRfId, { title, prompt });
+    const dbId = parseInt(newRfId, 10);
+    if (!isNaN(dbId)) {
+      patchNode(dbId, { data: { title, prompt } }).catch(() => {});
+    }
+    closeResultViewer();
+    openGenerationDialog(newRfId, prompt);
+  }
+
   async function handleNewVariant() {
     if (!rfId || llmBusy) return;
     const newRfId = await useBoardStore
@@ -414,9 +441,11 @@ export function ResultViewer() {
     if (!rfId || !data || !currentMediaId || saving) return;
     setSaving(true);
     try {
-      const kind: "image" | "character" | "visual_asset" | "storyboard_shot" =
+      const kind: "image" | "video" | "character" | "visual_asset" | "storyboard_shot" =
         data.type === "Storyboard"
           ? "storyboard_shot"
+          : data.type === "video"
+            ? "video"
           : data.type === "character"
             ? "character"
             : data.type === "visual_asset"
@@ -584,7 +613,7 @@ export function ResultViewer() {
             disabled={llmBusy}
             title={llmBusy ? "Backend is composing — try again in a moment" : undefined}
           >
-            Edit prompt →
+            {isVideo ? "Edit video prompt →" : "Edit prompt →"}
           </button>
 
           {refSourceNodes.length > 0 && (
@@ -676,6 +705,26 @@ export function ResultViewer() {
             >
               Regenerate ⌘R
             </button>
+            {isVideo && (
+              <button
+                className="result-viewer__btn"
+                onClick={handleRefineOneThing}
+                disabled={llmBusy}
+                title="Keep this clip setup and change only one thing"
+              >
+                Refine one thing
+              </button>
+            )}
+            {isVideo && (
+              <button
+                className="result-viewer__btn"
+                onClick={handleExtendVideo}
+                disabled={llmBusy}
+                title="Create a follow-up clip node with same upstream refs"
+              >
+                Extend clip +
+              </button>
+            )}
             <button
               className="result-viewer__btn"
               onClick={handleNewVariant}

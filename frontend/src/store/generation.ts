@@ -35,6 +35,7 @@ interface GenerationState {
       // we generate one video per variant. Backend sends N items in the
       // batchAsyncGenerate body so all are dispatched together.
       sourceMediaIds?: string[];
+      audioMode?: string;
       variantCount?: number;
       // Per-variant prompts. When provided, each variant uses its own
       // prompt — required for batch auto-prompt to keep poses distinct
@@ -151,6 +152,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     kind?: "image" | "video";
     sourceMediaId?: string;
     sourceMediaIds?: string[];
+    audioMode?: string;
     variantCount?: number;
     prompts?: string[];
   }) {
@@ -232,6 +234,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               prompt: opts.prompt,
               project_id: projectId,
               ref_media_ids: ingredients,
+              audio_mode: opts.audioMode,
               duration_s: settings.omniFlashDuration,
               aspect_ratio:
                 opts.aspectRatio ?? "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -262,6 +265,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               opts.paygateTier ?? get().paygateTier ?? "PAYGATE_TIER_ONE",
             // Backend resolves [tier][quality][aspect] → Flow model key.
             video_quality: settings.videoQuality,
+            audio_mode: opts.audioMode,
             low_priority: settings.lowPriority,
           };
           if (hasMulti) {
@@ -396,6 +400,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               error: partialError ?? undefined,
               ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
               ...(stampedVideoQuality ? { videoQuality: stampedVideoQuality } : {}),
+              ...(opts.audioMode ? { videoAudioMode: opts.audioMode } : {}),
             });
             // Persist to backend so the node survives page reload.
             const dbId = parseInt(rfId, 10);
@@ -429,6 +434,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                   error: partialError ?? null,
                   ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
                   ...(stampedVideoQuality ? { videoQuality: stampedVideoQuality } : {}),
+                  ...(opts.audioMode ? { videoAudioMode: opts.audioMode } : {}),
                 },
               }).catch(() => {
                 // Non-fatal: the in-memory state is still correct for this session.

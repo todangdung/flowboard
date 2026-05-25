@@ -20,6 +20,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     }
   >();
   let nextRequestId = 5000;
+  let exportCount = 0;
 
   try {
     await page.route("**/api/auth/me", async (route) => {
@@ -102,6 +103,27 @@ test("builds storyboard sequence shot workflow from palette", async ({
         }),
       });
     });
+    await page.route("**/api/exports/timelines/*", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      exportCount += 1;
+      const timelineId = Number(route.request().url().split("/").pop());
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          timeline_node_id: timelineId,
+          media_id: "eeeeeeee-0000-4000-8000-000000000001",
+          url: "/media/eeeeeeee-0000-4000-8000-000000000001",
+          clip_count: 4,
+          source_media_ids: ["a", "b", "c", "d"],
+          width: 1080,
+          height: 1920,
+        }),
+      });
+    });
 
     await page.addInitScript((boardId) => {
       localStorage.setItem("flowboard.activeBoardId", String(boardId));
@@ -146,13 +168,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
       page.locator(".shot-badge").filter({ hasText: "Clip / Video" }),
     ).toHaveCount(4);
 
-    const dialog = page.getByRole("dialog", { name: /Generate image/i });
-    await expect(dialog).toBeVisible();
-    await expect(page.locator("#gen-prompt")).toHaveValue(/shot 1\/4/);
-    await expect(page.locator("#gen-prompt")).toHaveValue(/skincare serum launch/);
-    await expect(page.getByText("Source references (2)")).toBeVisible();
-    await page.getByRole("button", { name: "Close dialog (Escape)" }).click();
-    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("dialog", { name: /Generate image/i })).toHaveCount(0);
 
     const detailRes = await request.get(`/api/boards/${board.id}`);
     expect(detailRes.ok()).toBeTruthy();
@@ -208,6 +224,12 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await expect(
       page.getByText("4/4 frames / ảnh · 4/4 clips / video"),
     ).toBeVisible({ timeout: 7000 });
+
+    const exportRunner = page.getByRole("button", { name: "Export short / Xuất video" });
+    await expect(exportRunner).toBeEnabled();
+    await exportRunner.click();
+    await expect.poll(() => exportCount).toBe(1);
+    await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
 
     await test.info().attach("shot-workflow-scaffold", {
       body: await page.screenshot({ fullPage: true }),

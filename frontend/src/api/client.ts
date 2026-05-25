@@ -590,6 +590,7 @@ export interface VideoRecipePromptSections {
   camera: string;
   audio: string;
   preserve: string;
+  safety: string;
   avoid: string;
 }
 
@@ -659,6 +660,7 @@ export async function buildRecipeWorkflow(input: {
   brief?: string;
   use_llm?: boolean;
   shot_plan?: ShotPlanItem[];
+  open_generation?: boolean;
 }): Promise<RecipeWorkflowBuildResponse> {
   const res = await fetch("/api/recipes/build-workflow", {
     method: "POST",
@@ -669,6 +671,31 @@ export async function buildRecipeWorkflow(input: {
     throw new Error(await extractErrorMessage(res));
   }
   return res.json() as Promise<RecipeWorkflowBuildResponse>;
+}
+
+export interface TimelineExportResponse {
+  timeline_node_id: number;
+  media_id: string;
+  url: string;
+  clip_count: number;
+  source_media_ids: string[];
+  width: number;
+  height: number;
+}
+
+export async function exportTimeline(
+  timelineNodeId: number,
+  input?: { width?: number; height?: number },
+): Promise<TimelineExportResponse> {
+  const res = await fetch(`/api/exports/timelines/${timelineNodeId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input ?? {}),
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<TimelineExportResponse>;
 }
 
 export async function buildShotPlan(input: {
@@ -985,6 +1012,7 @@ export async function cancelActivity(id: number): Promise<void> {
 
 export type ReferenceKind =
   | "image"
+  | "video"
   | "character"
   | "visual_asset"
   | "storyboard_shot"
@@ -1060,6 +1088,7 @@ function mapReferenceRow(row: ReferenceRowWire): ReferenceItem {
   // throwing, so a single bad row doesn't break the whole list render.
   const allowed: ReferenceKind[] = [
     "image",
+    "video",
     "character",
     "visual_asset",
     "storyboard_shot",

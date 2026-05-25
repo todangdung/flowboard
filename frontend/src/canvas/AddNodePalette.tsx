@@ -60,6 +60,7 @@ export function AddNodePalette() {
             shotDurationSec: sequenceDurationSec,
             brief: sequenceBrief.trim(),
             useLLM: sequenceUseAi,
+            openGeneration: false,
           }
         : undefined,
     );
@@ -115,6 +116,7 @@ export function AddNodePalette() {
           ...shot,
           shot_index: index + 1,
         })),
+        openGeneration: false,
       },
     );
     if (createdId !== null) {

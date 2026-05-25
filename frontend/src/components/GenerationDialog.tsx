@@ -18,6 +18,7 @@ import {
   OMNI_FLASH_CREDIT_COST,
   OMNI_FLASH_DURATIONS,
   type OmniFlashDuration,
+  type VideoAudioMode,
   type VideoQuality,
 } from "../store/settings";
 import {
@@ -121,6 +122,47 @@ const CAMERA_MOVEMENTS = [
 
 type CameraKey = (typeof CAMERA_MOVEMENTS)[number]["key"];
 
+const VIDEO_AUDIO_MODES: readonly {
+  key: VideoAudioMode;
+  label: string;
+  instruction: string;
+}[] = [
+  {
+    key: "no_speech",
+    label: "No speech",
+    instruction:
+      "Audio: no speech, no voice-over, no singing, no humming, no whispering, no lip-sync. Use only neutral instrumental or ambient bed if sound is present.",
+  },
+  {
+    key: "music",
+    label: "Music",
+    instruction:
+      "Audio: soft instrumental music bed, no lyrics, no voice-over, no lip-sync. Keep volume low under natural motion.",
+  },
+  {
+    key: "sfx",
+    label: "SFX",
+    instruction:
+      "Audio: subtle diegetic sound effects only, such as fabric rustle, product handling, footsteps, room tone, or soft movement cues. No music and no speech.",
+  },
+  {
+    key: "ambient",
+    label: "Ambient",
+    instruction:
+      "Audio: natural ambient location tone only, quiet and realistic. No music, no speech, no voice-over, no singing.",
+  },
+  {
+    key: "speech",
+    label: "Speech",
+    instruction:
+      "Audio: speech or voice-over allowed only if the prompt includes exact script. Keep it generic, non-impersonating, and avoid lip-sync unless explicitly requested.",
+  },
+];
+
+function audioInstruction(key: VideoAudioMode): string {
+  return VIDEO_AUDIO_MODES.find((mode) => mode.key === key)?.instruction ?? "";
+}
+
 // Video model picker shown in the dialog — mirrors the unified list from
 // SettingsPanel so the user can override the model per-dispatch without
 // opening the gear menu. Selecting a chip mutates the global settings
@@ -160,6 +202,7 @@ const RECIPE_PLAN_SECTION_LABELS = {
   camera: "Camera",
   audio: "Audio",
   preserve: "Preserve",
+  safety: "Safety",
   avoid: "Avoid",
 } as const;
 type RecipePlanSectionKey = keyof typeof RECIPE_PLAN_SECTION_LABELS;
@@ -294,6 +337,8 @@ export function GenerationDialog() {
   const setOmniFlashDuration = useSettingsStore(
     (s) => s.setOmniFlashDuration,
   );
+  const videoAudioMode = useSettingsStore((s) => s.videoAudioMode);
+  const setVideoAudioMode = useSettingsStore((s) => s.setVideoAudioMode);
   // Auto-detected paygate tier (PAYGATE_TIER_ONE / TIER_TWO). Used to
   // lock the Ultra-only model chips (lite_relaxed) for Pro users — same
   // gating as the SettingsPanel.
@@ -858,9 +903,10 @@ export function GenerationDialog() {
       // the dominant instruction the model resolves against — overrides
       // any conflicting "slow dolly-in" the synthesizer might have output.
       const camInstruction = cameraInstruction(camera);
-      const videoPrompt = camInstruction
-        ? `${finalPrompt}. ${camInstruction}`
-        : finalPrompt;
+      const audio = audioInstruction(videoAudioMode);
+      const videoPrompt = [finalPrompt, camInstruction, audio]
+        .filter((part) => part.trim().length > 0)
+        .join(". ");
       // Filter the upstream variants to the user's selection — the dialog
       // shows one toggleable thumbnail per variant + an All/None action.
       const picked = sourceMediaIds.filter((_, i) => selectedSourceIdx.has(i));
@@ -870,10 +916,13 @@ export function GenerationDialog() {
         : videoRecipe;
       useBoardStore.getState().updateNodeData(rfId, {
         videoRecipeId: recipeToPersist,
+        videoAudioMode,
       });
       const dbId = parseInt(rfId, 10);
       if (!isNaN(dbId)) {
-        patchNode(dbId, { data: { videoRecipeId: recipeToPersist } }).catch(() => {});
+        patchNode(dbId, {
+          data: { videoRecipeId: recipeToPersist, videoAudioMode },
+        }).catch(() => {});
       }
       dispatchGeneration(rfId, {
         prompt: videoPrompt,
@@ -881,6 +930,7 @@ export function GenerationDialog() {
         kind: "video",
         sourceMediaId: useMulti ? undefined : picked[0],
         sourceMediaIds: useMulti ? picked : undefined,
+        audioMode: videoAudioMode,
         // Tell the node UI how many video tiles to reserve while pending —
         // otherwise it defaults to 1 placeholder even though we're
         // dispatching N i2v ops.
@@ -906,6 +956,14 @@ export function GenerationDialog() {
     node?.data.autoPromptStatus === "pending"
     || node?.data.aiBriefStatus === "pending";
   const isWorking = autoBuilding || nodeLLMBusy;
+  const recipeValidationBlocked =
+    isVideo
+    && (recipePlanLoading
+      || !!(
+        recipePlan
+        && recipePlan.required_roles.length > 0
+        && !recipePlan.ready
+      ));
 
   // Both image and video allow empty prompt — we'll auto-synth on submit.
   // Veo i2v needs at least one selected source variant; Omni Flash
@@ -914,9 +972,9 @@ export function GenerationDialog() {
   const canGenerate = isCharacter
     ? charGender !== null || charCountry !== null || charExtras.trim().length > 0
     : isOmniVideo
-    ? refSourceNodes.length > 0 && !isWorking
+    ? refSourceNodes.length > 0 && !isWorking && !recipeValidationBlocked
     : isVideo
-    ? selectedSourceIdx.size > 0 && !isWorking
+    ? selectedSourceIdx.size > 0 && !isWorking && !recipeValidationBlocked
     : !isWorking;
   const recipePlanSections = recipePlan?.prompt_sections;
 
@@ -1616,6 +1674,28 @@ export function GenerationDialog() {
           </div>
         )}
 
+        {isVideo && (
+          <div className="gen-dialog__field">
+            <span className="gen-dialog__label">
+              Audio
+              <InfoTip tip="Sticky per-user setting. Appended into the actual video prompt and stored on the generated node." />
+            </span>
+            <div className="aspect-chip-row">
+              {VIDEO_AUDIO_MODES.map((mode) => (
+                <button
+                  key={mode.key}
+                  className={`aspect-chip${videoAudioMode === mode.key ? " aspect-chip--active" : ""}`}
+                  onClick={() => setVideoAudioMode(mode.key)}
+                  type="button"
+                  title={mode.instruction}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Variants stepper — image + storyboard (storyboard reuses the
             image dispatch path; up to 4 composite variants per request).
             Hidden for video (its own one-clip-per-source-variant flow
@@ -1697,6 +1777,8 @@ export function GenerationDialog() {
             title={
               nodeLLMBusy && !autoBuilding
                 ? "Backend is still composing — try again in a moment"
+                : recipeValidationBlocked
+                ? "Complete required reference roles before generating"
                 : undefined
             }
           >

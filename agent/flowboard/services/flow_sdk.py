@@ -72,6 +72,68 @@ def _media_get_url(media_id: str) -> str:
     they have no operation name and don't appear in ``batchCheckAsync``."""
     return f"{FLOW_API_BASE}/v1/media/{media_id}?clientContext.tool=PINHOLE"
 
+
+_VIDEO_SUCCESS_STATUSES = {
+    "MEDIA_GENERATION_STATUS_SUCCESSFUL",
+    "MEDIA_GENERATION_STATUS_SUCCEEDED",
+    "SUCCESSFUL",
+    "SUCCEEDED",
+}
+_VIDEO_PENDING_STATUSES = {
+    "MEDIA_GENERATION_STATUS_PENDING",
+    "MEDIA_GENERATION_STATUS_SCHEDULED",
+    "MEDIA_GENERATION_STATUS_PROCESSING",
+    "PENDING",
+    "SCHEDULED",
+    "PROCESSING",
+}
+_VIDEO_TERMINAL_ERROR_STATUSES = {
+    "MEDIA_GENERATION_STATUS_FAILED",
+    "MEDIA_GENERATION_STATUS_FAILURE",
+    "MEDIA_GENERATION_STATUS_CANCELLED",
+    "MEDIA_GENERATION_STATUS_CANCELED",
+    "MEDIA_GENERATION_STATUS_REJECTED",
+    "MEDIA_GENERATION_STATUS_EXPIRED",
+    "FAILED",
+    "FAILURE",
+    "CANCELLED",
+    "CANCELED",
+    "REJECTED",
+    "EXPIRED",
+    "ERROR",
+}
+
+
+def _normalise_generation_status(status: Any) -> Optional[str]:
+    if not isinstance(status, str) or not status.strip():
+        return None
+    return status.strip().upper()
+
+
+def _is_success_generation_status(status: Any) -> bool:
+    normalised = _normalise_generation_status(status)
+    return bool(normalised and normalised in _VIDEO_SUCCESS_STATUSES)
+
+
+def _is_pending_generation_status(status: Any) -> bool:
+    normalised = _normalise_generation_status(status)
+    return bool(normalised and normalised in _VIDEO_PENDING_STATUSES)
+
+
+def _terminal_generation_error_status(status: Any) -> Optional[str]:
+    normalised = _normalise_generation_status(status)
+    if normalised is None:
+        return None
+    if normalised in _VIDEO_SUCCESS_STATUSES or normalised in _VIDEO_PENDING_STATUSES:
+        return None
+    if (
+        normalised in _VIDEO_TERMINAL_ERROR_STATUSES
+        or normalised.endswith("_FAILED")
+        or normalised.endswith("_FAILURE")
+    ):
+        return normalised
+    return None
+
 # Image model keys, indexed by the user-facing nickname used in
 # flowkit's models.json. Pro is Flow's premium / higher-quality image
 # model; "Banana 2" (NARWHAL) is the lighter / faster option. The
@@ -760,22 +822,82 @@ class FlowSDK:
 
             # `data` is the body; for /v1/media it's the media object directly.
             data = resp.get("data") if isinstance(resp.get("data"), dict) else {}
+            media_status = (
+                data.get("mediaStatus")
+                if isinstance(data.get("mediaStatus"), dict)
+                else {}
+            )
+            generation_status = (
+                media_status.get("mediaGenerationStatus")
+                if isinstance(media_status, dict)
+                else None
+            )
+            status_error = _terminal_generation_error_status(generation_status)
+            if status_error is not None:
+                ops_summary.append(
+                    {
+                        "name": name,
+                        "done": True,
+                        "media_entries": [],
+                        "status": status_error,
+                        "error": status_error,
+                    }
+                )
+                continue
             video_block = data.get("video") if isinstance(data.get("video"), dict) else {}
+            fife = (
+                video_block.get("fifeUrl") if isinstance(video_block, dict) else None
+            ) or (
+                video_block.get("videoUri") if isinstance(video_block, dict) else None
+            ) or data.get("fifeUrl") or data.get("videoUri")
             encoded = (
                 video_block.get("encodedVideo")
                 if isinstance(video_block, dict)
                 else None
             )
             if not isinstance(encoded, str) or not encoded:
+                if (
+                    _is_success_generation_status(generation_status)
+                    and isinstance(fife, str)
+                    and fife
+                ):
+                    ops_summary.append(
+                        {
+                            "name": name,
+                            "done": True,
+                            "media_entries": [
+                                {
+                                    "media_id": mid,
+                                    "url": fife,
+                                    "mediaType": "video",
+                                }
+                            ],
+                            "status": generation_status,
+                            "error": None,
+                        }
+                    )
+                    continue
                 ops_summary.append(
-                    {"name": name, "done": False, "media_entries": [], "status": None, "error": None}
+                    {
+                        "name": name,
+                        "done": False,
+                        "media_entries": [],
+                        "status": generation_status,
+                        "error": None,
+                    }
                 )
                 continue
             try:
                 binary = _b64.b64decode(encoded, validate=False)
             except Exception:  # noqa: BLE001
                 ops_summary.append(
-                    {"name": name, "done": False, "media_entries": [], "status": None, "error": None}
+                    {
+                        "name": name,
+                        "done": False,
+                        "media_entries": [],
+                        "status": generation_status,
+                        "error": None,
+                    }
                 )
                 continue
             # MP4 box layout: bytes 4..8 == "ftyp" on a complete file.
@@ -783,12 +905,15 @@ class FlowSDK:
             is_mp4 = len(binary) >= 12 and binary[4:8] == b"ftyp"
             if not is_mp4:
                 ops_summary.append(
-                    {"name": name, "done": False, "media_entries": [], "status": None, "error": None}
+                    {
+                        "name": name,
+                        "done": False,
+                        "media_entries": [],
+                        "status": generation_status,
+                        "error": None,
+                    }
                 )
                 continue
-            fife = (
-                video_block.get("fifeUrl") if isinstance(video_block, dict) else None
-            ) or data.get("fifeUrl")
             ops_summary.append(
                 {
                     "name": name,
@@ -801,7 +926,7 @@ class FlowSDK:
                             "encoded_video": encoded,
                         }
                     ],
-                    "status": "MEDIA_GENERATION_STATUS_SUCCESSFUL",
+                    "status": generation_status or "MEDIA_GENERATION_STATUS_SUCCESSFUL",
                     "error": None,
                 }
             )
@@ -1187,11 +1312,12 @@ def extract_video_operations(
                     if isinstance(inner_err, dict):
                         msg = inner_err.get("message") or inner_err.get("status") or "operation_failed"
                         op_err = str(msg)
-                    if status == "MEDIA_GENERATION_STATUS_FAILED" and op_err is None:
-                        op_err = "MEDIA_GENERATION_STATUS_FAILED"
+                    status_error = _terminal_generation_error_status(status)
+                    if status_error is not None and op_err is None:
+                        op_err = status_error
                     done_flag = (
-                        status == "MEDIA_GENERATION_STATUS_SUCCESSFUL"
-                        or status == "MEDIA_GENERATION_STATUS_FAILED"
+                        _is_success_generation_status(status)
+                        or op_err is not None
                         or bool(inner.get("done"))
                         or bool(media_id and fife)
                     )

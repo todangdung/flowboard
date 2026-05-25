@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/references", tags=["references"])
 # rows, add production-facing kinds for reusable consistency assets.
 _ALLOWED_KINDS = {
     "image",
+    "video",
     "character",
     "visual_asset",
     "storyboard_shot",
@@ -91,6 +92,8 @@ def _infer_kind_from_node(node: Node) -> str:
     ).lower()
     if node.type == "character":
         return "character"
+    if node.type == "video":
+        return "video"
     if node.type == "Storyboard":
         return "storyboard_shot"
     if node.type == "prompt":

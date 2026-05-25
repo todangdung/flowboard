@@ -270,12 +270,21 @@ function ReferenceCard({
             📷
           </div>
         ) : (
-          <img
-            src={mediaUrl(item.mediaId)}
-            alt=""
-            onError={() => setThumbBroken(true)}
-            draggable={false}
-          />
+          item.kind === "video" ? (
+            <video
+              src={mediaUrl(item.mediaId)}
+              onError={() => setThumbBroken(true)}
+              preload="metadata"
+              muted
+            />
+          ) : (
+            <img
+              src={mediaUrl(item.mediaId)}
+              alt=""
+              onError={() => setThumbBroken(true)}
+              draggable={false}
+            />
+          )
         )}
       </div>
 

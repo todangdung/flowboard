@@ -3,6 +3,7 @@ import { useGenerationStore } from "../store/generation";
 import {
   useSettingsStore,
   type ImageModelKey,
+  type VideoAudioMode,
   type VideoQuality,
 } from "../store/settings";
 import { getLatestRelease, isNewerVersion, type LatestRelease } from "../api/github";
@@ -74,6 +75,38 @@ const VIDEO_QUALITIES: {
   },
 ];
 
+const VIDEO_AUDIO_MODES: {
+  key: VideoAudioMode;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "no_speech",
+    label: "No speech",
+    hint: "No voice-over, lip-sync, singing, humming, or whispering.",
+  },
+  {
+    key: "music",
+    label: "Music",
+    hint: "Soft instrumental bed, no lyrics or speech.",
+  },
+  {
+    key: "sfx",
+    label: "SFX",
+    hint: "Diegetic handling, movement, and environment sounds only.",
+  },
+  {
+    key: "ambient",
+    label: "Ambient",
+    hint: "Quiet room or location tone only.",
+  },
+  {
+    key: "speech",
+    label: "Speech",
+    hint: "Speech allowed only when prompt includes exact script.",
+  },
+];
+
 interface SettingsPanelProps {
   open: boolean;
   onClose(): void;
@@ -95,6 +128,8 @@ export function SettingsPanel({ open, onClose, onLogout, logoutPending }: Settin
   const setVideoQuality = useSettingsStore((s) => s.setVideoQuality);
   const videoModel = useSettingsStore((s) => s.videoModel);
   const setVideoModel = useSettingsStore((s) => s.setVideoModel);
+  const videoAudioMode = useSettingsStore((s) => s.videoAudioMode);
+  const setVideoAudioMode = useSettingsStore((s) => s.setVideoAudioMode);
   const lowPriority = useSettingsStore((s) => s.lowPriority);
   const setLowPriority = useSettingsStore((s) => s.setLowPriority);
 
@@ -266,6 +301,30 @@ export function SettingsPanel({ open, onClose, onLogout, logoutPending }: Settin
       </div>
 
       <div className="settings-panel__section">
+        <div className="settings-panel__label">Video audio</div>
+        <div className="settings-panel__radio-group">
+          {VIDEO_AUDIO_MODES.map((mode) => (
+            <label
+              key={mode.key}
+              className={`settings-panel__radio${videoAudioMode === mode.key ? " settings-panel__radio--active" : ""}`}
+            >
+              <input
+                type="radio"
+                name="video-audio"
+                value={mode.key}
+                checked={videoAudioMode === mode.key}
+                onChange={() => setVideoAudioMode(mode.key)}
+              />
+              <div>
+                <div className="settings-panel__radio-label">{mode.label}</div>
+                <div className="settings-panel__radio-hint">{mode.hint}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-panel__section">
         <div className="settings-panel__label">Image model</div>
         <div className="settings-panel__radio-group">
           {IMAGE_MODELS.map((m) => (
@@ -345,4 +404,3 @@ export function SettingsPanel({ open, onClose, onLogout, logoutPending }: Settin
     </div>
   );
 }
-

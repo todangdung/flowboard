@@ -15,6 +15,18 @@ from flowboard.db import get_session
 from flowboard.db.models import Edge, Node
 
 
+CLAIM_SAFETY_HINT = (
+    "Claim safety: for skincare, beauty, wellness, health, before/after, and "
+    "body-result scenes, describe only visible cosmetic use, texture, sensory "
+    "feel, routine steps, and visual mood. Do not claim cure, treatment, "
+    "prevention, diagnosis, guaranteed efficacy, clinical proof, time-bound "
+    "results, permanent change, or measurable before/after outcomes unless "
+    "the user provides compliant substantiation text. Prefer neutral wording "
+    "such as 'skin looks dewy on camera', 'cosmetic glow effect', 'application "
+    "ritual', and 'visual reveal'."
+)
+
+
 @dataclass(frozen=True)
 class VideoRecipe:
     id: str
@@ -29,6 +41,7 @@ class VideoRecipe:
     preserve_hint: str
     avoid_hint: str
     prompt_contract: str
+    safety_hint: str = CLAIM_SAFETY_HINT
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -291,7 +304,7 @@ def normalize_video_recipe_id(recipe_id: Optional[str]) -> Optional[str]:
 
 def video_recipe_clause(recipe_id: str) -> str:
     recipe = _BY_ID[recipe_id]
-    return "\n\n" + recipe.prompt_contract
+    return "\n\n" + recipe.prompt_contract + "\n\n" + recipe.safety_hint
 
 
 def infer_video_recipe_id(records: list[dict], target_data: dict) -> Optional[str]:
@@ -437,6 +450,7 @@ def build_video_recipe_plan_from_records(
                 "camera": camera or "auto",
                 "audio": "Instrumental background bed by default, no speech unless requested.",
                 "preserve": "Preserve any explicitly labeled identity, product, and source-frame references.",
+                "safety": CLAIM_SAFETY_HINT,
                 "avoid": "Avoid text overlays, identity drift, product drift, and sudden scene cuts.",
             },
         }
@@ -460,6 +474,7 @@ def build_video_recipe_plan_from_records(
             "camera": f"{camera_mode} camera; default aspect {recipe.default_aspect_ratio}.",
             "audio": recipe.audio_hint,
             "preserve": _preserve_section(recipe, present_roles),
+            "safety": recipe.safety_hint,
             "avoid": recipe.avoid_hint,
         },
     }
@@ -503,6 +518,7 @@ def format_video_recipe_plan_for_prompt(plan: dict) -> str:
             f"Camera:\n{sections.get('camera', '')}",
             f"Audio:\n{sections.get('audio', '')}",
             f"Preserve:\n{sections.get('preserve', '')}",
+            f"Safety:\n{sections.get('safety', '')}",
             f"Avoid:\n{sections.get('avoid', '')}",
         ]
     )

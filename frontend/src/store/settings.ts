@@ -37,6 +37,13 @@ export type VideoQuality =
 // GenerationDialog. The video dispatch path branches on this.
 export type VideoModelFamily = "veo" | "omni_flash";
 
+export type VideoAudioMode =
+  | "no_speech"
+  | "music"
+  | "sfx"
+  | "ambient"
+  | "speech";
+
 // Omni Flash duration → credit cost (informational, surfaced in the
 // dialog so the user sees the cost before submit). Mirrors the backend
 // OMNI_FLASH_CREDIT_COST table — pin both via tests.
@@ -53,6 +60,7 @@ interface SettingsState {
   imageModel: ImageModelKey;
   videoQuality: VideoQuality;
   videoModel: VideoModelFamily;
+  videoAudioMode: VideoAudioMode;
   omniFlashDuration: OmniFlashDuration;
   // When ON, every dispatch (gen_image, edit_image, gen_video,
   // gen_video_omni) routes through Flow's 0-credit low-priority queue —
@@ -65,6 +73,7 @@ interface SettingsState {
   setImageModel(model: ImageModelKey): void;
   setVideoQuality(q: VideoQuality): void;
   setVideoModel(m: VideoModelFamily): void;
+  setVideoAudioMode(m: VideoAudioMode): void;
   setOmniFlashDuration(d: OmniFlashDuration): void;
   setLowPriority(v: boolean): void;
 }
@@ -76,6 +85,7 @@ interface PersistShape {
   imageModel?: ImageModelKey;
   videoQuality?: VideoQuality;
   videoModel?: VideoModelFamily;
+  videoAudioMode?: VideoAudioMode;
   omniFlashDuration?: OmniFlashDuration;
   lowPriority?: boolean;
 }
@@ -120,6 +130,13 @@ function persist(state: PersistShape): void {
 const persisted = loadPersisted();
 
 const VALID_VIDEO_QUALITIES: VideoQuality[] = ["fast", "lite", "quality", "lite_relaxed"];
+const VALID_AUDIO_MODES: VideoAudioMode[] = [
+  "no_speech",
+  "music",
+  "sfx",
+  "ambient",
+  "speech",
+];
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   imageModel: persisted.imageModel ?? "NANO_BANANA_2",
@@ -128,6 +145,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ? persisted.videoQuality
       : "fast",
   videoModel: persisted.videoModel ?? "veo",
+  videoAudioMode:
+    persisted.videoAudioMode && VALID_AUDIO_MODES.includes(persisted.videoAudioMode)
+      ? persisted.videoAudioMode
+      : "music",
   omniFlashDuration: persisted.omniFlashDuration ?? 4,
   lowPriority: persisted.lowPriority ?? false,
   setImageModel(model) {
@@ -136,6 +157,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       imageModel: model,
       videoQuality: get().videoQuality,
       videoModel: get().videoModel,
+      videoAudioMode: get().videoAudioMode,
       omniFlashDuration: get().omniFlashDuration,
       lowPriority: get().lowPriority,
     });
@@ -146,6 +168,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       imageModel: get().imageModel,
       videoQuality: q,
       videoModel: get().videoModel,
+      videoAudioMode: get().videoAudioMode,
       omniFlashDuration: get().omniFlashDuration,
       lowPriority: get().lowPriority,
     });
@@ -156,6 +179,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       imageModel: get().imageModel,
       videoQuality: get().videoQuality,
       videoModel: m,
+      videoAudioMode: get().videoAudioMode,
+      omniFlashDuration: get().omniFlashDuration,
+      lowPriority: get().lowPriority,
+    });
+  },
+  setVideoAudioMode(m) {
+    set({ videoAudioMode: m });
+    persist({
+      imageModel: get().imageModel,
+      videoQuality: get().videoQuality,
+      videoModel: get().videoModel,
+      videoAudioMode: m,
       omniFlashDuration: get().omniFlashDuration,
       lowPriority: get().lowPriority,
     });
@@ -166,6 +201,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       imageModel: get().imageModel,
       videoQuality: get().videoQuality,
       videoModel: get().videoModel,
+      videoAudioMode: get().videoAudioMode,
       omniFlashDuration: d,
       lowPriority: get().lowPriority,
     });
@@ -176,6 +212,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       imageModel: get().imageModel,
       videoQuality: get().videoQuality,
       videoModel: get().videoModel,
+      videoAudioMode: get().videoAudioMode,
       omniFlashDuration: get().omniFlashDuration,
       lowPriority: v,
     });

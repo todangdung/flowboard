@@ -86,6 +86,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   // plain text in that case so the user knows it's an estimate.
   imageModel?: string;
   videoQuality?: string;
+  videoAudioMode?: string;
   videoRecipeId?: "auto" | VideoRecipeId;
   // Character-builder selections — persisted on dispatch so the detail
   // panel can show "Country / Vibe / Gender" pills under METADATA. Keys
@@ -109,6 +110,10 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   timelineRecipeId?: string;
   timelineShotIds?: string[];
   timelineDurationsSec?: number[];
+  exportMediaId?: string;
+  exportedAt?: string;
+  exportClipCount?: number;
+  exportSize?: string;
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -184,6 +189,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       aiBrief: dto.data["aiBrief"] as string | undefined,
       imageModel: dto.data["imageModel"] as string | undefined,
       videoQuality: dto.data["videoQuality"] as string | undefined,
+      videoAudioMode: dto.data["videoAudioMode"] as string | undefined,
       videoRecipeId: dto.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
       charCountry: dto.data["charCountry"] as string | undefined,
       charVibe: dto.data["charVibe"] as string | undefined,
@@ -196,6 +202,10 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       timelineRecipeId: dto.data["timelineRecipeId"] as string | undefined,
       timelineShotIds: dto.data["timelineShotIds"] as string[] | undefined,
       timelineDurationsSec: dto.data["timelineDurationsSec"] as number[] | undefined,
+      exportMediaId: dto.data["exportMediaId"] as string | undefined,
+      exportedAt: dto.data["exportedAt"] as string | undefined,
+      exportClipCount: dto.data["exportClipCount"] as number | undefined,
+      exportSize: dto.data["exportSize"] as string | undefined,
       error: dto.data["error"] as string | undefined,
     },
   };
@@ -270,6 +280,7 @@ interface BoardState {
       brief?: string;
       useLLM?: boolean;
       shotPlan?: ShotPlanItem[];
+      openGeneration?: boolean;
     },
   ): Promise<string | null>;
   // Spawn a brand-new visual_asset node from a saved Reference. Used by
@@ -529,6 +540,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         brief: opts?.brief,
         use_llm: opts?.useLLM,
         shot_plan: opts?.shotPlan,
+        open_generation: opts?.openGeneration,
       });
       const createdNodes = built.nodes.map(nodeFromDto);
       const createdEdges = built.edges.map(edgeFromDto);
@@ -571,6 +583,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const type: NodeType =
       ref.kind === "character"
         ? "character"
+        : ref.kind === "video"
+        ? "video"
         : ref.kind === "storyboard_shot"
         ? "Storyboard"
         : "visual_asset";

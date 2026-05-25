@@ -1,6 +1,30 @@
 # Flowboard Video Gap And Roadmap
 
-Last updated: 2026-05-24
+Last updated: 2026-05-25
+
+## 2026-05-25 Implementation Checkpoint
+
+Completed vertical slices:
+
+- Phase 5 shot workflow MVP: storyboard sequence creates shot frame, shot clip,
+  and timeline nodes without auto-opening generation.
+- Video status parsing: rejected, failed, cancelled, expired, and similar Flow
+  media statuses now terminate as node errors instead of polling forever.
+- Reference role UX/backend: video references are valid saved references, role
+  labels are preserved, and recipe validation blocks generation until required
+  roles are ready.
+- Recipe router contracts: catalog responses include safety hints; prompt
+  preview includes a safety section.
+- Consistency and claim layer: video recipe prompts include product, logo,
+  character, and skincare/health/beauty claim-safety constraints.
+- Audio controls: video audio mode is a persisted setting and is appended to
+  dispatch prompts/request params.
+- Iteration tools: video results can be saved as references, refined from the
+  current prompt, or extended into a cloned follow-up clip node.
+- Export: timeline clips can be stitched through ffmpeg and registered as a
+  final `/media/{id}` video asset.
+- Reusable tests: backend export/status/recipe tests and Playwright shot
+  workflow coverage verify the full mocked sequence path.
 
 This file is split out from `video-production-workflow-map.md`. It focuses only
 on what Flowboard currently lacks and the development direction suggested by
@@ -199,4 +223,3 @@ Why:
 5. Product and character consistency need explicit contracts.
 6. Audio and duration should be settings, not hidden prompt prose.
 7. Commercial workflows need safety/claim filters as part of prompt quality.
-

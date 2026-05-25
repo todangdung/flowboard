@@ -666,6 +666,23 @@ def test_extract_video_operations_recognizes_status_successful_envelope():
     assert out[1]["media_entries"] == []
 
 
+def test_extract_video_operations_treats_rejected_status_as_terminal_error():
+    resp = {
+        "data": {
+            "operations": [
+                {
+                    "status": "MEDIA_GENERATION_STATUS_REJECTED",
+                    "operation": {"name": "vid-rejected"},
+                },
+            ]
+        }
+    }
+    out = extract_video_operations(resp, requested=["vid-rejected"])
+    assert out[0]["done"] is True
+    assert out[0]["error"] == "MEDIA_GENERATION_STATUS_REJECTED"
+    assert out[0]["media_entries"] == []
+
+
 def test_extract_inner_api_error_returns_none_on_success():
     assert _extract_inner_api_error({"status": 200, "data": {"media": []}}) is None
     assert _extract_inner_api_error({"data": {"operations": [{"x": 1}]}}) is None
@@ -841,6 +858,65 @@ async def test_check_async_workflow_mode_partial_bytes_means_pending():
     )
     assert out["operations"][0]["done"] is False
     assert out["operations"][0]["media_entries"] == []
+
+
+@pytest.mark.asyncio
+async def test_check_async_workflow_mode_failed_media_status_is_terminal():
+    class WorkflowClient(RecordingClient):
+        async def api_request(self, **kwargs):
+            self.api_calls.append(kwargs)
+            return {
+                "status": 200,
+                "data": {
+                    "mediaStatus": {
+                        "mediaGenerationStatus": "MEDIA_GENERATION_STATUS_CANCELLED"
+                    }
+                },
+            }
+
+    c = WorkflowClient()
+    sdk = FlowSDK(client=c)  # type: ignore[arg-type]
+    out = await sdk.check_async(
+        ["wf-cancelled"],
+        workflows=[{"name": "wf-cancelled", "primary_media_id": "primary-vid-1"}],
+    )
+    assert out["operations"][0]["done"] is True
+    assert out["operations"][0]["error"] == "MEDIA_GENERATION_STATUS_CANCELLED"
+    assert out["operations"][0]["media_entries"] == []
+
+
+@pytest.mark.asyncio
+async def test_check_async_workflow_mode_success_status_can_use_fife_url():
+    class WorkflowClient(RecordingClient):
+        async def api_request(self, **kwargs):
+            self.api_calls.append(kwargs)
+            return {
+                "status": 200,
+                "data": {
+                    "mediaStatus": {
+                        "mediaGenerationStatus": "MEDIA_GENERATION_STATUS_SUCCEEDED"
+                    },
+                    "video": {
+                        "videoUri": "https://flow-content.google/video/primary-vid-1?sig=x"
+                    },
+                },
+            }
+
+    c = WorkflowClient()
+    sdk = FlowSDK(client=c)  # type: ignore[arg-type]
+    out = await sdk.check_async(
+        ["wf-success"],
+        workflows=[{"name": "wf-success", "primary_media_id": "primary-vid-1"}],
+    )
+    assert out["operations"][0]["done"] is True
+    assert out["operations"][0]["error"] is None
+    assert out["operations"][0]["media_entries"] == [
+        {
+            "media_id": "primary-vid-1",
+            "url": "https://flow-content.google/video/primary-vid-1?sig=x",
+            "mediaType": "video",
+        }
+    ]
 
 
 @pytest.mark.asyncio

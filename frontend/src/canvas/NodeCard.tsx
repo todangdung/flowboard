@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { useBoardStore, type FlowboardNodeData, type FlowNode, type NodeStatus } from "../store/board";
 import { useGenerationStore } from "../store/generation";
 import {
+  exportTimeline,
   mediaUrl,
   patchEdge,
   patchNode,
@@ -1506,6 +1507,8 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const paygateTier = useGenerationStore((s) => s.paygateTier);
   const dispatchGeneration = useGenerationStore((s) => s.dispatchGeneration);
   const [runnerBusy, setRunnerBusy] = useState<"frames" | "clips" | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const incoming = edges
     .filter((e) => e.target === rfId)
     .map((e) => nodes.find((n) => n.id === e.source))
@@ -1540,6 +1543,10 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const runnerBlocked = paygateTier === null;
   const canRunFrames = frameTargets.length > 0 && runnerBusy === null && !runnerBlocked;
   const canRunClips = allFramesReady && clipTargets.length > 0 && runnerBusy === null && !runnerBlocked;
+  const canExport =
+    shotPairs.length > 0
+    && clipsReady === shotPairs.length
+    && !exportBusy;
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
     ? incoming
@@ -1593,6 +1600,28 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     }
   }
 
+  async function runExport() {
+    if (!canExport) return;
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      const dbId = parseInt(rfId, 10);
+      if (isNaN(dbId)) return;
+      const result = await exportTimeline(dbId);
+      useBoardStore.getState().updateNodeData(rfId, {
+        status: "done",
+        exportMediaId: result.media_id,
+        exportClipCount: result.clip_count,
+        exportSize: `${result.width}x${result.height}`,
+        exportedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   return (
     <div className="node-body node-body--timeline">
       <div className="timeline-header">
@@ -1630,14 +1659,43 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         >
           {runnerBusy === "clips" ? "Queueing clips / Đang xếp video" : "Generate clips / Tạo video"}
         </button>
+        <button
+          type="button"
+          className="timeline-run-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            void runExport();
+          }}
+          disabled={!canExport}
+          title={clipsReady === shotPairs.length ? undefined : "Generate clips first / Tạo video trước"}
+        >
+          {exportBusy ? "Exporting / Đang xuất" : "Export short / Xuất video"}
+        </button>
+        {data.exportMediaId && (
+          <a
+            className="timeline-run-btn"
+            href={mediaUrl(data.exportMediaId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            Open export / Mở file
+          </a>
+        )}
       </div>
       <div className="timeline-run-summary">
         {framesReady}/{shotPairs.length} frames / ảnh · {clipsReady}/{shotPairs.length} clips / video
+        {data.exportMediaId ? ` · export ${data.exportClipCount ?? clipsReady} clips` : ""}
       </div>
+      {exportError && (
+        <div className="timeline-run-summary timeline-run-summary--error" role="alert">
+          {exportError}
+        </div>
+      )}
       <div className="timeline-shot-list">
         {rows.map((clip) => {
           const index = clip.data.shotIndex ?? 0;
-          const hasMedia = Boolean(clip.data.mediaId);
+          const hasMedia = nodeMediaIds(clip.data).length > 0;
           const status = clip.data.status ?? "idle";
           return (
             <button
