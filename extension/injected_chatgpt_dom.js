@@ -392,23 +392,26 @@
     };
   }
 
-  /** Top-level driver: orchestrate the five DOM steps. Image attach
-   *  happens before the prompt so the composer's send-enable state
-   *  picks up both inputs together. */
+  /** Top-level driver: orchestrate the five DOM steps. Type the prompt
+   *  FIRST, then attach the image — the paste-event handler reorders
+   *  composer focus/state in a way that drops subsequent input-event
+   *  text on the floor (observed: ChatGPT received only the image and
+   *  asked "what do you want me to do with this image?"). Typing first
+   *  banks the prompt before the paste handler runs. */
   async function runGenerationDOM(prompt, imageBlob, imageName) {
     if (typeof prompt !== 'string' || !prompt.trim()) {
       throw new Error('MISSING_PROMPT');
     }
     const composer = await startNewChatDOM();
-    if (imageBlob) {
-      await attachImageDOM(composer, imageBlob, imageName);
-    }
     // Wait for old messages from the previous conversation to clear.
     // After SPA navigation the DOM update is async — URL flips to '/'
     // before React removes old <div data-message-author-role> nodes.
     await waitFor(() => document.querySelectorAll(SEL.asstMsg).length === 0, { timeout: 2000 });
     const beforeCount = document.querySelectorAll(SEL.asstMsg).length;
     typePromptDOM(composer, prompt.trim());
+    if (imageBlob) {
+      await attachImageDOM(composer, imageBlob, imageName);
+    }
     await clickSendDOM(composer);
     await waitForIdleDOM(beforeCount);
     return await extractResponseDOM();
