@@ -179,32 +179,31 @@
    *  in case execCommand returns false (Firefox-style refusal). */
   function typePromptDOM(composer, text) {
     composer.focus();
-    // Place caret at end. Without this, execCommand may insert at the
-    // wrong position if a previous Slate selection range is stale.
-    const range = document.createRange();
-    range.selectNodeContents(composer);
-    range.collapse(false);
+    // Clear any prior selection / stale composer text first so we
+    // never append to leftover content. Slate listens for beforeinput
+    // with inputType='deleteContent' to drop its own internal value.
     const sel = window.getSelection();
     sel.removeAllRanges();
+    const range = document.createRange();
+    range.selectNodeContents(composer);
     sel.addRange(range);
+    try { document.execCommand('delete', false); } catch (_) { /* tolerate */ }
 
-    let ok = false;
-    try {
-      ok = document.execCommand('insertText', false, text);
-    } catch (_) {
-      ok = false;
-    }
-    if (ok) return;
+    // Insert via execCommand → fires a single beforeinput Slate
+    // intercepts (Slate calls preventDefault so execCommand RETURNS
+    // FALSE even though Slate inserted the text via its own model).
+    // Do NOT dispatch a fallback InputEvent afterwards — that produced
+    // 2-3× duplication because Slate processed both the real and the
+    // synthetic event (observed: "đây là ảnh gì?" sent 3× concatenated).
+    // Verify via composer.textContent and only fall back if insertion
+    // truly failed.
+    try { document.execCommand('insertText', false, text); } catch (_) { /* tolerate */ }
 
-    // execCommand refused — fall through to a synthetic beforeinput
-    // + textContent assignment. Slate may still drop this, but at
-    // least one event class fires so we don't silently send empty.
-    composer.dispatchEvent(new InputEvent('beforeinput', {
-      bubbles: true,
-      cancelable: true,
-      inputType: 'insertText',
-      data: text,
-    }));
+    // If Slate's model accepted the insert, composer DOM has visible text.
+    if ((composer.innerText || composer.textContent || '').includes(text)) return;
+
+    // Real fallback path — execCommand neither inserted nor Slate
+    // processed it. Replace <p> manually and fire ONE input event.
     const msgP = document.createElement('p');
     msgP.textContent = text;
     const existing = composer.querySelector('p');
