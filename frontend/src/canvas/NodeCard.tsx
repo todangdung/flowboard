@@ -1625,15 +1625,26 @@ export function NodeCard(props: NodeProps<FlowNode>) {
       // No static prompt — try to use upstream prompt node text directly
       // without opening the dialog (same resolution as pipeline executor).
       const { nodes, edges } = useBoardStore.getState();
-      const upstreamText = edges
+      const upstreamNodes = edges
         .filter((e) => e.target === rfId)
         .map((e) => nodes.find((n) => n.id === e.source))
-        .find((n) => n?.data.type === "prompt" && (n.data.prompt ?? "").trim())
+        .filter(Boolean) as FlowNode[];
+      const upstreamText = upstreamNodes
+        .find((n) => n.data.type === "prompt" && (n.data.prompt ?? "").trim())
         ?.data.prompt as string | undefined;
+      const upstreamImageMediaId = upstreamNodes
+        .find(
+          (n) =>
+            ["image", "character", "visual_asset"].includes(n.data.type as string) &&
+            typeof n.data.mediaId === "string" &&
+            (n.data.mediaId as string).length > 0,
+        )
+        ?.data.mediaId as string | undefined;
       if (upstreamText?.trim()) {
         void useGenerationStore.getState().dispatchGeneration(rfId, {
           prompt: upstreamText.trim(),
           kind: "chatgpt",
+          ...(upstreamImageMediaId ? { imageMediaId: upstreamImageMediaId } : {}),
         });
         return;
       }

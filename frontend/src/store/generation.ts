@@ -40,6 +40,8 @@ interface GenerationState {
       // prompt — required for batch auto-prompt to keep poses distinct
       // across the 4 generated images.
       prompts?: string[];
+      // ChatGPT image input: upstream image node's mediaId to attach.
+      imageMediaId?: string;
     },
   ): Promise<void>;
 
@@ -153,6 +155,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     sourceMediaIds?: string[];
     variantCount?: number;
     prompts?: string[];
+    imageMediaId?: string;
   }) {
     const projectId = await get().ensureProjectId();
     if (projectId === null) return;
@@ -209,6 +212,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
           node_id: isNaN(nodeDbId) ? undefined : nodeDbId,
           params: {
             prompt: opts.prompt,
+            ...(opts.imageMediaId ? { image_media_id: opts.imageMediaId } : {}),
           },
         });
       } else if (kind === "video") {

@@ -369,6 +369,20 @@ export function GenerationDialog() {
       })()
     : undefined;
 
+  // Upstream image node mediaId for chatgpt input attachment.
+  const upstreamImageMediaId = rfId
+    ? (() => {
+        for (const e of edges.filter((e2) => e2.target === rfId)) {
+          const n = nodes.find((n2) => n2.id === e.source);
+          if (!n) continue;
+          if (!["image", "character", "visual_asset"].includes(n.data.type as string)) continue;
+          const mid = n.data.mediaId as string | undefined;
+          if (mid) return mid;
+        }
+        return undefined;
+      })()
+    : undefined;
+
   const refSourceNodes = (!isVideo || isOmniVideo) && rfId
     ? edges
         .filter((e) => e.target === rfId)
@@ -669,6 +683,7 @@ export function GenerationDialog() {
       dispatchGeneration(rfId, {
         prompt: effectivePrompt,
         kind: "chatgpt",
+        ...(upstreamImageMediaId ? { imageMediaId: upstreamImageMediaId } : {}),
       });
       closeGenerationDialog();
       return;
