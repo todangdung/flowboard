@@ -52,7 +52,10 @@
     sendBtn: 'button[data-testid=send-button]',
     stopBtn: 'button[data-testid=stop-button]',
     asstMsg: '[data-message-author-role=assistant]',
-    attachThumb: '[data-testid="attachment-thumbnail"]',
+    // ChatGPT renames this chip frequently. Cover the historical
+    // data-testid plus newer variants (preview card, preview img,
+    // attach-button image, blob/data URL preview inside composer).
+    attachThumb: '[data-testid="attachment-thumbnail"], [data-testid="attachments-preview-card"], [data-testid="attachments-preview-img"], [data-testid*="attachment"], button[aria-label*="ttach" i] img, [class*="composer"] img[src^="blob:"], [class*="composer"] img[src^="data:"]',
     newChat: 'a[href="/"]:has(svg), nav a[href="/"]',
     cdnImg: 'img[src*="oaiusercontent"], img[src*="files.oaiusercontent"]',
     paragenRoot: '[data-paragen-root]',
@@ -146,11 +149,15 @@
     });
     composer.dispatchEvent(evt);
     // Thumbnail chip appears ~300-800 ms after paste once the upload
-    // completes. If it never shows up the upload either failed or the
-    // selector moved — surface a structured error so the agent log makes
-    // the failure mode obvious.
+    // completes. If our selector misses (ChatGPT renames the chip
+    // every few weeks), don't hard-fail — log and proceed, the send
+    // button's disabled-while-uploading gate covers the genuine
+    // upload-failure case downstream.
     const ok = await waitFor(() => document.querySelector(SEL.attachThumb), { timeout: 15000 });
-    if (!ok) throw new Error('DOM_ATTACH_THUMB_MISSING');
+    if (!ok) {
+      console.warn('[Flowboard] attachThumb selector missed; proceeding (send-button gate will catch a true upload failure)');
+      await new Promise((r) => setTimeout(r, 1500));
+    }
   }
 
   /** Type a prompt into the contenteditable composer.
