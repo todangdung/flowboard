@@ -6342,6 +6342,61 @@ button:disabled {
   color: #fca5a5;
 }
 
+.timeline-export-history {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.timeline-export-history summary {
+  min-height: 26px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.timeline-export-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 6px 6px;
+}
+
+.timeline-export-history__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.12);
+  color: var(--muted);
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.timeline-export-history__item:hover {
+  border-color: rgba(125, 211, 252, 0.45);
+  background: rgba(125, 211, 252, 0.06);
+}
+
+.timeline-export-history__item span,
+.timeline-export-history__item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-export-history__item strong {
+  grid-column: 1 / -1;
+  color: #bae6fd;
+  font-weight: 700;
+}
+
 .timeline-shot-list {
   display: flex;
   flex-direction: column;

@@ -982,6 +982,19 @@ test("skips blocked no-media clip and exports remaining timeline", async ({
           exported_at: "2026-05-25T00:20:00.000Z",
           export_status: "fresh",
           export_version: 2,
+          export_history: [
+            {
+              mediaId: "old-skip-export",
+              status: "stale",
+              version: 1,
+              exportedAt: "2026-05-25T00:00:00.000Z",
+              clipCount: 2,
+              size: "1080x1920",
+              sourceMediaIds: ["skip-blocked", "skip-keep"],
+              staleAt: "2026-05-25T00:10:00.000Z",
+              staleReason: "review_changed",
+            },
+          ],
         }),
       });
     });
@@ -1027,7 +1040,17 @@ test("skips blocked no-media clip and exports remaining timeline", async ({
     await exportRunner.click();
     await expect.poll(() => exportCount).toBe(1);
     await expect(page.getByText("Export fresh v2 / mới")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open export / Mở file" })).toHaveAttribute(
+      "href",
+      "/media/new-skip-export",
+    );
+    await page.getByText("History / Lịch sử (1)").click();
+    await expect(page.getByText("v1 · stale · 2 clips")).toBeVisible();
+    await expect(page.getByText("review_changed")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Open history export v1/ })).toHaveAttribute(
+      "href",
+      "/media/old-skip-export",
+    );
   } finally {
     await request.delete(`/api/boards/${board.id}`);
   }

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { useBoardStore, type FlowboardNodeData, type FlowNode, type NodeStatus } from "../store/board";
+import {
+  useBoardStore,
+  type ExportHistoryItem,
+  type FlowboardNodeData,
+  type FlowNode,
+  type NodeStatus,
+} from "../store/board";
 import { useGenerationStore } from "../store/generation";
 import {
   exportTimeline,
@@ -1536,6 +1542,35 @@ function timelineExportStateLabel(
   return "Export none / chưa xuất";
 }
 
+function timelineExportHistory(data: FlowboardNodeData): ExportHistoryItem[] {
+  const raw = Array.isArray(data.exportHistory) ? data.exportHistory : [];
+  return raw
+    .filter((item): item is ExportHistoryItem =>
+      !!item && typeof item.mediaId === "string" && item.mediaId.length > 0,
+    )
+    .slice()
+    .reverse();
+}
+
+function timelineHistoryLabel(item: ExportHistoryItem): string {
+  const version = typeof item.version === "number" ? `v${item.version}` : "old";
+  const status = item.status ?? "fresh";
+  const clips = typeof item.clipCount === "number" ? `${item.clipCount} clips` : "clips ?";
+  return `${version} · ${status} · ${clips}`;
+}
+
+function timelineHistoryDateLabel(iso?: string): string {
+  if (!iso) return "time ?";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "time ?";
+  return new Date(t).toLocaleString("vi-VN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function isNodeBusy(data: FlowboardNodeData): boolean {
   return data.status === "queued" || data.status === "running";
 }
@@ -1611,6 +1646,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const exportStateTitle = data.exportStaleReason
     ? `Export status: ${exportState}. Reason: ${data.exportStaleReason}`
     : `Export status: ${exportState}`;
+  const exportHistory = timelineExportHistory(data);
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
     ? incoming
@@ -1778,6 +1814,32 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         {redoCount > 0 ? ` · ${redoCount} redo blocks export` : ""}
         {data.exportMediaId ? ` · ${exportState} export ${data.exportClipCount ?? clipsReady} clips` : ""}
       </div>
+      {exportHistory.length > 0 && (
+        <details className="timeline-export-history">
+          <summary>History / Lịch sử ({exportHistory.length})</summary>
+          <div className="timeline-export-history__list">
+            {exportHistory.map((item, index) => {
+              const versionSuffix = typeof item.version === "number" ? ` v${item.version}` : "";
+              const reason = item.staleReason ?? item.status ?? "export";
+              return (
+                <a
+                  key={`${item.mediaId}-${item.version ?? index}`}
+                  className="timeline-export-history__item"
+                  href={mediaUrl(item.mediaId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <span>{timelineHistoryLabel(item)}</span>
+                  <span>{timelineHistoryDateLabel(item.exportedAt)}</span>
+                  <span>{reason}</span>
+                  <strong>Open history export{versionSuffix} / Mở bản cũ{versionSuffix}</strong>
+                </a>
+              );
+            })}
+          </div>
+        </details>
+      )}
       {exportError && (
         <div className="timeline-run-summary timeline-run-summary--error" role="alert">
           {exportError}

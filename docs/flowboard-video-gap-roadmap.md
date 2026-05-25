@@ -29,6 +29,8 @@ Completed vertical slices:
 - Export version/stale UX: timeline exports are stamped with version/source
   metadata, review or clip-set changes mark existing exports stale without
   deleting the old link, and re-export supersedes stale output as fresh.
+- Export history UI: previous timeline exports remain accessible after
+  re-export with version/status/clip metadata and stale reason shown inline.
 - Video refine loop: reviewed clips can spawn a refined replacement from the
   review note while preserving shot metadata/upstream refs and marking the
   timeline export stale.
