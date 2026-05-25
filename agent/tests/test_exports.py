@@ -120,6 +120,14 @@ def test_export_timeline_stitches_shot_clips(client):
         assert timeline.status == "done"
         assert timeline.data["exportMediaId"] == body["media_id"]
         assert timeline.data["exportClipCount"] == 2
+        assert timeline.data["exportStatus"] == "fresh"
+        assert timeline.data["exportVersion"] == 1
+        assert timeline.data["exportSourceMediaIds"] == [media_a, media_b]
+        assert timeline.data["exportHistory"] == []
+        assert isinstance(timeline.data["exportedAt"], str)
+    assert body["export_status"] == "fresh"
+    assert body["export_version"] == 1
+    assert isinstance(body["exported_at"], str)
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
@@ -383,6 +391,99 @@ def test_export_timeline_skips_no_media_review_skipped_clip(client):
     body = response.json()
     assert body["clip_count"] == 1
     assert body["source_media_ids"] == [media_b]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_reexport_supersedes_stale_export_and_keeps_history(client):
+    old_export = "dddddddd-0000-4000-8000-000000000401"
+    media_a = "aaaaaaaa-0000-4000-8000-000000000402"
+    _write_clip(media_a, "red")
+
+    with get_session() as s:
+        board = Board(name="export-reexport")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="clip",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotIndex": 1,
+                "mediaId": media_a,
+                "mediaIds": [media_a],
+                "reviewVerdict": "good",
+            },
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={
+                "title": "Timeline",
+                "workflowKind": "timeline",
+                "exportMediaId": old_export,
+                "exportedAt": "2026-05-25T00:00:00+00:00",
+                "exportClipCount": 1,
+                "exportSize": "1080x1920",
+                "exportStatus": "stale",
+                "exportVersion": 3,
+                "exportSourceMediaIds": ["old-source"],
+                "exportStaleAt": "2026-05-25T00:05:00+00:00",
+                "exportStaleReason": "review_changed",
+            },
+            status="idle",
+        )
+        s.add_all([clip, timeline])
+        s.commit()
+        s.refresh(clip)
+        s.refresh(timeline)
+        s.add(
+            Edge(
+                board_id=board.id,
+                source_id=clip.id,
+                target_id=timeline.id,
+                ref_role="storyboard_panel",
+            )
+        )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}",
+        json={"width": 180, "height": 320},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["media_id"] != old_export
+    assert body["export_status"] == "fresh"
+    assert body["export_version"] == 4
+    assert body["source_media_ids"] == [media_a]
+
+    with get_session() as s:
+        timeline = s.get(Node, timeline_id)
+        assert timeline is not None
+        assert timeline.status == "done"
+        assert timeline.data["exportMediaId"] == body["media_id"]
+        assert timeline.data["exportStatus"] == "fresh"
+        assert timeline.data["exportVersion"] == 4
+        assert timeline.data["exportSourceMediaIds"] == [media_a]
+        assert "exportStaleAt" not in timeline.data
+        assert "exportStaleReason" not in timeline.data
+        assert timeline.data["exportHistory"][-1] == {
+            "mediaId": old_export,
+            "status": "stale",
+            "version": 3,
+            "exportedAt": "2026-05-25T00:00:00+00:00",
+            "clipCount": 1,
+            "size": "1080x1920",
+            "sourceMediaIds": ["old-source"],
+            "staleAt": "2026-05-25T00:05:00+00:00",
+            "staleReason": "review_changed",
+        }
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")

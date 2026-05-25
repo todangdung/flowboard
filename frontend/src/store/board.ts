@@ -25,6 +25,19 @@ import { isVideoRecipeId } from "../lib/videoRecipes";
 export type { NodeType, RefRole, VideoRecipeId };
 
 export type NodeStatus = "idle" | "queued" | "running" | "done" | "error";
+export type ExportStatus = "fresh" | "stale";
+
+export interface ExportHistoryItem {
+  mediaId: string;
+  status?: ExportStatus;
+  version?: number;
+  exportedAt?: string;
+  clipCount?: number;
+  size?: string;
+  sourceMediaIds?: string[];
+  staleAt?: string;
+  staleReason?: string;
+}
 
 // Storyboard grid options.
 //   2x2 → 4 panels (square)
@@ -121,6 +134,12 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportedAt?: string;
   exportClipCount?: number;
   exportSize?: string;
+  exportStatus?: ExportStatus;
+  exportVersion?: number;
+  exportSourceMediaIds?: string[];
+  exportStaleAt?: string;
+  exportStaleReason?: string;
+  exportHistory?: ExportHistoryItem[];
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -218,6 +237,12 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportedAt: dto.data["exportedAt"] as string | undefined,
       exportClipCount: dto.data["exportClipCount"] as number | undefined,
       exportSize: dto.data["exportSize"] as string | undefined,
+      exportStatus: dto.data["exportStatus"] as ExportStatus | undefined,
+      exportVersion: dto.data["exportVersion"] as number | undefined,
+      exportSourceMediaIds: dto.data["exportSourceMediaIds"] as string[] | undefined,
+      exportStaleAt: dto.data["exportStaleAt"] as string | undefined,
+      exportStaleReason: dto.data["exportStaleReason"] as string | undefined,
+      exportHistory: dto.data["exportHistory"] as ExportHistoryItem[] | undefined,
       error: dto.data["error"] as string | undefined,
     },
   };
@@ -320,9 +345,10 @@ interface BoardState {
   // "New variant +" — gives the user a fresh canvas to gen another shot
   // sharing the original's source refs.
   cloneNodeWithUpstream(rfId: string): Promise<string | null>;
-  // Timeline exports become stale when any linked shot clip review state
-  // changes. Clear persisted export fields on every dependent timeline.
-  invalidateTimelineExportsForClip(rfId: string): Promise<void>;
+  // Timeline exports become stale when any linked shot clip review/media
+  // state changes. Keep the old media link, but stamp status as stale.
+  invalidateTimelineExportsForClip(rfId: string, reason?: string): Promise<void>;
+  markTimelineExportsStale(timelineRfIds: string[], reason?: string): Promise<void>;
   // Redo clips replace the original shot clip on timeline storyboard_panel
   // edges so the old redo-marked source no longer blocks export.
   rewireTimelineStoryboardPanels(sourceRfId: string, replacementRfId: string): Promise<void>;
@@ -662,6 +688,16 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   async deleteNodeByRfId(rfId) {
     const dbId = parseInt(rfId, 10);
     if (isNaN(dbId)) return;
+    const { nodes, edges } = get();
+    const staleTimelineIds = Array.from(new Set(
+      edges
+        .filter((e) => e.source === rfId && e.data?.refRole === "storyboard_panel")
+        .map((e) => e.target)
+        .filter((targetId) => {
+          const target = nodes.find((n) => n.id === targetId);
+          return target?.data.workflowKind === "timeline";
+        }),
+    ));
     // Cancel any pending debounced patch for this node (it would 404 after delete).
     const pending = positionTimers.get(rfId);
     if (pending !== undefined) {
@@ -683,6 +719,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         nodes: s.nodes.filter((n) => n.id !== rfId),
         edges: s.edges.filter((e) => e.source !== rfId && e.target !== rfId),
       }));
+      await get().markTimelineExportsStale(staleTimelineIds, "timeline_clip_set_changed");
     } catch {
       // ignore
     }
@@ -768,25 +805,25 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     return newNode.id;
   },
 
-  async invalidateTimelineExportsForClip(rfId) {
-    const { nodes, edges } = get();
-    const timelineIds = Array.from(new Set(
-      edges
-        .filter((e) => e.source === rfId && e.data?.refRole === "storyboard_panel")
-        .map((e) => e.target)
-        .filter((targetId) => {
-          const target = nodes.find((n) => n.id === targetId);
-          return target?.data.workflowKind === "timeline";
-        }),
-    ));
+  async markTimelineExportsStale(timelineRfIds, reason = "timeline_changed") {
+    const { nodes } = get();
+    const staleAt = new Date().toISOString();
+    const timelineIds = Array.from(new Set(timelineRfIds)).filter((timelineId) => {
+      const target = nodes.find((n) => n.id === timelineId);
+      return (
+        target?.data.workflowKind === "timeline"
+        && typeof target.data.exportMediaId === "string"
+        && target.data.exportMediaId.length > 0
+        && target.data.exportStatus !== "stale"
+      );
+    });
     if (timelineIds.length === 0) return;
 
     const localPatch: Partial<FlowboardNodeData> = {
       status: "idle",
-      exportMediaId: undefined,
-      exportedAt: undefined,
-      exportClipCount: undefined,
-      exportSize: undefined,
+      exportStatus: "stale",
+      exportStaleAt: staleAt,
+      exportStaleReason: reason,
     };
     for (const timelineId of timelineIds) {
       get().updateNodeData(timelineId, localPatch);
@@ -799,14 +836,27 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         await patchNode(dbId, {
           status: "idle",
           data: {
-            exportMediaId: null,
-            exportedAt: null,
-            exportClipCount: null,
-            exportSize: null,
+            exportStatus: "stale",
+            exportStaleAt: staleAt,
+            exportStaleReason: reason,
           },
         });
       }),
     );
+  },
+
+  async invalidateTimelineExportsForClip(rfId, reason = "review_changed") {
+    const { nodes, edges } = get();
+    const timelineIds = Array.from(new Set(
+      edges
+        .filter((e) => e.source === rfId && e.data?.refRole === "storyboard_panel")
+        .map((e) => e.target)
+        .filter((targetId) => {
+          const target = nodes.find((n) => n.id === targetId);
+          return target?.data.workflowKind === "timeline";
+        }),
+    ));
+    await get().markTimelineExportsStale(timelineIds, reason);
   },
 
   async rewireTimelineStoryboardPanels(sourceRfId, replacementRfId) {
@@ -822,6 +872,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       return target?.data.workflowKind === "timeline";
     });
 
+    const staleTimelineIds: string[] = [];
     for (const edge of timelineEdges) {
       const targetId = parseInt(edge.target, 10);
       const oldEdgeId = parseInt(edge.id, 10);
@@ -840,15 +891,24 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           edgeFromDto(created),
         ],
       }));
+      staleTimelineIds.push(edge.target);
     }
+    await get().markTimelineExportsStale(staleTimelineIds, "timeline_clip_set_changed");
   },
 
   async deleteEdgeByRfId(rfId) {
     const dbId = parseInt(rfId, 10);
     if (isNaN(dbId)) return;
+    const edge = get().edges.find((e) => e.id === rfId);
+    const target = edge ? get().nodes.find((n) => n.id === edge.target) : undefined;
+    const staleTimelineIds =
+      edge?.data?.refRole === "storyboard_panel" && target?.data.workflowKind === "timeline"
+        ? [edge.target]
+        : [];
     try {
       await deleteEdge(dbId);
       set((s) => ({ edges: s.edges.filter((e) => e.id !== rfId) }));
+      await get().markTimelineExportsStale(staleTimelineIds, "timeline_clip_set_changed");
     } catch {
       // ignore
     }

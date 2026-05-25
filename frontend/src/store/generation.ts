@@ -184,6 +184,8 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       clearTimeout(existingEntry.timerId);
     }
 
+    const kind = opts.kind ?? "image";
+
     // Optimistically update node — record variantCount so the placeholder
     // grid matches the eventual variant count even before generation finishes.
     const variantCount = Math.max(1, Math.min(opts.variantCount ?? 1, 4));
@@ -200,9 +202,18 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       reviewNote: undefined,
       reviewedAt: undefined,
     });
+    if (kind === "video") {
+      void useBoardStore
+        .getState()
+        .invalidateTimelineExportsForClip(rfId, "clip_media_changed")
+        .catch((err) => {
+          set({
+            error: `Couldn't mark stale export: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        });
+    }
 
     // Create request
-    const kind = opts.kind ?? "image";
     let reqDto;
     try {
       const nodeDbId = parseInt(rfId, 10);

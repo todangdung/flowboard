@@ -121,6 +121,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
           source_media_ids: ["a", "b", "c", "d"],
           width: 1080,
           height: 1920,
+          exported_at: "2026-05-25T00:10:00.000Z",
+          export_status: "fresh",
+          export_version: 1,
         }),
       });
     });
@@ -230,6 +233,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await exportRunner.click();
     await expect.poll(() => exportCount).toBe(1);
     await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
+    await expect(page.getByText("Export fresh v1 / mới")).toBeVisible();
 
     await test.info().attach("shot-workflow-scaffold", {
       body: await page.screenshot({ fullPage: true }),
@@ -402,6 +406,9 @@ test("marks redo with note and opens redo clip clone", async ({
         exportedAt: "2026-05-25T00:00:00.000Z",
         exportClipCount: 1,
         exportSize: "1080x1920",
+        exportStatus: "fresh",
+        exportVersion: 1,
+        exportSourceMediaIds: ["redo-a"],
       },
     },
   });
@@ -482,7 +489,9 @@ test("marks redo with note and opens redo clip clone", async ({
       return {
         original: detail.nodes.find((entry) => entry.id === node.id)?.data,
         redo: redo?.data,
-        timelineHasExport: Boolean(timelineNode?.data.exportMediaId),
+        timelineExportMediaId: timelineNode?.data.exportMediaId,
+        timelineExportStatus: timelineNode?.data.exportStatus,
+        timelineExportVersion: timelineNode?.data.exportVersion,
         storyboardPointsToRedo: Boolean(
           redo
           && detail.edges.some((edge) =>
@@ -518,7 +527,9 @@ test("marks redo with note and opens redo clip clone", async ({
         shotIndex: 1,
         shotDurationSec: 6,
       },
-      timelineHasExport: false,
+      timelineExportMediaId: "old-redo-export",
+      timelineExportStatus: "stale",
+      timelineExportVersion: 1,
       storyboardPointsToRedo: true,
       storyboardPointsToOriginal: false,
       firstFramePointsToRedo: true,
@@ -592,6 +603,9 @@ test("skips blocked no-media clip and exports remaining timeline", async ({
         exportedAt: "2026-05-25T00:00:00.000Z",
         exportClipCount: 2,
         exportSize: "1080x1920",
+        exportStatus: "fresh",
+        exportVersion: 1,
+        exportSourceMediaIds: ["skip-blocked", "skip-keep"],
       },
     },
   });
@@ -655,6 +669,9 @@ test("skips blocked no-media clip and exports remaining timeline", async ({
           source_media_ids: ["skip-keep"],
           width: 1080,
           height: 1920,
+          exported_at: "2026-05-25T00:20:00.000Z",
+          export_status: "fresh",
+          export_version: 2,
         }),
       });
     });
@@ -678,21 +695,29 @@ test("skips blocked no-media clip and exports remaining timeline", async ({
       };
       return {
         blockedVerdict: detail.nodes.find((entry) => entry.id === blocked.id)?.data.reviewVerdict,
-        timelineHasExport: Boolean(
+        timelineExportMediaId:
           detail.nodes.find((entry) => entry.id === timeline.id)?.data.exportMediaId,
-        ),
+        timelineExportStatus:
+          detail.nodes.find((entry) => entry.id === timeline.id)?.data.exportStatus,
+        timelineExportVersion:
+          detail.nodes.find((entry) => entry.id === timeline.id)?.data.exportVersion,
       };
     }).toEqual({
       blockedVerdict: "skip",
-      timelineHasExport: false,
+      timelineExportMediaId: "old-skip-export",
+      timelineExportStatus: "stale",
+      timelineExportVersion: 1,
     });
 
     await page.keyboard.press("Escape");
-    const exportRunner = page.getByRole("button", { name: "Export short / Xuất video" });
+    await expect(page.getByText("Export stale v1 / bản cũ")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open stale export / Mở bản cũ" })).toBeVisible();
+    const exportRunner = page.getByRole("button", { name: "Re-export fresh / Xuất lại" });
     await expect(exportRunner).toBeEnabled();
-    await expect(page.getByRole("link", { name: "Open export / Mở file" })).toHaveCount(0);
     await exportRunner.click();
     await expect.poll(() => exportCount).toBe(1);
+    await expect(page.getByText("Export fresh v2 / mới")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
   } finally {
     await request.delete(`/api/boards/${board.id}`);
   }

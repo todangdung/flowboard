@@ -6287,6 +6287,49 @@ button:disabled {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.timeline-run-btn--stale {
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.timeline-export-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.timeline-export-state span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-export-state--none {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.timeline-export-state--fresh {
+  border-color: rgba(110, 231, 183, 0.38);
+  color: #bbf7d0;
+  background: rgba(110, 231, 183, 0.08);
+}
+
+.timeline-export-state--stale {
+  border-color: rgba(251, 191, 36, 0.48);
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.08);
+}
+
 .timeline-run-summary {
   overflow: hidden;
   color: var(--muted);

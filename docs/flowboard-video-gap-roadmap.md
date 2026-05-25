@@ -26,6 +26,9 @@ Completed vertical slices:
   and skip clips are omitted from export.
 - Export: timeline clips can be stitched through ffmpeg and registered as a
   final `/media/{id}` video asset.
+- Export version/stale UX: timeline exports are stamped with version/source
+  metadata, review or clip-set changes mark existing exports stale without
+  deleting the old link, and re-export supersedes stale output as fresh.
 - Reusable tests: backend export/status/recipe tests and Playwright shot
   workflow coverage verify the full mocked sequence path.
 

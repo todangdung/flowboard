@@ -537,10 +537,10 @@ export function ResultViewer() {
     }
     useBoardStore.getState().updateNodeData(rfId, localPatch);
     try {
-      await useBoardStore.getState().invalidateTimelineExportsForClip(rfId);
+      await useBoardStore.getState().invalidateTimelineExportsForClip(rfId, "review_changed");
     } catch (err) {
       useGenerationStore.setState({
-        error: `Couldn't clear stale export: ${err instanceof Error ? err.message : String(err)}`,
+        error: `Couldn't mark stale export: ${err instanceof Error ? err.message : String(err)}`,
       });
       return false;
     }

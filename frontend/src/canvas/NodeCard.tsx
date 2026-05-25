@@ -1519,6 +1519,23 @@ const REVIEW_LABEL_VI: Record<"good" | "redo" | "skip", string> = {
   skip: "skip / bỏ qua",
 };
 
+type TimelineExportUiState = "none" | "fresh" | "stale";
+
+function timelineExportUiState(data: FlowboardNodeData): TimelineExportUiState {
+  if (!data.exportMediaId) return "none";
+  return data.exportStatus === "stale" ? "stale" : "fresh";
+}
+
+function timelineExportStateLabel(
+  state: TimelineExportUiState,
+  version?: number,
+): string {
+  const suffix = typeof version === "number" ? ` v${version}` : "";
+  if (state === "fresh") return `Export fresh${suffix} / mới`;
+  if (state === "stale") return `Export stale${suffix} / bản cũ`;
+  return "Export none / chưa xuất";
+}
+
 function isNodeBusy(data: FlowboardNodeData): boolean {
   return data.status === "queued" || data.status === "running";
 }
@@ -1580,6 +1597,20 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     && exportableClipCount === nonSkipClipCount
     && redoCount === 0
     && !exportBusy;
+  const exportState = timelineExportUiState(data);
+  const exportButtonLabel = exportBusy
+    ? "Exporting / Đang xuất"
+    : exportState === "stale"
+      ? "Re-export fresh / Xuất lại"
+      : exportState === "fresh"
+        ? "Re-export / Xuất lại"
+        : "Export short / Xuất video";
+  const exportLinkLabel = exportState === "stale"
+    ? "Open stale export / Mở bản cũ"
+    : "Open export / Mở file";
+  const exportStateTitle = data.exportStaleReason
+    ? `Export status: ${exportState}. Reason: ${data.exportStaleReason}`
+    : `Export status: ${exportState}`;
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
     ? incoming
@@ -1646,7 +1677,13 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportMediaId: result.media_id,
         exportClipCount: result.clip_count,
         exportSize: `${result.width}x${result.height}`,
-        exportedAt: new Date().toISOString(),
+        exportedAt: result.exported_at ?? new Date().toISOString(),
+        exportStatus: result.export_status ?? "fresh",
+        exportVersion: result.export_version,
+        exportSourceMediaIds: result.source_media_ids,
+        exportHistory: result.export_history,
+        exportStaleAt: undefined,
+        exportStaleReason: undefined,
       });
     } catch (err) {
       setExportError(err instanceof Error ? err.message : String(err));
@@ -1710,18 +1747,28 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                   : "Generate non-skipped clips first / Tạo video cảnh chưa bỏ trước"
           }
         >
-          {exportBusy ? "Exporting / Đang xuất" : "Export short / Xuất video"}
+          {exportButtonLabel}
         </button>
         {data.exportMediaId && (
           <a
-            className="timeline-run-btn"
+            className={`timeline-run-btn${exportState === "stale" ? " timeline-run-btn--stale" : ""}`}
             href={mediaUrl(data.exportMediaId)}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(event) => event.stopPropagation()}
           >
-            Open export / Mở file
+            {exportLinkLabel}
           </a>
+        )}
+      </div>
+      <div
+        className={`timeline-export-state timeline-export-state--${exportState}`}
+        aria-label={`Export status: ${exportState}`}
+        title={exportStateTitle}
+      >
+        <span>{timelineExportStateLabel(exportState, data.exportVersion)}</span>
+        {data.exportMediaId && (
+          <span>{data.exportClipCount ?? exportableClipCount} clips</span>
         )}
       </div>
       <div className="timeline-run-summary">
@@ -1729,7 +1776,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         {exportableClipCount !== clipsReady ? ` · ${exportableClipCount} exportable / xuất` : ""}
         {skippedCount > 0 ? ` · ${skippedCount} skip / bỏ` : ""}
         {redoCount > 0 ? ` · ${redoCount} redo blocks export` : ""}
-        {data.exportMediaId ? ` · export ${data.exportClipCount ?? clipsReady} clips` : ""}
+        {data.exportMediaId ? ` · ${exportState} export ${data.exportClipCount ?? clipsReady} clips` : ""}
       </div>
       {exportError && (
         <div className="timeline-run-summary timeline-run-summary--error" role="alert">

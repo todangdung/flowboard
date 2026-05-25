@@ -229,6 +229,52 @@ def _register_export(media_id: str, path: Path) -> None:
         s.commit()
 
 
+def _export_snapshot(data: dict) -> dict | None:
+    media_id = data.get("exportMediaId")
+    if not isinstance(media_id, str) or not media_id:
+        return None
+    snapshot = {
+        "mediaId": media_id,
+        "status": data.get("exportStatus") or "fresh",
+        "version": data.get("exportVersion"),
+        "exportedAt": data.get("exportedAt"),
+        "clipCount": data.get("exportClipCount"),
+        "size": data.get("exportSize"),
+        "sourceMediaIds": data.get("exportSourceMediaIds"),
+        "staleAt": data.get("exportStaleAt"),
+        "staleReason": data.get("exportStaleReason"),
+    }
+    return {k: v for k, v in snapshot.items() if v is not None}
+
+
+def _export_history_with_prior(data: dict) -> list:
+    raw_history = data.get("exportHistory")
+    history = list(raw_history) if isinstance(raw_history, list) else []
+    prior = _export_snapshot(data)
+    if prior is not None:
+        last = history[-1] if history else None
+        same_as_last = (
+            isinstance(last, dict)
+            and last.get("mediaId") == prior.get("mediaId")
+            and last.get("version") == prior.get("version")
+        )
+        if not same_as_last:
+            history.append(prior)
+    return history[-10:]
+
+
+def _next_export_version(data: dict) -> int:
+    value = data.get("exportVersion")
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, str):
+        try:
+            return int(value) + 1
+        except ValueError:
+            pass
+    return 1
+
+
 def _stamp_timeline(
     timeline_node_id: int,
     *,
@@ -236,24 +282,40 @@ def _stamp_timeline(
     clip_count: int,
     width: int,
     height: int,
-) -> None:
+    source_media_ids: list[str],
+) -> dict:
     with get_session() as s:
         node = s.get(Node, timeline_node_id)
         if node is None:
-            return
+            return {}
         data = dict(node.data or {})
+        exported_at = datetime.now(timezone.utc).isoformat()
+        export_version = _next_export_version(data)
+        export_history = _export_history_with_prior(data)
         data.update(
             {
                 "exportMediaId": media_id,
-                "exportedAt": datetime.now(timezone.utc).isoformat(),
+                "exportedAt": exported_at,
                 "exportClipCount": clip_count,
                 "exportSize": f"{width}x{height}",
+                "exportStatus": "fresh",
+                "exportVersion": export_version,
+                "exportSourceMediaIds": source_media_ids,
+                "exportHistory": export_history,
             }
         )
+        data.pop("exportStaleAt", None)
+        data.pop("exportStaleReason", None)
         node.data = data
         node.status = "done"
         s.add(node)
         s.commit()
+        return {
+            "exported_at": exported_at,
+            "export_status": "fresh",
+            "export_version": export_version,
+            "export_history": export_history,
+        }
 
 
 async def export_timeline(
@@ -307,12 +369,13 @@ async def export_timeline(
             timeout=240,
         )
         _register_export(export_media_id, output_path)
-        _stamp_timeline(
+        stamp = _stamp_timeline(
             timeline.id,  # type: ignore[arg-type]
             media_id=export_media_id,
             clip_count=len(export_clips),
             width=width,
             height=height,
+            source_media_ids=media_ids,
         )
         return {
             "timeline_node_id": timeline_node_id,
@@ -322,6 +385,7 @@ async def export_timeline(
             "source_media_ids": media_ids,
             "width": width,
             "height": height,
+            **stamp,
         }
     except subprocess.TimeoutExpired as exc:
         raise VideoExportError("ffmpeg_timeout") from exc

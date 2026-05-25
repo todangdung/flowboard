@@ -681,6 +681,20 @@ export interface TimelineExportResponse {
   source_media_ids: string[];
   width: number;
   height: number;
+  exported_at?: string;
+  export_status?: "fresh";
+  export_version?: number;
+  export_history?: Array<{
+    mediaId: string;
+    status?: "fresh" | "stale";
+    version?: number;
+    exportedAt?: string;
+    clipCount?: number;
+    size?: string;
+    sourceMediaIds?: string[];
+    staleAt?: string;
+    staleReason?: string;
+  }>;
 }
 
 export async function exportTimeline(
