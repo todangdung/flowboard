@@ -1592,8 +1592,26 @@ export function NodeCard(props: NodeProps<FlowNode>) {
 
   function handleGenerate(e: React.MouseEvent) {
     e.stopPropagation();
-    if (llmBusy) return; // guard: backend still composing for this node
-    useGenerationStore.getState().openGenerationDialog(props.id, data.prompt ?? "");
+    if (llmBusy) return;
+    const rfId = props.id;
+    if (data.type === "chatgpt" && !(data.prompt ?? "").trim()) {
+      // No static prompt — try to use upstream prompt node text directly
+      // without opening the dialog (same resolution as pipeline executor).
+      const { nodes, edges } = useBoardStore.getState();
+      const upstreamText = edges
+        .filter((e) => e.target === rfId)
+        .map((e) => nodes.find((n) => n.id === e.source))
+        .find((n) => n?.data.type === "prompt" && (n.data.prompt ?? "").trim())
+        ?.data.prompt as string | undefined;
+      if (upstreamText?.trim()) {
+        void useGenerationStore.getState().dispatchGeneration(rfId, {
+          prompt: upstreamText.trim(),
+          kind: "chatgpt",
+        });
+        return;
+      }
+    }
+    useGenerationStore.getState().openGenerationDialog(rfId, data.prompt ?? "");
   }
 
   function handleDownload(e: React.MouseEvent) {

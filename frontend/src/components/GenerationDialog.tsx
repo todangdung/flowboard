@@ -794,7 +794,7 @@ export function GenerationDialog() {
   const canGenerate = isCharacter
     ? charGender !== null || charCountry !== null || charExtras.trim().length > 0
     : isChatGPT
-    ? prompt.trim().length > 0
+    ? prompt.trim().length > 0 || promptSourceNodes.some((s) => s.text.trim().length > 0)
     : isOmniVideo
     ? refSourceNodes.length > 0 && !isWorking
     : isVideo
@@ -875,7 +875,9 @@ export function GenerationDialog() {
                   : isPrompt
                   ? "Nhập prompt mồi để feed cho downstream image / video…"
                   : isChatGPT
-                  ? "Nhập prompt cho ChatGPT (ví dụ: 'Mô tả con mèo cute và vẽ ảnh nó')…"
+                  ? promptSourceNodes.length > 0
+                    ? "Bỏ trống để tự lấy prompt từ node trước ✨"
+                    : "Nhập prompt cho ChatGPT…"
                   : "Bỏ trống để tự generate prompt từ upstream nodes ✨"
               }
               disabled={isWorking}
