@@ -5,6 +5,7 @@ import { useSettingsStore } from "../store/settings";
 import { useReferencesStore } from "../store/references";
 import { getMediaStatus, mediaUrl, patchNode, type MediaStatus } from "../api/client";
 import { countryLabel, vibeLabel } from "../constants/character";
+import { bestVariantIndex, preferredMediaIds } from "../lib/bestVariant";
 
 const ICON: Record<string, string> = {
   character: "◎",
@@ -278,6 +279,8 @@ export function ResultViewer() {
 
   const isVideo = data.type === "video";
   const shortMediaId = currentMediaId ? `${currentMediaId.slice(0, 12)}…` : "pending";
+  const bestIdx = bestVariantIndex(data);
+  const currentIsBest = !!currentMediaId && bestIdx === activeIdx;
 
   const cacheBust = cacheKey > 0 ? `?t=${cacheKey}` : "";
 
@@ -355,13 +358,9 @@ export function ResultViewer() {
       const upstreamNode = upstreamEdge
         ? nodes.find((n) => n.id === upstreamEdge.source)
         : undefined;
-      // Prefer the full variant list so batch i2v re-runs all N sources;
-      // fall back to the singular mediaId for legacy single-source nodes.
-      // Skip null placeholders from partial-batch upstreams.
-      const sourceMediaIds: string[] = (
-        upstreamNode?.data.mediaIds ??
-        (upstreamNode?.data.mediaId ? [upstreamNode.data.mediaId] : [])
-      ).filter((m): m is string => typeof m === "string" && m.length > 0);
+      // Best-selected upstreams re-run only that chosen source. Otherwise
+      // preserve existing batch behavior and re-run all rendered variants.
+      const sourceMediaIds = preferredMediaIds(upstreamNode?.data);
       if (sourceMediaIds.length === 0) {
         useGenerationStore.setState({
           error: "Video re-gen needs an upstream image with rendered media.",
@@ -474,6 +473,30 @@ export function ResultViewer() {
     }
   }
 
+  async function handleMarkBest() {
+    if (!rfId || !data || !currentMediaId) return;
+    const reviewedAt = new Date().toISOString();
+    const patch = {
+      mediaId: currentMediaId,
+      bestMediaId: currentMediaId,
+      bestVariantIdx: activeIdx,
+      reviewVerdict: "good" as const,
+      reviewedAt,
+    };
+    const dbId = parseInt(rfId, 10);
+    if (!isNaN(dbId)) {
+      try {
+        await patchNode(dbId, { data: patch });
+      } catch (err) {
+        useGenerationStore.setState({
+          error: `Couldn't mark best variant: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return;
+      }
+    }
+    useBoardStore.getState().updateNodeData(rfId, patch);
+  }
+
   return (
     <div
       className="result-viewer-backdrop"
@@ -576,16 +599,17 @@ export function ResultViewer() {
                 {mediaIds.map((_id, idx) => {
                   const chipError = data?.slotErrors?.[idx] ?? null;
                   const blocked = chipError !== null && chipError !== undefined;
+                  const isBest = idx === bestIdx;
                   return (
                     <button
                       key={idx}
-                      className={`variant-switcher__chip${idx === activeIdx ? " variant-switcher__chip--active" : ""}${blocked ? " variant-switcher__chip--blocked" : ""}`}
+                      className={`variant-switcher__chip${idx === activeIdx ? " variant-switcher__chip--active" : ""}${blocked ? " variant-switcher__chip--blocked" : ""}${isBest ? " variant-switcher__chip--best" : ""}`}
                       onClick={() => setActiveIdx(idx)}
-                      aria-label={blocked ? `Variant ${idx + 1} — blocked: ${chipError}` : `Variant ${idx + 1}`}
-                      title={blocked ? `Blocked: ${chipError}` : undefined}
+                      aria-label={blocked ? `Variant ${idx + 1} — blocked: ${chipError}` : isBest ? `Variant ${idx + 1} — best` : `Variant ${idx + 1}`}
+                      title={blocked ? `Blocked: ${chipError}` : isBest ? "Best variant" : undefined}
                       aria-pressed={idx === activeIdx}
                     >
-                      {blocked ? "⚠" : idx + 1}
+                      {blocked ? "⚠" : isBest ? "✓" : idx + 1}
                     </button>
                   );
                 })}
@@ -684,6 +708,12 @@ export function ResultViewer() {
             <dd>{formatAspectRatio(data?.aspectRatio)}</dd>
             <dt>time</dt>
             <dd>{formatRelativeTime(data?.renderedAt)}</dd>
+            {bestIdx !== null && (
+              <>
+                <dt>best</dt>
+                <dd>v{bestIdx + 1}</dd>
+              </>
+            )}
           </dl>
 
           <div className="result-viewer__actions">
@@ -736,6 +766,21 @@ export function ResultViewer() {
               }
             >
               New variant +
+            </button>
+            <button
+              className={
+                "result-viewer__btn result-viewer__btn--best"
+                + (currentIsBest ? " result-viewer__btn--best-active" : "")
+              }
+              onClick={handleMarkBest}
+              disabled={!currentMediaId}
+              title={
+                !currentMediaId
+                  ? "Wait for this variant to render"
+                  : "Use this variant as the active clip/image for downstream generation and export"
+              }
+            >
+              {currentIsBest ? "✓ Best variant" : "Mark best"}
             </button>
             <button
               className={

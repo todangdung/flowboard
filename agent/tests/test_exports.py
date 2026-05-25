@@ -122,6 +122,67 @@ def test_export_timeline_stitches_shot_clips(client):
         assert timeline.data["exportClipCount"] == 2
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_export_timeline_prefers_active_best_variant(client):
+    media_a = "aaaaaaaa-0000-4000-8000-000000000101"
+    media_b = "bbbbbbbb-0000-4000-8000-000000000102"
+    _write_clip(media_a, "red")
+    _write_clip(media_b, "blue")
+
+    with get_session() as s:
+        board = Board(name="export-best")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="clip",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotIndex": 1,
+                "mediaId": media_b,
+                "mediaIds": [media_a, media_b],
+                "bestMediaId": media_b,
+                "bestVariantIdx": 1,
+                "reviewVerdict": "good",
+            },
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={"title": "Timeline", "workflowKind": "timeline"},
+            status="idle",
+        )
+        s.add_all([clip, timeline])
+        s.commit()
+        s.refresh(clip)
+        s.refresh(timeline)
+        s.add(
+            Edge(
+                board_id=board.id,
+                source_id=clip.id,
+                target_id=timeline.id,
+                ref_role="storyboard_panel",
+            )
+        )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}",
+        json={"width": 180, "height": 320},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["clip_count"] == 1
+    assert body["source_media_ids"] == [media_b]
+    assert media_service.cached_path(body["media_id"]) is not None
+
+
 def test_export_timeline_requires_clip_media(client):
     with get_session() as s:
         board = Board(name="export-missing")

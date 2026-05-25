@@ -17,6 +17,11 @@ import {
   normaliseStoryboardGrid,
   resolveStoryboardLayout,
 } from "../lib/storyboardPrompt";
+import {
+  bestVariantIndex,
+  nodeMediaIds,
+  preferredMediaIds,
+} from "../lib/bestVariant";
 
 const ICON: Record<string, string> = {
   character: "◎",
@@ -325,6 +330,7 @@ function tileCountFor(data: FlowboardNodeData): number {
 function ImageTile({
   rfId,
   mediaId,
+  isBest,
   isProcessing,
   alt,
   onClick,
@@ -333,6 +339,7 @@ function ImageTile({
 }: {
   rfId: string;
   mediaId: string | undefined;
+  isBest?: boolean;
   isProcessing: boolean;
   alt: string;
   onClick?: () => void;
@@ -447,6 +454,11 @@ function ImageTile({
         >
           ★
         </button>
+      )}
+      {isBest && (
+        <span className="variant-best-badge" aria-label="Best variant">
+          Best
+        </span>
       )}
     </div>
   );
@@ -582,6 +594,7 @@ function ImageBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   const ids = data.mediaIds ?? (data.mediaId ? [data.mediaId] : []);
   const hasMedia = ids.length > 0;
   const isProcessing = data.status === "queued" || data.status === "running";
+  const bestIdx = bestVariantIndex(data);
 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -752,6 +765,7 @@ function ImageBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   for (let i = 0; i < tileCount; i++) {
     const rawMid = ids[i];
     const mid = typeof rawMid === "string" && rawMid ? rawMid : undefined;
+    const isBest = i === bestIdx;
     // Click a tile → open viewer at that variant. The "Use →" overlay
     // (when present) is a separate action handled by onUseAsRef.
     const onClick = mid
@@ -762,6 +776,7 @@ function ImageBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
         key={i}
         rfId={rfId}
         mediaId={mid}
+        isBest={isBest}
         isProcessing={isProcessing && !mid}
         alt={data.title}
         onClick={onClick}
@@ -816,6 +831,7 @@ const MAX_VIDEO_RETRIES = 5;
 function VideoTile({
   mediaId,
   posterMediaId,
+  isBest,
   isProcessing,
   isError,
   slotError,
@@ -823,6 +839,7 @@ function VideoTile({
   onClick,
 }: {
   mediaId: string | undefined;
+  isBest?: boolean;
   // Upstream image's mediaId — used as the static poster so the tile
   // shows the source-image framing (subject centered, just like the
   // image-tile preview) instead of the video's frame-0 which often
@@ -971,6 +988,11 @@ function VideoTile({
       {posterMediaId && (
         <span className="video-tile__play-badge" aria-hidden="true">▶</span>
       )}
+      {isBest && (
+        <span className="variant-best-badge" aria-label="Best variant">
+          Best
+        </span>
+      )}
     </div>
   );
 }
@@ -980,6 +1002,7 @@ function VideoBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   const ids = data.mediaIds ?? (data.mediaId ? [data.mediaId] : []);
   const isProcessing = data.status === "queued" || data.status === "running";
   const isError = data.status === "error";
+  const bestIdx = bestVariantIndex(data);
   // Partial-batch case: status="done" + an error string means some
   // variants succeeded and others got blocked (filter / timeout).
   // Slot-level signal: `mediaIds[i] === null` is a positional
@@ -1011,6 +1034,7 @@ function VideoBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   for (let i = 0; i < tileCount; i++) {
     const rawMid = ids[i];
     const mid = typeof rawMid === "string" && rawMid ? rawMid : undefined;
+    const isBest = i === bestIdx;
     const slotError = data.slotErrors?.[i] ?? null;
     const slotBlocked = isPartial && rawMid === null;
     // Even blocked tiles get a click handler so the user can open the
@@ -1031,6 +1055,7 @@ function VideoBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
         key={i}
         mediaId={mid}
         posterMediaId={poster}
+        isBest={isBest}
         isProcessing={isProcessing && !mid}
         isError={(isError && !mid) || slotBlocked}
         slotError={slotError}
@@ -1493,14 +1518,6 @@ function isNodeBusy(data: FlowboardNodeData): boolean {
   return data.status === "queued" || data.status === "running";
 }
 
-function nodeMediaIds(data: FlowboardNodeData): string[] {
-  const ids = Array.isArray(data.mediaIds)
-    ? data.mediaIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-    : [];
-  if (ids.length > 0) return ids;
-  return typeof data.mediaId === "string" && data.mediaId ? [data.mediaId] : [];
-}
-
 function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
   const nodes = useBoardStore((s) => s.nodes);
   const edges = useBoardStore((s) => s.edges);
@@ -1586,7 +1603,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     setRunnerBusy("clips");
     try {
       for (const { clip, frame } of clipTargets) {
-        const sourceMediaIds = nodeMediaIds(frame!.data);
+        const sourceMediaIds = preferredMediaIds(frame!.data);
         await dispatchGeneration(clip.id, {
           kind: "video",
           prompt: clip.data.prompt ?? "",
@@ -1696,6 +1713,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         {rows.map((clip) => {
           const index = clip.data.shotIndex ?? 0;
           const hasMedia = nodeMediaIds(clip.data).length > 0;
+          const bestIdx = bestVariantIndex(clip.data);
           const status = clip.data.status ?? "idle";
           return (
             <button
@@ -1704,7 +1722,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               className={`timeline-shot-row timeline-shot-row--${status}`}
               onClick={() => {
                 if (hasMedia) {
-                  useGenerationStore.getState().openResultViewer(clip.id, 0);
+                  useGenerationStore.getState().openResultViewer(clip.id, bestIdx ?? 0);
                 } else if (/^\d+$/.test(clip.id)) {
                   useGenerationStore
                     .getState()
@@ -1718,6 +1736,11 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               </span>
               <span className="timeline-shot-row__status">
                 {hasMedia ? "done / xong" : `${status} / ${STATUS_LABEL_VI[status] ?? status}`}
+                {hasMedia && bestIdx !== null && (
+                  <span className="timeline-shot-row__best">
+                    best v{bestIdx + 1}
+                  </span>
+                )}
               </span>
             </button>
           );

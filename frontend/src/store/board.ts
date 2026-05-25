@@ -56,6 +56,12 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   // the previous variant.
   slotErrors?: (string | null)[];
   variantCount?: number;
+  // Active / reviewed variant. `mediaId` remains the canonical active
+  // pointer; these fields make the quality-review choice visible in UI.
+  bestVariantIdx?: number;
+  bestMediaId?: string;
+  reviewVerdict?: "good" | "redo" | "skip";
+  reviewedAt?: string;
   // The aspect-ratio enum the asset was generated / uploaded at — used to
   // default-match downstream gen dialogs (e.g. a 9:16 visual_asset feeds
   // into a downstream image / video that defaults to 9:16). Values are
@@ -185,6 +191,10 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       mediaIds: dto.data["mediaIds"] as (string | null)[] | undefined,
       slotErrors: dto.data["slotErrors"] as (string | null)[] | undefined,
       variantCount: dto.data["variantCount"] as number | undefined,
+      bestVariantIdx: dto.data["bestVariantIdx"] as number | undefined,
+      bestMediaId: dto.data["bestMediaId"] as string | undefined,
+      reviewVerdict: dto.data["reviewVerdict"] as "good" | "redo" | "skip" | undefined,
+      reviewedAt: dto.data["reviewedAt"] as string | undefined,
       aspectRatio: dto.data["aspectRatio"] as string | undefined,
       aiBrief: dto.data["aiBrief"] as string | undefined,
       imageModel: dto.data["imageModel"] as string | undefined,

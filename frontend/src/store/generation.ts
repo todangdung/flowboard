@@ -194,6 +194,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       variantCount,
       mediaIds: undefined,
       mediaId: undefined,
+      bestVariantIdx: undefined,
+      bestMediaId: undefined,
+      reviewVerdict: undefined,
+      reviewedAt: undefined,
     });
 
     // Create request
@@ -398,6 +402,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               aspectRatio: opts.aspectRatio,
               renderedAt: new Date().toISOString(),
               error: partialError ?? undefined,
+              bestVariantIdx: undefined,
+              bestMediaId: undefined,
+              reviewVerdict: undefined,
+              reviewedAt: undefined,
               ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
               ...(stampedVideoQuality ? { videoQuality: stampedVideoQuality } : {}),
               ...(opts.audioMode ? { videoAudioMode: opts.audioMode } : {}),
@@ -428,6 +436,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                   aiBrief: null,
                   aspectRatio: opts.aspectRatio,
                   renderedAt: new Date().toISOString(),
+                  bestVariantIdx: null,
+                  bestMediaId: null,
+                  reviewVerdict: null,
+                  reviewedAt: null,
                   // `null` clears stale error from a previous attempt
                   // when this run was clean; otherwise persist the
                   // partial summary so it survives reload.
@@ -542,6 +554,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       error: undefined,
       variantCount: 1,
       mediaIds: undefined,
+      bestVariantIdx: undefined,
+      bestMediaId: undefined,
+      reviewVerdict: undefined,
+      reviewedAt: undefined,
     });
 
     const nodeDbId = parseInt(rfId, 10);
@@ -599,6 +615,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             mediaIds,
             aspectRatio: opts.aspectRatio,
             renderedAt: new Date().toISOString(),
+            bestVariantIdx: undefined,
+            bestMediaId: undefined,
+            reviewVerdict: undefined,
+            reviewedAt: undefined,
             ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
           });
           const dbId = parseInt(rfId, 10);
@@ -616,6 +636,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                 variantCount: 1,
                 aspectRatio: opts.aspectRatio,
                 renderedAt: new Date().toISOString(),
+                bestVariantIdx: null,
+                bestMediaId: null,
+                reviewVerdict: null,
+                reviewedAt: null,
                 ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
               },
             }).catch(() => {});

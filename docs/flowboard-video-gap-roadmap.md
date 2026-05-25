@@ -21,6 +21,8 @@ Completed vertical slices:
   dispatch prompts/request params.
 - Iteration tools: video results can be saved as references, refined from the
   current prompt, or extended into a cloned follow-up clip node.
+- Quality review loop: rendered variants can be marked as best; that choice is
+  visible on canvas/timeline and becomes the active media used by export.
 - Export: timeline clips can be stitched through ffmpeg and registered as a
   final `/media/{id}` video asset.
 - Reusable tests: backend export/status/recipe tests and Playwright shot
@@ -44,6 +46,7 @@ Already present:
 - Auto-prompt synthesis from upstream context.
 - Static/dynamic camera option for video prompt synthesis.
 - Variant handling for image and video source variants.
+- Best-variant selection stored on node data for downstream generation/export.
 
 Main limitation:
 

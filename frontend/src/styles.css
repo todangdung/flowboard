@@ -2114,6 +2114,22 @@ button:disabled {
   color: #ffd54a;
 }
 
+.variant-best-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 3;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(20, 83, 45, 0.88);
+  border: 1px solid rgba(134, 239, 172, 0.55);
+  color: #dcfce7;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 /* Inline picker — shown below the tile grid when the upstream has 2+
    downstream targets and the user clicks "Use →" on a variant. Lists
    each target so the user picks which downstream this variant feeds. */
@@ -3903,6 +3919,18 @@ button:disabled {
   border-color: #f59e0b;
 }
 
+.variant-switcher__chip--best {
+  border-color: rgba(134, 239, 172, 0.72);
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.18);
+  font-weight: 800;
+}
+
+.variant-switcher__chip--best.variant-switcher__chip--active {
+  background: rgba(22, 101, 52, 0.34);
+  border-color: #86efac;
+}
+
 /* Right panel */
 
 .result-viewer__status-pill {
@@ -4049,6 +4077,23 @@ button:disabled {
   background: #ffd54a;
   color: #1a1a1a;
   border-color: #ffd54a;
+}
+
+.result-viewer__btn--best {
+  border-color: rgba(134, 239, 172, 0.55);
+  color: #bbf7d0;
+}
+
+.result-viewer__btn--best:hover:not(:disabled) {
+  background: rgba(22, 101, 52, 0.16);
+  border-color: #86efac;
+}
+
+.result-viewer__btn--best-active,
+.result-viewer__btn--best-active:hover {
+  background: #166534;
+  color: #dcfce7;
+  border-color: #86efac;
 }
 
 /* Footer hint */
@@ -6222,6 +6267,12 @@ button:disabled {
 
 .timeline-shot-row--error .timeline-shot-row__status {
   color: #fca5a5;
+}
+
+.timeline-shot-row__best {
+  margin-left: 6px;
+  color: #bbf7d0;
+  font-weight: 700;
 }
 
 /* ── References panel (right sidebar) ──────────────────────────────────── */
