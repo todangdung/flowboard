@@ -341,6 +341,121 @@ async def test_worker_gen_video_happy_path(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_worker_gen_video_first_last_passes_end_frame_and_duration(client, monkeypatch):
+    from flowboard.services import media_project_sync as sync_mod
+    from flowboard.worker import processor as proc
+
+    monkeypatch.setattr(proc, "VIDEO_POLL_INTERVAL_S", 0.01)
+
+    async def _stub_sync(ids, project_id):
+        assert ids == ["start-a", "end-b"]
+        assert project_id == "abcd1234"
+        return ["start-local", "end-local"], []
+
+    monkeypatch.setattr(sync_mod, "ensure_media_ids_in_project", _stub_sync)
+
+    captured = {}
+
+    class _StubSdk:
+        async def gen_video(self, **kwargs):
+            captured.update(kwargs)
+            return {"raw": {}, "operation_names": ["op-fl"]}
+
+        async def check_async(self, names, workflows=None):
+            return {
+                "raw": {},
+                "operations": [
+                    {
+                        "name": "op-fl",
+                        "done": True,
+                        "media_entries": [{"media_id": "vid-fl"}],
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(proc, "get_flow_sdk", lambda: _StubSdk())
+    row = client.post(
+        "/api/requests",
+        json={
+            "type": "gen_video",
+            "params": {
+                "prompt": "transition",
+                "project_id": "abcd1234",
+                "start_media_id": "start-a",
+                "end_media_id": "end-b",
+                "duration_s": 6,
+            },
+        },
+    ).json()
+
+    w = WorkerController(handlers={"gen_video": proc._handle_gen_video})
+    task = asyncio.create_task(w.start())
+    try:
+        w.enqueue(row["id"])
+        settled = await _poll_until_settled(client, row["id"])
+        assert settled["status"] == "done"
+        assert settled["result"]["media_ids"] == ["vid-fl"]
+        assert captured["start_media_id"] == "start-local"
+        assert captured["end_media_id"] == "end-local"
+        assert captured["duration_s"] == 6
+    finally:
+        w.request_shutdown()
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_worker_gen_video_text_dispatches_without_source_media(client, monkeypatch):
+    from flowboard.worker import processor as proc
+
+    monkeypatch.setattr(proc, "VIDEO_POLL_INTERVAL_S", 0.01)
+    captured = {}
+
+    class _StubSdk:
+        async def gen_video_text(self, **kwargs):
+            captured.update(kwargs)
+            return {"raw": {}, "operation_names": ["op-t2v"]}
+
+        async def check_async(self, names, workflows=None):
+            return {
+                "raw": {},
+                "operations": [
+                    {
+                        "name": "op-t2v",
+                        "done": True,
+                        "media_entries": [{"media_id": "vid-t2v"}],
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(proc, "get_flow_sdk", lambda: _StubSdk())
+    row = client.post(
+        "/api/requests",
+        json={
+            "type": "gen_video_text",
+            "params": {
+                "prompt": "text only product film",
+                "project_id": "abcd1234",
+                "duration_s": 4,
+                "count": 1,
+            },
+        },
+    ).json()
+
+    w = WorkerController(handlers={"gen_video_text": proc._handle_gen_video_text})
+    task = asyncio.create_task(w.start())
+    try:
+        w.enqueue(row["id"])
+        settled = await _poll_until_settled(client, row["id"])
+        assert settled["status"] == "done"
+        assert settled["result"]["media_ids"] == ["vid-t2v"]
+        assert captured["prompt"] == "text only product film"
+        assert captured["duration_s"] == 4
+    finally:
+        w.request_shutdown()
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+@pytest.mark.asyncio
 async def test_worker_gen_video_times_out(client, monkeypatch):
     from flowboard.worker import processor as proc
 
@@ -916,6 +1031,63 @@ async def test_worker_gen_video_omni_happy_path(client, monkeypatch):
         assert captured["duration_s"] == 6
         assert captured["ref_media_ids"] == ["ref-aaa"]
         assert captured["aspect_ratio"] == "VIDEO_ASPECT_RATIO_PORTRAIT"
+    finally:
+        w.request_shutdown()
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_worker_edit_video_omni_keeps_source_video_without_image_sync(
+    client, monkeypatch
+):
+    from flowboard.worker import processor as proc
+
+    monkeypatch.setattr(proc, "VIDEO_POLL_INTERVAL_S", 0.01)
+
+    captured = {}
+
+    class _StubSdk:
+        async def edit_video_omni(self, **kwargs):
+            captured.update(kwargs)
+            return {"raw": {}, "operation_names": ["op-edit"]}
+
+        async def check_async(self, names, workflows=None):
+            return {
+                "raw": {},
+                "operations": [
+                    {
+                        "name": "op-edit",
+                        "done": True,
+                        "media_entries": [{"media_id": "vid-edit"}],
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(proc, "get_flow_sdk", lambda: _StubSdk())
+
+    row = client.post(
+        "/api/requests",
+        json={
+            "type": "edit_video_omni",
+            "params": {
+                "prompt": "fix hand motion",
+                "project_id": "abcd1234",
+                "source_video_media_id": "source-video",
+                "ref_media_ids": ["ref-img"],
+                "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+            },
+        },
+    ).json()
+
+    w = WorkerController(handlers={"edit_video_omni": proc._handle_edit_video_omni})
+    task = asyncio.create_task(w.start())
+    try:
+        w.enqueue(row["id"])
+        settled = await _poll_until_settled(client, row["id"])
+        assert settled["status"] == "done"
+        assert settled["result"]["media_ids"] == ["vid-edit"]
+        assert captured["source_video_media_id"] == "source-video"
+        assert captured["ref_media_ids"] is None
     finally:
         w.request_shutdown()
         await asyncio.wait_for(task, timeout=2.0)

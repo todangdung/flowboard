@@ -36,6 +36,10 @@ const ICON: Record<string, string> = {
   prompt: "✦",
   note: "✎",
   visual_asset: "◇",
+  product: "▤",
+  location: "⌂",
+  brand: "◈",
+  audio: "♪",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -291,12 +295,136 @@ function referenceKindFor(
     .toLowerCase();
   if (nodeType === "Storyboard") return "storyboard_shot";
   if (nodeType === "character") return "character";
+  if (nodeType === "product") return "product";
+  if (nodeType === "location") return "location";
+  if (nodeType === "brand") return "brand";
+  if (nodeType === "audio") return "audio";
   if (nodeType === "prompt") return "style";
   if (/(package|packaging|box|unbox)/.test(text)) return "package";
   if (/(background|location|room|cafe|street|park|interior|exterior)/.test(text)) return "location";
   if (/(style|mood|palette|lighting|aesthetic)/.test(text)) return "style";
   if (nodeType === "visual_asset") return "product";
   return "image";
+}
+
+function profileFromNodeData(
+  mediaId: string,
+  nodeType: string,
+  data: FlowboardNodeData,
+): Record<string, unknown> {
+  const profile: Record<string, unknown> = {
+    kind: referenceKindFor(nodeType, data),
+    mediaId,
+    sourceNodeShortId: data.shortId,
+    name: data.title,
+  };
+  const keys: (keyof FlowboardNodeData)[] = [
+    "aiBrief",
+    "prompt",
+    "aspectRatio",
+    "productName",
+    "brandName",
+    "locationName",
+    "characterName",
+    "voiceName",
+    "claimRules",
+    "brandTone",
+    "palette",
+    "cta",
+    "legalNotes",
+  ];
+  for (const key of keys) {
+    const value = data[key];
+    if (value !== undefined && value !== "") {
+      profile[key] = value;
+    }
+  }
+  return profile;
+}
+
+const DOMAIN_PROFILE_FIELDS: Record<string, readonly {
+  key: keyof FlowboardNodeData;
+  label: string;
+  multiline?: boolean;
+}[]> = {
+  product: [
+    { key: "productName", label: "Product" },
+    { key: "brandName", label: "Brand" },
+    { key: "claimRules", label: "Claims", multiline: true },
+  ],
+  location: [
+    { key: "locationName", label: "Location" },
+    { key: "palette", label: "Palette" },
+    { key: "legalNotes", label: "Limits", multiline: true },
+  ],
+  brand: [
+    { key: "brandName", label: "Brand" },
+    { key: "brandTone", label: "Tone" },
+    { key: "palette", label: "Palette" },
+    { key: "cta", label: "CTA" },
+    { key: "legalNotes", label: "Legal", multiline: true },
+  ],
+  audio: [
+    { key: "voiceName", label: "Voice" },
+    { key: "brandTone", label: "Tone" },
+    { key: "legalNotes", label: "Audio limits", multiline: true },
+  ],
+};
+
+function DomainProfileFields({
+  rfId,
+  data,
+}: {
+  rfId: string;
+  data: FlowboardNodeData;
+}) {
+  const fields = DOMAIN_PROFILE_FIELDS[data.type] ?? [];
+  if (fields.length === 0) return null;
+
+  function saveField(key: keyof FlowboardNodeData, raw: string) {
+    const value = raw.trim();
+    const next = value || undefined;
+    if ((data[key] ?? undefined) === next) return;
+    const localPatch = { [key]: next } as Partial<FlowboardNodeData>;
+    useBoardStore.getState().updateNodeData(rfId, localPatch);
+    const dbId = parseInt(rfId, 10);
+    if (!isNaN(dbId)) {
+      patchNode(dbId, { data: { [key]: value || null } }).catch(() => {});
+    }
+  }
+
+  return (
+    <div
+      className="domain-profile nodrag"
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      {fields.map((field) => {
+        const value = typeof data[field.key] === "string"
+          ? (data[field.key] as string)
+          : "";
+        return (
+          <label key={field.key} className="domain-profile__field">
+            <span>{field.label}</span>
+            {field.multiline ? (
+              <textarea
+                className="domain-profile__input domain-profile__input--area"
+                defaultValue={value}
+                rows={2}
+                onBlur={(event) => saveField(field.key, event.target.value)}
+              />
+            ) : (
+              <input
+                className="domain-profile__input"
+                defaultValue={value}
+                onBlur={(event) => saveField(field.key, event.target.value)}
+              />
+            )}
+          </label>
+        );
+      })}
+    </div>
+  );
 }
 
 /** Fire-and-forget save of a tile's media into the reference library.
@@ -317,6 +445,7 @@ function saveTileToLibrary(opts: {
     kind: referenceKindFor(nodeType, data),
     ai_brief: typeof data.aiBrief === "string" ? data.aiBrief : null,
     aspect_ratio: typeof data.aspectRatio === "string" ? data.aspectRatio : null,
+    profile: profileFromNodeData(mediaId, nodeType, data),
     label,
     source_board_id: useBoardStore.getState().boardId ?? null,
     source_node_short_id:
@@ -1526,6 +1655,18 @@ const REVIEW_LABEL_VI: Record<"good" | "redo" | "skip", string> = {
 };
 
 type TimelineExportUiState = "none" | "fresh" | "stale";
+type TimelineExportPresetKey = "portrait_1080" | "landscape_1080" | "square_1080";
+
+const TIMELINE_EXPORT_PRESETS: readonly {
+  key: TimelineExportPresetKey;
+  label: string;
+  width: number;
+  height: number;
+}[] = [
+  { key: "portrait_1080", label: "9:16 1080p", width: 1080, height: 1920 },
+  { key: "landscape_1080", label: "16:9 1080p", width: 1920, height: 1080 },
+  { key: "square_1080", label: "1:1 1080p", width: 1080, height: 1080 },
+];
 
 function timelineExportUiState(data: FlowboardNodeData): TimelineExportUiState {
   if (!data.exportMediaId) return "none";
@@ -1580,9 +1721,18 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const edges = useBoardStore((s) => s.edges);
   const paygateTier = useGenerationStore((s) => s.paygateTier);
   const dispatchGeneration = useGenerationStore((s) => s.dispatchGeneration);
+  const setTimelineActiveClip = useBoardStore((s) => s.setTimelineActiveClip);
   const [runnerBusy, setRunnerBusy] = useState<"frames" | "clips" | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportPreflightOpen, setExportPreflightOpen] = useState(false);
+  const [exportPresetKey, setExportPresetKey] = useState<TimelineExportPresetKey>(
+    data.exportPreset === "landscape_1080"
+      ? "landscape_1080"
+      : data.exportPreset === "square_1080"
+        ? "square_1080"
+        : "portrait_1080",
+  );
   const incoming = edges
     .filter((e) => e.target === rfId)
     .map((e) => nodes.find((n) => n.id === e.source))
@@ -1647,6 +1797,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     ? `Export status: ${exportState}. Reason: ${data.exportStaleReason}`
     : `Export status: ${exportState}`;
   const exportHistory = timelineExportHistory(data);
+  const exportPreset =
+    TIMELINE_EXPORT_PRESETS.find((p) => p.key === exportPresetKey)
+    ?? TIMELINE_EXPORT_PRESETS[0];
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
     ? incoming
@@ -1691,8 +1844,15 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           kind: "video",
           prompt: clip.data.prompt ?? "",
           aspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+          sourceMode: "first_frame",
           sourceMediaId: sourceMediaIds[0],
           sourceMediaIds: sourceMediaIds.length > 1 ? sourceMediaIds : undefined,
+          durationSec:
+            typeof clip.data.shotDurationSec === "number"
+              ? clip.data.shotDurationSec
+              : typeof clip.data.videoDurationSec === "number"
+                ? clip.data.videoDurationSec
+                : 8,
         });
       }
     } finally {
@@ -1707,7 +1867,10 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     try {
       const dbId = parseInt(rfId, 10);
       if (isNaN(dbId)) return;
-      const result = await exportTimeline(dbId);
+      const result = await exportTimeline(dbId, {
+        width: exportPreset.width,
+        height: exportPreset.height,
+      });
       useBoardStore.getState().updateNodeData(rfId, {
         status: "done",
         exportMediaId: result.media_id,
@@ -1720,7 +1883,21 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportHistory: result.export_history,
         exportStaleAt: undefined,
         exportStaleReason: undefined,
+        exportPreset: exportPreset.key,
+        exportWidth: exportPreset.width,
+        exportHeight: exportPreset.height,
       });
+      const timelineDbId = parseInt(rfId, 10);
+      if (!isNaN(timelineDbId)) {
+        patchNode(timelineDbId, {
+          data: {
+            exportPreset: exportPreset.key,
+            exportWidth: exportPreset.width,
+            exportHeight: exportPreset.height,
+          },
+        }).catch(() => {});
+      }
+      setExportPreflightOpen(false);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1770,7 +1947,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           className="timeline-run-btn"
           onClick={(event) => {
             event.stopPropagation();
-            void runExport();
+            setExportPreflightOpen(true);
           }}
           disabled={!canExport}
           title={
@@ -1797,6 +1974,74 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           </a>
         )}
       </div>
+      {exportPreflightOpen && (
+        <div
+          className="timeline-preflight nodrag"
+          role="dialog"
+          aria-label="Export preflight"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="timeline-preflight__header">
+            <span>Export preflight / Kiểm tra xuất</span>
+            <button
+              type="button"
+              className="timeline-preflight__close"
+              onClick={() => setExportPreflightOpen(false)}
+            >
+              esc
+            </button>
+          </div>
+          <div className="timeline-preflight__presets">
+            {TIMELINE_EXPORT_PRESETS.map((preset) => (
+              <button
+                key={preset.key}
+                type="button"
+                className={`timeline-preflight__preset${
+                  exportPresetKey === preset.key ? " timeline-preflight__preset--active" : ""
+                }`}
+                onClick={() => setExportPresetKey(preset.key)}
+              >
+                <span>{preset.label}</span>
+                <small>{preset.width}x{preset.height}</small>
+              </button>
+            ))}
+          </div>
+          <div className="timeline-preflight__clips">
+            {shotPairs
+              .filter(({ clip }) =>
+                nodeMediaIds(clip.data).length > 0
+                && clip.data.reviewVerdict !== "skip",
+              )
+              .map(({ clip }) => {
+                const idx = clip.data.shotIndex ?? 0;
+                const bestIdx = bestVariantIndex(clip.data);
+                const sourceIds = preferredMediaIds(clip.data);
+                return (
+                  <div key={clip.id} className="timeline-preflight__clip">
+                    <span>Shot {idx || "?"}</span>
+                    <strong>
+                      {bestIdx !== null ? `v${bestIdx + 1}` : "active"} · {clip.data.reviewVerdict ?? "unreviewed"}
+                    </strong>
+                    <code>{sourceIds[0] ?? "no-media"}</code>
+                  </div>
+                );
+              })}
+          </div>
+          <div className="timeline-preflight__footer">
+            <span>
+              {exportableClipCount} clips · {exportPreset.width}x{exportPreset.height}
+            </span>
+            <button
+              type="button"
+              className="timeline-run-btn"
+              onClick={() => void runExport()}
+              disabled={exportBusy}
+            >
+              {exportBusy ? "Exporting / Đang xuất" : "Confirm export / Xuất"}
+            </button>
+          </div>
+        </div>
+      )}
       <div
         className={`timeline-export-state timeline-export-state--${exportState}`}
         aria-label={`Export status: ${exportState}`}
@@ -1852,25 +2097,74 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const bestIdx = bestVariantIndex(clip.data);
           const reviewVerdict = clip.data.reviewVerdict;
           const status = clip.data.status ?? "idle";
+          const shotId = clip.data.shotId;
+          const candidates = typeof shotId === "string" && shotId
+            ? nodes
+              .filter((candidate) =>
+                candidate.data.workflowKind === "shot_clip"
+                && candidate.data.shotId === shotId,
+              )
+              .sort((a, b) => {
+                const at = a.data.renderedAt ?? "";
+                const bt = b.data.renderedAt ?? "";
+                return at.localeCompare(bt) || a.id.localeCompare(b.id);
+              })
+            : [];
+          const openClip = () => {
+            if (hasMedia) {
+              useGenerationStore.getState().openResultViewer(clip.id, bestIdx ?? 0);
+            } else if (/^\d+$/.test(clip.id)) {
+              useGenerationStore
+                .getState()
+                .openGenerationDialog(clip.id, clip.data.prompt ?? "");
+            }
+          };
           return (
-            <button
+            <div
               key={clip.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               className={`timeline-shot-row timeline-shot-row--${status}${reviewVerdict ? ` timeline-shot-row--review-${reviewVerdict}` : ""}`}
-              onClick={() => {
-                if (hasMedia) {
-                  useGenerationStore.getState().openResultViewer(clip.id, bestIdx ?? 0);
-                } else if (/^\d+$/.test(clip.id)) {
-                  useGenerationStore
-                    .getState()
-                    .openGenerationDialog(clip.id, clip.data.prompt ?? "");
+              onClick={openClip}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openClip();
                 }
               }}
               title={clip.data.title}
             >
-              <span className="timeline-shot-row__name">
-                Shot {index || "?"} / Cảnh {index || "?"}
-              </span>
+              <div className="timeline-shot-row__main">
+                <span className="timeline-shot-row__name">
+                  Shot {index || "?"} / Cảnh {index || "?"}
+                </span>
+                {candidates.length > 1 && shotId && (
+                  <select
+                    className="timeline-shot-row__active-select"
+                    value={clip.id}
+                    aria-label={`Active clip for shot ${index || "?"}`}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => {
+                      event.stopPropagation();
+                      void setTimelineActiveClip(rfId, shotId, event.target.value);
+                    }}
+                  >
+                    {candidates.map((candidate) => {
+                      const candidateBest = bestVariantIndex(candidate.data);
+                      const candidateStatus = candidate.data.status ?? "idle";
+                      const suffix =
+                        candidate.id === clip.id
+                          ? "active"
+                          : candidate.data.reviewVerdict ?? candidateStatus;
+                      return (
+                        <option key={candidate.id} value={candidate.id}>
+                          #{candidate.data.shortId} {candidateBest !== null ? `v${candidateBest + 1}` : candidateStatus} · {suffix}
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </div>
               <span className="timeline-shot-row__status">
                 {hasMedia ? "done / xong" : `${status} / ${STATUS_LABEL_VI[status] ?? status}`}
                 {hasMedia && bestIdx !== null && (
@@ -1884,7 +2178,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                   </span>
                 )}
               </span>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -1944,6 +2238,22 @@ function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
       return <EditableTextBody rfId={rfId} data={data} variant="note" />;
     case "visual_asset":
       return <VisualAssetBody rfId={rfId} data={data} />;
+    case "product":
+    case "location":
+      return (
+        <>
+          <DomainProfileFields rfId={rfId} data={data} />
+          <VisualAssetBody rfId={rfId} data={data} />
+        </>
+      );
+    case "brand":
+    case "audio":
+      return (
+        <>
+          <DomainProfileFields rfId={rfId} data={data} />
+          <EditableTextBody rfId={rfId} data={data} variant="prompt" />
+        </>
+      );
     case "Storyboard":
       return <StoryboardBody rfId={rfId} data={data} />;
   }
@@ -1957,7 +2267,18 @@ function downloadExt(type: string): string {
 export function NodeCard(props: NodeProps<FlowNode>) {
   const data = props.data;
   const isNote = data.type === "note";
-  const isGenerable = ["image", "prompt", "video", "visual_asset", "character", "Storyboard"].includes(data.type);
+  const isGenerable = [
+    "image",
+    "prompt",
+    "video",
+    "visual_asset",
+    "product",
+    "location",
+    "brand",
+    "audio",
+    "character",
+    "Storyboard",
+  ].includes(data.type);
   const isRunning = data.status === "running";
   const llmBusy = isLLMBusy(data);
   const downloadable = !!data.mediaId && data.type !== "prompt" && data.type !== "note";

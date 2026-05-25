@@ -108,6 +108,9 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   videoQuality?: string;
   videoAudioMode?: string;
   videoRecipeId?: "auto" | VideoRecipeId;
+  videoSourceMode?: "auto" | "text" | "first_frame" | "first_last" | "ingredients" | "edit";
+  videoDurationSec?: number;
+  videoEditSourceMediaId?: string;
   // Character-builder selections — persisted on dispatch so the detail
   // panel can show "Country / Vibe / Gender" pills under METADATA. Keys
   // (`vn`, `clean`, `female`) match the constants in
@@ -115,6 +118,16 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   charCountry?: string;
   charVibe?: string;
   charGender?: string;
+  productName?: string;
+  brandName?: string;
+  locationName?: string;
+  characterName?: string;
+  voiceName?: string;
+  claimRules?: string;
+  brandTone?: string;
+  palette?: string;
+  cta?: string;
+  legalNotes?: string;
   error?: string;
   // Storyboard layout. The Storyboard node is now a thin image-node
   // wrapper that generates a single composite using a locked prompt
@@ -140,6 +153,9 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportStaleAt?: string;
   exportStaleReason?: string;
   exportHistory?: ExportHistoryItem[];
+  exportPreset?: string;
+  exportWidth?: number;
+  exportHeight?: number;
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -192,6 +208,10 @@ const TYPE_TITLE: Record<NodeType, string> = {
   prompt: "Prompt",
   note: "Note",
   visual_asset: "Visual asset",
+  product: "Product",
+  location: "Location",
+  brand: "Brand kit",
+  audio: "Audio",
   Storyboard: "Storyboard",
 };
 
@@ -222,9 +242,22 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       videoQuality: dto.data["videoQuality"] as string | undefined,
       videoAudioMode: dto.data["videoAudioMode"] as string | undefined,
       videoRecipeId: dto.data["videoRecipeId"] as "auto" | VideoRecipeId | undefined,
+      videoSourceMode: dto.data["videoSourceMode"] as FlowboardNodeData["videoSourceMode"] | undefined,
+      videoDurationSec: dto.data["videoDurationSec"] as number | undefined,
+      videoEditSourceMediaId: dto.data["videoEditSourceMediaId"] as string | undefined,
       charCountry: dto.data["charCountry"] as string | undefined,
       charVibe: dto.data["charVibe"] as string | undefined,
       charGender: dto.data["charGender"] as string | undefined,
+      productName: dto.data["productName"] as string | undefined,
+      brandName: dto.data["brandName"] as string | undefined,
+      locationName: dto.data["locationName"] as string | undefined,
+      characterName: dto.data["characterName"] as string | undefined,
+      voiceName: dto.data["voiceName"] as string | undefined,
+      claimRules: dto.data["claimRules"] as string | undefined,
+      brandTone: dto.data["brandTone"] as string | undefined,
+      palette: dto.data["palette"] as string | undefined,
+      cta: dto.data["cta"] as string | undefined,
+      legalNotes: dto.data["legalNotes"] as string | undefined,
       storyboardGrid: dto.data["storyboardGrid"] as StoryboardGrid | undefined,
       workflowKind: dto.data["workflowKind"] as string | undefined,
       shotId: dto.data["shotId"] as string | undefined,
@@ -243,6 +276,9 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportStaleAt: dto.data["exportStaleAt"] as string | undefined,
       exportStaleReason: dto.data["exportStaleReason"] as string | undefined,
       exportHistory: dto.data["exportHistory"] as ExportHistoryItem[] | undefined,
+      exportPreset: dto.data["exportPreset"] as string | undefined,
+      exportWidth: dto.data["exportWidth"] as number | undefined,
+      exportHeight: dto.data["exportHeight"] as number | undefined,
       error: dto.data["error"] as string | undefined,
     },
   };
@@ -332,6 +368,7 @@ interface BoardState {
       aspectRatio?: string | null;
       kind: string;
       label: string;
+      profile?: Record<string, unknown> | null;
     },
     position: { x: number; y: number },
   ): Promise<string | null>;
@@ -352,6 +389,7 @@ interface BoardState {
   // Redo clips replace the original shot clip on timeline storyboard_panel
   // edges so the old redo-marked source no longer blocks export.
   rewireTimelineStoryboardPanels(sourceRfId: string, replacementRfId: string): Promise<void>;
+  setTimelineActiveClip(timelineRfId: string, shotId: string, clipRfId: string): Promise<void>;
 
   updateNodeData(rfId: string, partial: Partial<FlowboardNodeData>): void;
   /** Merge `partial` into edge.data — used to refresh the local cache
@@ -629,9 +667,16 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         ? "character"
         : ref.kind === "video"
         ? "video"
+        : ref.kind === "product" || ref.kind === "package"
+        ? "product"
+        : ref.kind === "location"
+        ? "location"
+        : ref.kind === "brand"
+        ? "brand"
         : ref.kind === "storyboard_shot"
         ? "Storyboard"
         : "visual_asset";
+    const profile = ref.profile && typeof ref.profile === "object" ? ref.profile : {};
     try {
       const dto = await createNode({
         board_id: boardId,
@@ -643,6 +688,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           mediaId: ref.mediaId,
           aiBrief: ref.aiBrief ?? undefined,
           aspectRatio: ref.aspectRatio ?? undefined,
+          ...profile,
           status: "done",
           renderedAt: new Date().toISOString(),
         },
@@ -662,6 +708,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           mediaId: ref.mediaId,
           aiBrief: ref.aiBrief ?? undefined,
           aspectRatio: ref.aspectRatio ?? undefined,
+          ...(profile as Partial<FlowboardNodeData>),
           renderedAt: new Date().toISOString(),
         },
       };
@@ -894,6 +941,51 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       staleTimelineIds.push(edge.target);
     }
     await get().markTimelineExportsStale(staleTimelineIds, "timeline_clip_set_changed");
+  },
+
+  async setTimelineActiveClip(timelineRfId, shotId, clipRfId) {
+    const { boardId, nodes, edges } = get();
+    if (boardId === null) return;
+    const timeline = nodes.find((n) => n.id === timelineRfId);
+    const clip = nodes.find((n) => n.id === clipRfId);
+    if (timeline?.data.workflowKind !== "timeline") return;
+    if (clip?.data.workflowKind !== "shot_clip" || clip.data.shotId !== shotId) return;
+    const clipId = parseInt(clipRfId, 10);
+    const timelineId = parseInt(timelineRfId, 10);
+    if (isNaN(clipId) || isNaN(timelineId)) return;
+
+    const sameShotEdges = edges.filter((edge) => {
+      if (edge.target !== timelineRfId || edge.data?.refRole !== "storyboard_panel") {
+        return false;
+      }
+      const src = nodes.find((n) => n.id === edge.source);
+      return src?.data.workflowKind === "shot_clip" && src.data.shotId === shotId;
+    });
+    if (sameShotEdges.length === 1 && sameShotEdges[0].source === clipRfId) return;
+
+    try {
+      const created = await createEdge({
+        board_id: boardId,
+        source_id: clipId,
+        target_id: timelineId,
+        ref_role: "storyboard_panel",
+      });
+      for (const edge of sameShotEdges) {
+        const edgeId = parseInt(edge.id, 10);
+        if (!isNaN(edgeId)) {
+          await deleteEdge(edgeId);
+        }
+      }
+      set((s) => ({
+        edges: [
+          ...s.edges.filter((edge) => !sameShotEdges.some((old) => old.id === edge.id)),
+          edgeFromDto(created),
+        ],
+      }));
+      await get().markTimelineExportsStale([timelineRfId], "timeline_active_clip_changed");
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+    }
   },
 
   async deleteEdgeByRfId(rfId) {

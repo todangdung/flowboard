@@ -27,6 +27,9 @@ FLOW_API_BASE = "https://aisandbox-pa.googleapis.com"
 TRPC_CREATE_PROJECT = "https://labs.google/fx/api/trpc/project.createProject"
 TRPC_SEARCH_PROJECTS = "https://labs.google/fx/api/trpc/project.searchUserProjects"
 VIDEO_I2V_URL = f"{FLOW_API_BASE}/v1/video:batchAsyncGenerateVideoStartImage"
+VIDEO_T2V_URL = f"{FLOW_API_BASE}/v1/video:batchAsyncGenerateVideoText"
+VIDEO_I2V_FL_URL = f"{FLOW_API_BASE}/v1/video:batchAsyncGenerateVideoStartAndEndImage"
+VIDEO_EDIT_URL = f"{FLOW_API_BASE}/v1/video:batchAsyncGenerateVideoEditVideo"
 # Omni Flash uses a separate endpoint that takes referenceImages[] (multi-
 # ref, asset-typed) instead of a single startImage. Different request shape
 # from Veo i2v — see gen_video_omni() for the body assembly.
@@ -245,11 +248,72 @@ VIDEO_MODEL_KEYS: dict[str, dict[str, dict[str, str]]] = {
     },
 }
 
+VIDEO_FIRST_LAST_MODEL_KEYS: dict[str, dict[str, dict[str, str]]] = {
+    "PAYGATE_TIER_ONE": {
+        "fast": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast_fl",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait_fl",
+        },
+        "lite_relaxed": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
+        },
+    },
+    "PAYGATE_TIER_TWO": {
+        "fast": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_s_fast_ultra_fl",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+        },
+        "lite_relaxed": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_i2v_lite_low_priority",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_i2v_lite_low_priority",
+        },
+    },
+}
+
+VIDEO_TEXT_MODEL_KEYS: dict[str, dict[str, dict[str, str]]] = {
+    "PAYGATE_TIER_ONE": {
+        "fast": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v_fast",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_fast_portrait",
+        },
+        "quality": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_portrait",
+        },
+        "lite_relaxed": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v_fast",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_fast_portrait",
+        },
+    },
+    "PAYGATE_TIER_TWO": {
+        "fast": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v_fast_ultra",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_fast_portrait_ultra",
+        },
+        "quality": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_portrait",
+        },
+        "lite_relaxed": {
+            "VIDEO_ASPECT_RATIO_LANDSCAPE": "veo_3_1_t2v_fast_ultra_relaxed",
+            "VIDEO_ASPECT_RATIO_PORTRAIT": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
+        },
+    },
+}
+
 DEFAULT_VIDEO_QUALITY = "fast"
+DEFAULT_VIDEO_DURATION_S = 8
+VIDEO_DURATION_VALUES = {4, 6, 8}
+DEFAULT_VIDEO_EDIT_MODEL_KEY = "veo_3_1_i2v_fast"
 
 
 def resolve_video_model(
-    paygate_tier: str, aspect_ratio: str, quality: Optional[str] = None
+    paygate_tier: str,
+    aspect_ratio: str,
+    quality: Optional[str] = None,
+    *,
+    mode: str = "i2v",
 ) -> Optional[str]:
     """Resolve a Flow video model key from tier + aspect + quality.
 
@@ -257,11 +321,12 @@ def resolve_video_model(
     a stale frontend or unknown tier can't break dispatch silently.
     """
     q = (quality or DEFAULT_VIDEO_QUALITY).lower()
-    tier_map = (
-        VIDEO_MODEL_KEYS.get(paygate_tier)
-        or VIDEO_MODEL_KEYS.get("PAYGATE_TIER_ONE")
-        or {}
-    )
+    family = VIDEO_MODEL_KEYS
+    if mode == "first_last":
+        family = VIDEO_FIRST_LAST_MODEL_KEYS
+    elif mode == "text":
+        family = VIDEO_TEXT_MODEL_KEYS
+    tier_map = family.get(paygate_tier) or family.get("PAYGATE_TIER_ONE") or {}
     quality_map = tier_map.get(q) or tier_map.get(DEFAULT_VIDEO_QUALITY) or {}
     return quality_map.get(aspect_ratio)
 
@@ -510,7 +575,9 @@ class FlowSDK:
         paygate_tier: Optional[str] = None,
         scene_id: Optional[str] = None,
         start_media_ids: Optional[list[str]] = None,
+        end_media_id: Optional[str] = None,
         video_quality: Optional[str] = None,
+        duration_s: Optional[int] = None,
     ) -> dict[str, Any]:
         """Kick off i2v operation(s). Returns ``{raw, operation_names}`` on
         success or ``{raw, error}`` on failure. Operations are async — the
@@ -535,7 +602,13 @@ class FlowSDK:
         """
         if paygate_tier is None:
             raise ValueError("paygate_tier is required — see docs/migrations/clear-polluted-paygate-tier.sql")
-        model_key = resolve_video_model(paygate_tier, aspect_ratio, video_quality)
+        mode = "first_last" if isinstance(end_media_id, str) and end_media_id else "i2v"
+        model_key = resolve_video_model(
+            paygate_tier,
+            aspect_ratio,
+            video_quality,
+            mode=mode,
+        )
         if not model_key:
             return {
                 "raw": None,
@@ -543,8 +616,11 @@ class FlowSDK:
                     f"no_video_model_for_tier_{paygate_tier}"
                     f"_quality_{video_quality or DEFAULT_VIDEO_QUALITY}"
                     f"_aspect_{aspect_ratio}"
+                    f"_mode_{mode}"
                 ),
             }
+        if duration_s is not None and duration_s not in VIDEO_DURATION_VALUES:
+            return {"raw": None, "error": f"invalid_video_duration_{duration_s}"}
 
         # Normalise into a non-empty list of source media ids. Single
         # `start_media_id` is the common case; `start_media_ids` is for
@@ -561,7 +637,7 @@ class FlowSDK:
         ctx = _client_context(project_id, _effective_paygate_tier(paygate_tier, video_quality))
         items: list[dict[str, Any]] = []
         for i, mid in enumerate(sources):
-            items.append({
+            item: dict[str, Any] = {
                 "aspectRatio": aspect_ratio,
                 # Distinct seed per item so Flow doesn't dedupe.
                 "seed": (ts + i * 9973) % 1_000_000,
@@ -569,7 +645,10 @@ class FlowSDK:
                 "videoModelKey": model_key,
                 "startImage": {"mediaId": mid},
                 "metadata": {"sceneId": scene_id or str(uuid.uuid4())},
-            })
+            }
+            if end_media_id:
+                item["endImage"] = {"mediaId": end_media_id}
+            items.append(item)
         body = {
             "clientContext": ctx,
             "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
@@ -578,7 +657,7 @@ class FlowSDK:
         }
 
         resp = await self._client.api_request(
-            url=VIDEO_I2V_URL,
+            url=VIDEO_I2V_FL_URL if end_media_id else VIDEO_I2V_URL,
             method="POST",
             headers=dict(_API_HEADERS),
             body=body,
@@ -597,6 +676,80 @@ class FlowSDK:
         # NEW low-priority workflow models return `data.workflows[]` with a
         # `primaryMediaId` per workflow instead of operations. Surface the
         # pairing so the poller can hit `/v1/media/<id>` directly.
+        workflows = extract_video_workflows(resp)
+        if workflows:
+            out["workflows"] = workflows
+        return out
+
+    async def gen_video_text(
+        self,
+        prompt: str,
+        project_id: str,
+        aspect_ratio: str = "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        paygate_tier: Optional[str] = None,
+        count: int = 1,
+        scene_id: Optional[str] = None,
+        video_quality: Optional[str] = None,
+        duration_s: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Kick off text-to-video operation(s) through Flow's T2V endpoint."""
+        if paygate_tier is None:
+            raise ValueError("paygate_tier is required")
+        model_key = resolve_video_model(
+            paygate_tier,
+            aspect_ratio,
+            video_quality,
+            mode="text",
+        )
+        if not model_key:
+            return {
+                "raw": None,
+                "error": (
+                    f"no_text_video_model_for_tier_{paygate_tier}"
+                    f"_quality_{video_quality or DEFAULT_VIDEO_QUALITY}"
+                    f"_aspect_{aspect_ratio}"
+                ),
+            }
+        used_duration = duration_s if duration_s is not None else DEFAULT_VIDEO_DURATION_S
+        if used_duration not in VIDEO_DURATION_VALUES:
+            return {"raw": None, "error": f"invalid_video_duration_{used_duration}"}
+        used_count = max(1, min(count, _MAX_VIDEO_OPS))
+
+        ts = int(time.time() * 1000)
+        ctx = _client_context(project_id, _effective_paygate_tier(paygate_tier, video_quality))
+        items: list[dict[str, Any]] = []
+        for i in range(used_count):
+            items.append({
+                "aspectRatio": aspect_ratio,
+                "seed": (ts + i * 9973) % 1_000_000,
+                "textInput": {"prompt": prompt},
+                "videoModelKey": model_key,
+                "metadata": {"sceneId": scene_id or str(uuid.uuid4())},
+            })
+        body = {
+            "clientContext": ctx,
+            "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
+            "requests": items,
+            "useV2ModelConfig": True,
+        }
+
+        resp = await self._client.api_request(
+            url=VIDEO_T2V_URL,
+            method="POST",
+            headers=dict(_API_HEADERS),
+            body=body,
+            captcha_action=CAPTCHA_VIDEO,
+        )
+        if isinstance(resp, dict) and resp.get("error"):
+            return {"raw": resp, "error": resp["error"]}
+        inner_err = _extract_inner_api_error(resp)
+        if inner_err:
+            return {"raw": resp, "error": inner_err}
+
+        op_names = extract_operation_names(resp)
+        if not op_names:
+            return {"raw": resp, "error": "no_operations_in_response"}
+        out: dict[str, Any] = {"raw": resp, "operation_names": op_names}
         workflows = extract_video_workflows(resp)
         if workflows:
             out["workflows"] = workflows
@@ -673,6 +826,80 @@ class FlowSDK:
 
         resp = await self._client.api_request(
             url=VIDEO_OMNI_URL,
+            method="POST",
+            headers=dict(_API_HEADERS),
+            body=body,
+            captcha_action=CAPTCHA_VIDEO,
+        )
+        if isinstance(resp, dict) and resp.get("error"):
+            return {"raw": resp, "error": resp["error"]}
+        inner_err = _extract_inner_api_error(resp)
+        if inner_err:
+            return {"raw": resp, "error": inner_err}
+
+        op_names = extract_operation_names(resp)
+        if not op_names:
+            return {"raw": resp, "error": "no_operations_in_response"}
+        out: dict[str, Any] = {"raw": resp, "operation_names": op_names}
+        workflows = extract_video_workflows(resp)
+        if workflows:
+            out["workflows"] = workflows
+        return out
+
+    async def edit_video_omni(
+        self,
+        prompt: str,
+        project_id: str,
+        source_video_media_id: str,
+        ref_media_ids: Optional[list[str]] = None,
+        aspect_ratio: str = "VIDEO_ASPECT_RATIO_PORTRAIT",
+        paygate_tier: Optional[str] = None,
+        seed: Optional[int] = None,
+        start_frame_index: int = 0,
+        end_frame_index: int = 240,
+    ) -> dict[str, Any]:
+        """Kick off Flow's edit-video endpoint using an existing video media id.
+
+        This keeps the source video as video bytes; it does not fall back
+        to first-frame i2v. The endpoint's request schema takes one
+        ``videoInput`` with frame bounds.
+        """
+        if paygate_tier is None:
+            raise ValueError("paygate_tier is required")
+        if aspect_ratio not in OMNI_FLASH_VALID_ASPECTS:
+            return {
+                "raw": None,
+                "error": f"omni_aspect_unsupported_{aspect_ratio}",
+            }
+        if not source_video_media_id:
+            return {"raw": None, "error": "missing_source_video_media_id"}
+
+        ts = int(time.time() * 1000)
+        used_seed = seed if seed is not None else ts % 1_000_000
+        ctx = _client_context(project_id, paygate_tier)
+        request_item: dict[str, Any] = {
+            "aspectRatio": aspect_ratio,
+            "textInput": {"prompt": prompt},
+            "videoModelKey": DEFAULT_VIDEO_EDIT_MODEL_KEY,
+            "seed": used_seed,
+            "metadata": {},
+            "videoInput": {
+                "mediaId": source_video_media_id,
+                "startFrameIndex": max(0, int(start_frame_index)),
+                "endFrameIndex": max(1, int(end_frame_index)),
+            },
+        }
+        body = {
+            "mediaGenerationContext": {
+                "batchId": str(uuid.uuid4()),
+                "audioFailurePreference": "BLOCK_SILENCED_VIDEOS",
+            },
+            "clientContext": {**ctx, "sessionId": f";{ts}"},
+            "requests": [request_item],
+        }
+
+        resp = await self._client.api_request(
+            url=VIDEO_EDIT_URL,
             method="POST",
             headers=dict(_API_HEADERS),
             body=body,

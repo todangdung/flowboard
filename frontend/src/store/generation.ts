@@ -4,6 +4,7 @@ import { useBoardStore } from "./board";
 import { useSettingsStore } from "./settings";
 
 type PollEntry = { requestId: number; timerId: ReturnType<typeof setTimeout> | null };
+type VideoSourceMode = "auto" | "text" | "first_frame" | "first_last" | "ingredients" | "edit";
 
 interface GenerationState {
   active: Record<string, PollEntry>;
@@ -31,6 +32,10 @@ interface GenerationState {
       paygateTier?: string;
       kind?: "image" | "video";
       sourceMediaId?: string;
+      sourceMode?: VideoSourceMode;
+      endMediaId?: string;
+      sourceVideoMediaId?: string;
+      durationSec?: number;
       // Multi-source-image i2v: when the upstream image has N variants
       // we generate one video per variant. Backend sends N items in the
       // batchAsyncGenerate body so all are dispatched together.
@@ -70,7 +75,7 @@ interface GenerationState {
 // One ref per edge means one Flow API call regardless of how many
 // variants the upstream has — the user picks which variant feeds
 // which downstream by clicking the variant tile (Stage 2 UX).
-const REF_SOURCE_TYPES = new Set(["character", "image", "visual_asset", "Storyboard"]);
+const REF_SOURCE_TYPES = new Set(["character", "image", "visual_asset", "product", "location", "Storyboard"]);
 
 function collectUpstreamRefMediaIds(targetRfId: string): string[] {
   const { nodes, edges } = useBoardStore.getState();
@@ -151,6 +156,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     paygateTier?: string;
     kind?: "image" | "video";
     sourceMediaId?: string;
+    sourceMode?: VideoSourceMode;
+    endMediaId?: string;
+    sourceVideoMediaId?: string;
+    durationSec?: number;
     sourceMediaIds?: string[];
     audioMode?: string;
     variantCount?: number;
@@ -185,6 +194,13 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     }
 
     const kind = opts.kind ?? "image";
+    const settingsSnapshot = useSettingsStore.getState();
+    const requestedVideoSourceMode: VideoSourceMode | undefined =
+      kind === "video"
+        ? opts.sourceMode ?? (settingsSnapshot.videoModel === "omni_flash" ? "ingredients" : "first_frame")
+        : undefined;
+    const requestedVideoDurationSec =
+      kind === "video" ? opts.durationSec : undefined;
 
     // Optimistically update node — record variantCount so the placeholder
     // grid matches the eventual variant count even before generation finishes.
@@ -201,6 +217,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       reviewVerdict: undefined,
       reviewNote: undefined,
       reviewedAt: undefined,
+      ...(requestedVideoSourceMode ? { videoSourceMode: requestedVideoSourceMode } : {}),
+      ...(requestedVideoDurationSec ? { videoDurationSec: requestedVideoDurationSec } : {}),
+      ...(opts.sourceVideoMediaId ? { videoEditSourceMediaId: opts.sourceVideoMediaId } : {}),
     });
     if (kind === "video") {
       void useBoardStore
@@ -220,17 +239,54 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       if (kind === "video") {
         const settings = useSettingsStore.getState();
         const isOmni = settings.videoModel === "omni_flash";
+        const sourceMode =
+          opts.sourceMode ?? (isOmni ? "ingredients" : "first_frame");
+        const durationSec = opts.durationSec;
 
-        // Omni Flash takes a fundamentally different input shape from
-        // Veo i2v. Veo wants ONE source image to use as the literal
-        // start frame (multi-source = batch of N parallel i2v calls,
-        // one per variant). Omni Flash takes "ingredients" — a list of
-        // referenceImages[] where each entry is IMAGE_USAGE_TYPE_ASSET.
-        // The model conditions on the assets but doesn't use any of
-        // them as a literal frame. So we walk EVERY upstream image-
-        // bearing edge (character / image / visual_asset / Storyboard)
-        // and pass them all, not just the one edge the i2v UI picked.
-        if (isOmni) {
+        if (sourceMode === "edit") {
+          if (!opts.sourceVideoMediaId) {
+            useBoardStore.getState().updateNodeData(rfId, {
+              status: "error",
+              error: "no source video",
+            });
+            set({ error: "Video edit needs an existing source video." });
+            return;
+          }
+          reqDto = await createRequest({
+            type: "edit_video_omni",
+            node_id: isNaN(nodeDbId) ? undefined : nodeDbId,
+            params: {
+              prompt: opts.prompt,
+              project_id: projectId,
+              source_video_media_id: opts.sourceVideoMediaId,
+              ref_media_ids: collectUpstreamRefMediaIds(rfId),
+              aspect_ratio:
+                opts.aspectRatio ?? "VIDEO_ASPECT_RATIO_PORTRAIT",
+              paygate_tier:
+                opts.paygateTier ?? get().paygateTier ?? "PAYGATE_TIER_ONE",
+              start_frame_index: 0,
+              end_frame_index: durationSec ? durationSec * 30 : 240,
+            },
+          });
+        } else if (sourceMode === "text") {
+          reqDto = await createRequest({
+            type: "gen_video_text",
+            node_id: isNaN(nodeDbId) ? undefined : nodeDbId,
+            params: {
+              prompt: opts.prompt,
+              project_id: projectId,
+              aspect_ratio:
+                opts.aspectRatio ?? "VIDEO_ASPECT_RATIO_LANDSCAPE",
+              paygate_tier:
+                opts.paygateTier ?? get().paygateTier ?? "PAYGATE_TIER_ONE",
+              video_quality: settings.videoQuality,
+              audio_mode: opts.audioMode,
+              duration_s: durationSec ?? 8,
+              count: variantCount,
+              low_priority: settings.lowPriority,
+            },
+          });
+        } else if (sourceMode === "ingredients" || isOmni) {
           const ingredients = collectUpstreamRefMediaIds(rfId);
           if (ingredients.length === 0) {
             useBoardStore.getState().updateNodeData(rfId, {
@@ -251,7 +307,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               project_id: projectId,
               ref_media_ids: ingredients,
               audio_mode: opts.audioMode,
-              duration_s: settings.omniFlashDuration,
+              duration_s: durationSec ?? settings.omniFlashDuration,
               aspect_ratio:
                 opts.aspectRatio ?? "VIDEO_ASPECT_RATIO_PORTRAIT",
               paygate_tier:
@@ -260,6 +316,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             },
           });
         } else {
+          // Veo i2v path — first frame only or first+last frame. Multi
+          // source still means one parallel i2v operation per upstream
+          // variant; first+last applies the same end frame to each slot.
           // Veo i2v path — still validates "must have a single source
           // image / variant batch" because that's the model's input
           // contract. Omni's ingredient validation above runs first
@@ -282,8 +341,20 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             // Backend resolves [tier][quality][aspect] → Flow model key.
             video_quality: settings.videoQuality,
             audio_mode: opts.audioMode,
+            duration_s: durationSec,
             low_priority: settings.lowPriority,
           };
+          if (sourceMode === "first_last") {
+            if (!opts.endMediaId) {
+              useBoardStore.getState().updateNodeData(rfId, {
+                status: "error",
+                error: "no end media",
+              });
+              set({ error: "First+last video needs a Last frame source." });
+              return;
+            }
+            videoParams.end_media_id = opts.endMediaId;
+          }
           if (hasMulti) {
             videoParams.start_media_ids = opts.sourceMediaIds;
           } else {
@@ -395,7 +466,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             // duration so the detail panel can surface the exact variant
             // that ran (mirrors backend's resolve_omni_flash_model).
             let stampedVideoQuality: string | undefined;
-            if (req.type === "gen_video") {
+            if (req.type === "gen_video" || req.type === "gen_video_text") {
               stampedVideoQuality = req.params["video_quality"] as
                 | string
                 | undefined;
@@ -404,7 +475,21 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               if (d === 4 || d === 6 || d === 8 || d === 10) {
                 stampedVideoQuality = `abra_r2v_${d}s`;
               }
+            } else if (req.type === "edit_video_omni") {
+              stampedVideoQuality = "omni_video_edit";
             }
+            const stampedVideoSourceMode =
+              requestedVideoSourceMode
+              ?? (req.type === "gen_video_text"
+                ? "text"
+                : req.type === "gen_video_omni"
+                  ? "ingredients"
+                  : req.type === "edit_video_omni"
+                    ? "edit"
+                    : undefined);
+            const stampedVideoDuration =
+              (req.params["duration_s"] as number | undefined)
+              ?? requestedVideoDurationSec;
             useBoardStore.getState().updateNodeData(rfId, {
               status: "done",
               mediaId,
@@ -422,6 +507,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
               ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
               ...(stampedVideoQuality ? { videoQuality: stampedVideoQuality } : {}),
               ...(opts.audioMode ? { videoAudioMode: opts.audioMode } : {}),
+              ...(stampedVideoSourceMode ? { videoSourceMode: stampedVideoSourceMode } : {}),
+              ...(stampedVideoDuration ? { videoDurationSec: stampedVideoDuration } : {}),
+              ...(opts.sourceVideoMediaId ? { videoEditSourceMediaId: opts.sourceVideoMediaId } : {}),
             });
             // Persist to backend so the node survives page reload.
             const dbId = parseInt(rfId, 10);
@@ -461,6 +549,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
                   ...(stampedImageModel ? { imageModel: stampedImageModel } : {}),
                   ...(stampedVideoQuality ? { videoQuality: stampedVideoQuality } : {}),
                   ...(opts.audioMode ? { videoAudioMode: opts.audioMode } : {}),
+                  ...(stampedVideoSourceMode ? { videoSourceMode: stampedVideoSourceMode } : {}),
+                  ...(stampedVideoDuration ? { videoDurationSec: stampedVideoDuration } : {}),
+                  ...(opts.sourceVideoMediaId ? { videoEditSourceMediaId: opts.sourceVideoMediaId } : {}),
                 },
               }).catch(() => {
                 // Non-fatal: the in-memory state is still correct for this session.

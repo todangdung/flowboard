@@ -37,6 +37,49 @@ Completed vertical slices:
 - Reusable tests: backend export/status/recipe tests and Playwright shot
   workflow coverage verify the full mocked sequence path.
 
+Additional gap closure in this pass:
+
+- Timeline active-clip chooser: timeline rows now expose same-shot clip
+  candidates and can switch the active storyboard-panel edge without deleting
+  redo/refine history.
+- Video source modes: Generate Video supports Auto, Text-to-video,
+  First frame, First+last frame, and Omni Ingredients paths.
+- First+last frame dispatch: `last_frame` edge role now drives Flow's
+  start/end-image endpoint. Veo duration remains persisted for timeline/
+  export planning because current Flow Veo endpoints ignore explicit duration.
+- Text-to-video dispatch: video nodes can generate without image refs through
+  a dedicated `gen_video_text` request path.
+- Video edit/refine dispatch: reviewed clip refine now creates a replacement
+  node and dispatches `edit_video_omni` against the existing video media id
+  instead of falling back to first-frame i2v.
+- Domain nodes and profiles: Product, Location, Brand, and Audio nodes have
+  profile fields; saved references persist reusable product/location/brand/
+  audio metadata.
+- Asset library profiles: reference rows now store a JSON `profile`, and
+  library spawn/drag preserves it back onto new nodes.
+- Export preflight/presets: timeline export opens a preflight with clip
+  source/version list plus 9:16, 16:9, and 1:1 1080p presets.
+- Duration model: Veo 4/6/8s and Omni 4/6/8/10s durations are request params
+  and persisted on video nodes. Omni sends duration-specific model keys; Veo
+  keeps duration as planning/export metadata because Flow rejects or ignores
+  explicit `videoLengthSeconds` on current text/i2v endpoints.
+
+Real Flow QA on 2026-05-25:
+
+- Text-to-video real dispatch passed via `gen_video_text`; Flow accepted
+  `/v1/video:batchAsyncGenerateVideoText`, returned workflow media
+  `577ed1c0-7d78-4636-a62a-58966d461f7d`, and local `/media/{id}` served
+  `video/mp4`.
+- First+last frame real dispatch passed via
+  `/v1/video:batchAsyncGenerateVideoStartAndEndImage`, returned media
+  `2a2a51d5-79f7-4a02-86ef-de1c20ddcf20`, and local `/media/{id}` served
+  `video/mp4`.
+- Edit-video real probe found the current Flow contract:
+  `/v1/video:batchAsyncGenerateVideoEditVideo` with
+  `videoInput {mediaId,startFrameIndex,endFrameIndex}` and no
+  `useV2ModelConfig`. The free-tier test account (`G1_FREEMIUM`) still returns
+  Flow `500 INTERNAL`; Flow UI strings indicate video editing is paid/V2V gated.
+
 This file is split out from `video-production-workflow-map.md`. It focuses only
 on what Flowboard currently lacks and the development direction suggested by
 the video-production workflow research.

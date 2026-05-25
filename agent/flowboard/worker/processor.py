@@ -202,6 +202,7 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
     prompt = params.get("prompt")
     project_id = params.get("project_id")
     start_media_id = params.get("start_media_id") or params.get("startMediaId")
+    end_media_id = params.get("end_media_id") or params.get("endMediaId")
     raw_starts = params.get("start_media_ids")
     start_media_ids: Optional[list[str]] = None
     if isinstance(raw_starts, list):
@@ -236,6 +237,9 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
     # quality wins so power users keep control.
     if bool(params.get("low_priority")) and video_quality is None:
         video_quality = "lite_relaxed"
+    duration_s = params.get("duration_s")
+    if duration_s is not None and not isinstance(duration_s, int):
+        return {}, "invalid_duration_s"
 
     # ── Cross-project start-media sync ────────────────────────────────
     # Flow scopes mediaIds to the project they were uploaded in. When
@@ -255,6 +259,9 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
         sources_to_sync.extend(start_media_ids)
     elif isinstance(start_media_id, str) and start_media_id.strip():
         sources_to_sync.append(start_media_id.strip())
+    has_end_media = isinstance(end_media_id, str) and bool(end_media_id.strip())
+    if has_end_media:
+        sources_to_sync.append(end_media_id.strip())
     try:
         synced_sources, sync_failures = await ensure_media_ids_in_project(
             sources_to_sync, project_id
@@ -269,9 +276,16 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
             "gen_video: %d source(s) failed to sync, proceeding with %d",
             len(sync_failures), len(synced_sources),
         )
+    if has_end_media and len(synced_sources) < len(sources_to_sync):
+        first = sync_failures[0][1] if sync_failures else "end_frame_sync_failed"
+        return ({"sync_failures": sync_failures}, f"sync_failed: {first}"[:200])
     # Substitute the project-local ids back into the dispatch args. If
     # we started from `start_media_ids`, write the list back. Otherwise
     # use the first synced id as the single start frame.
+    synced_end_media_id = None
+    if has_end_media:
+        synced_end_media_id = synced_sources[-1]
+        synced_sources = synced_sources[:-1]
     if start_media_ids:
         start_media_ids = synced_sources
         start_media_id = None
@@ -285,9 +299,11 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
         project_id=project_id,
         start_media_id=start_media_id,
         start_media_ids=start_media_ids,
+        end_media_id=synced_end_media_id,
         aspect_ratio=aspect,
         paygate_tier=tier,
         video_quality=video_quality,
+        duration_s=duration_s,
     )
     if dispatch.get("error"):
         return dispatch, str(dispatch["error"])[:200]
@@ -458,6 +474,237 @@ async def _handle_gen_video(params: dict) -> tuple[dict, Optional[str]]:
             "partial_error": partial_error,
         },
         None,
+    )
+
+
+async def _poll_video_dispatch(
+    dispatch: dict,
+    rid: Optional[int],
+    *,
+    duration_s: Optional[int] = None,
+) -> tuple[dict, Optional[str]]:
+    """Poll a Flow video dispatch and return Flowboard's positional result."""
+    sdk = get_flow_sdk()
+    op_names = dispatch.get("operation_names") or []
+    if not op_names:
+        return dispatch, "no_operations_returned"
+    workflows = dispatch.get("workflows") or None
+
+    poll_attempts = 0
+    last_poll: dict = {}
+    done_by_name: dict[str, bool] = {name: False for name in op_names}
+    entry_by_name: dict[str, dict] = {}
+    op_errors: dict[str, str] = {}
+
+    while (
+        poll_attempts < VIDEO_POLL_MAX_CYCLES
+        and not all(done_by_name.values())
+    ):
+        await asyncio.sleep(VIDEO_POLL_INTERVAL_S)
+        poll_attempts += 1
+        if _is_request_canceled(rid):
+            return (
+                {
+                    "raw_dispatch": dispatch,
+                    "last_poll": last_poll,
+                    "operation_names": op_names,
+                    "done": done_by_name,
+                    "canceled": True,
+                },
+                "canceled",
+            )
+        last_poll = await sdk.check_async(op_names, workflows=workflows)
+        if last_poll.get("error"):
+            continue
+        for op in last_poll.get("operations") or []:
+            if not isinstance(op, dict):
+                continue
+            name = op.get("name")
+            if not isinstance(name, str) or done_by_name.get(name, False):
+                continue
+            err = op.get("error")
+            if isinstance(err, str) and err:
+                done_by_name[name] = True
+                op_errors[name] = err
+                continue
+            if op.get("done"):
+                done_by_name[name] = True
+                for e in op.get("media_entries") or []:
+                    if isinstance(e, dict) and e.get("media_id"):
+                        entry_by_name[name] = e
+                        break
+
+    for name in op_names:
+        if not done_by_name.get(name) and name not in op_errors:
+            op_errors[name] = "timeout_waiting_video"
+
+    positional_ids: list[Optional[str]] = []
+    slot_errors: list[Optional[str]] = []
+    succeeded_entries: list[dict] = []
+    for name in op_names:
+        e = entry_by_name.get(name)
+        if isinstance(e, dict) and isinstance(e.get("media_id"), str):
+            positional_ids.append(e["media_id"])
+            succeeded_entries.append(e)
+            slot_errors.append(None)
+        else:
+            positional_ids.append(None)
+            slot_errors.append(op_errors.get(name))
+
+    success_count = sum(1 for x in positional_ids if x)
+    total = len(op_names)
+    if success_count == 0:
+        first_err = next(iter(op_errors.values()), "timeout_waiting_video")
+        return (
+            {
+                "raw_dispatch": dispatch,
+                "last_poll": last_poll,
+                "operation_names": op_names,
+                "done": done_by_name,
+                "op_errors": op_errors,
+            },
+            first_err,
+        )
+
+    entries_with_urls = [
+        e for e in succeeded_entries if isinstance(e, dict) and e.get("url")
+    ]
+    if entries_with_urls:
+        try:
+            media_service.ingest_urls(entries_with_urls)
+        except Exception:  # noqa: BLE001
+            logger.exception("auto-ingest from video response failed")
+    for entry in succeeded_entries:
+        if not isinstance(entry, dict):
+            continue
+        encoded = entry.get("encoded_video")
+        mid = entry.get("media_id")
+        if not isinstance(encoded, str) or not isinstance(mid, str):
+            continue
+        try:
+            import base64 as _b64
+            media_service.ingest_inline_bytes(
+                mid, _b64.b64decode(encoded, validate=False),
+                kind="video", mime="video/mp4",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("inline ingest from video workflow poll failed for %s", mid)
+
+    partial_error: Optional[str] = None
+    if op_errors:
+        unique_errs = sorted({err for err in op_errors.values()})
+        partial_error = (
+            f"{len(op_errors)}/{total} variants blocked: {', '.join(unique_errs)}"
+        )
+
+    result = {
+        "raw_dispatch": dispatch,
+        "last_poll": last_poll,
+        "operation_names": op_names,
+        "media_ids": positional_ids,
+        "media_entries": succeeded_entries,
+        "op_errors": op_errors,
+        "slot_errors": slot_errors,
+        "partial_error": partial_error,
+    }
+    if duration_s is not None:
+        result["duration_s"] = duration_s
+    return result, None
+
+
+async def _handle_gen_video_text(params: dict) -> tuple[dict, Optional[str]]:
+    from flowboard.services.flow_sdk import is_valid_project_id
+
+    prompt = params.get("prompt")
+    project_id = params.get("project_id")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {}, "missing_prompt"
+    if not isinstance(project_id, str) or not project_id.strip():
+        return {}, "missing_project_id"
+    project_id = project_id.strip()
+    if not is_valid_project_id(project_id):
+        return {}, "invalid_project_id"
+    tier = params.get("paygate_tier") or flow_client.paygate_tier
+    if tier is None:
+        return {}, "paygate_tier_unknown"
+    aspect = params.get("aspect_ratio") or "VIDEO_ASPECT_RATIO_LANDSCAPE"
+    video_quality = params.get("video_quality")
+    if not isinstance(video_quality, str) or not video_quality.strip():
+        video_quality = None
+    if bool(params.get("low_priority")) and video_quality is None:
+        video_quality = "lite_relaxed"
+    duration_s = params.get("duration_s")
+    if duration_s is None:
+        duration_s = 8
+    if not isinstance(duration_s, int) or duration_s not in (4, 6, 8):
+        return {}, "invalid_duration_s"
+    count = params.get("count")
+    if not isinstance(count, int):
+        count = 1
+
+    dispatch = await get_flow_sdk().gen_video_text(
+        prompt=prompt.strip(),
+        project_id=project_id,
+        aspect_ratio=aspect,
+        paygate_tier=tier,
+        count=count,
+        video_quality=video_quality,
+        duration_s=duration_s,
+    )
+    if dispatch.get("error"):
+        return dispatch, str(dispatch["error"])[:200]
+    return await _poll_video_dispatch(
+        dispatch,
+        params.get("__request_id"),
+        duration_s=duration_s,
+    )
+
+
+async def _handle_edit_video_omni(params: dict) -> tuple[dict, Optional[str]]:
+    from flowboard.services.flow_sdk import is_valid_project_id
+
+    prompt = params.get("prompt")
+    project_id = params.get("project_id")
+    source_video_media_id = params.get("source_video_media_id")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {}, "missing_prompt"
+    if not isinstance(project_id, str) or not project_id.strip():
+        return {}, "missing_project_id"
+    project_id = project_id.strip()
+    if not is_valid_project_id(project_id):
+        return {}, "invalid_project_id"
+    if not isinstance(source_video_media_id, str) or not source_video_media_id.strip():
+        return {}, "missing_source_video_media_id"
+    tier = params.get("paygate_tier") or flow_client.paygate_tier
+    if tier is None:
+        return {}, "paygate_tier_unknown"
+    aspect = params.get("aspect_ratio") or "VIDEO_ASPECT_RATIO_PORTRAIT"
+    # Do not pass an MP4 source video through media_project_sync:
+    # that service re-uploads image bytes through uploadImage. Flow's
+    # edit-video endpoint wants the existing project-local video media id.
+    synced_video = source_video_media_id.strip()
+    try:
+        start_frame_index = int(params.get("start_frame_index") or 0)
+        end_frame_index = int(params.get("end_frame_index") or 240)
+    except (TypeError, ValueError):
+        return {}, "invalid_frame_range"
+
+    dispatch = await get_flow_sdk().edit_video_omni(
+        prompt=prompt.strip(),
+        project_id=project_id,
+        source_video_media_id=synced_video,
+        ref_media_ids=None,
+        aspect_ratio=aspect,
+        paygate_tier=tier,
+        start_frame_index=start_frame_index,
+        end_frame_index=end_frame_index,
+    )
+    if dispatch.get("error"):
+        return dispatch, str(dispatch["error"])[:200]
+    return await _poll_video_dispatch(
+        dispatch,
+        params.get("__request_id"),
+        duration_s=None,
     )
 
 
@@ -758,7 +1005,9 @@ _DEFAULT_HANDLERS: dict[str, Handler] = {
     "create_project": _handle_create_project,
     "gen_image": _handle_gen_image,
     "gen_video": _handle_gen_video,
+    "gen_video_text": _handle_gen_video_text,
     "gen_video_omni": _handle_gen_video_omni,
+    "edit_video_omni": _handle_edit_video_omni,
     "edit_image": _handle_edit_image,
 }
 

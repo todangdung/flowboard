@@ -25,13 +25,37 @@ def test_create_reference_minimal(client):
 
 
 def test_create_reference_accepts_profile_kinds(client):
-    for kind in ("product", "package", "location", "style", "brand", "first_frame"):
+    for kind in ("product", "package", "location", "style", "brand", "audio", "first_frame"):
         r = client.post(
             "/api/references",
             json={"media_id": f"m-{kind}", "kind": kind, "label": kind},
         )
         assert r.status_code == 200, r.text
         assert r.json()["kind"] == kind
+
+
+def test_create_and_patch_reference_profile(client):
+    r = client.post(
+        "/api/references",
+        json={
+            "media_id": "profile-1",
+            "kind": "brand",
+            "label": "Acme",
+            "profile": {"brandTone": "clean", "palette": "red/white"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    row = r.json()
+    assert row["profile"]["kind"] == "brand"
+    assert row["profile"]["name"] == "Acme"
+    assert row["profile"]["brandTone"] == "clean"
+
+    patched = client.patch(
+        f"/api/references/{row['id']}",
+        json={"profile": {"kind": "brand", "brandTone": "premium"}},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["profile"] == {"kind": "brand", "brandTone": "premium"}
 
 
 def test_create_reference_idempotent(client):
@@ -228,6 +252,9 @@ def test_create_reference_from_node_infers_product_profile(client):
     assert row["kind"] == "product"
     assert row["ai_brief"] == "clear glass serum bottle with white cap"
     assert row["source_node_short_id"] == "prod"
+    assert row["profile"]["kind"] == "product"
+    assert row["profile"]["name"] == "Serum bottle product"
+    assert row["profile"]["brief"] == "clear glass serum bottle with white cap"
 
 
 def test_create_reference_from_node_validates_variant_membership(client):

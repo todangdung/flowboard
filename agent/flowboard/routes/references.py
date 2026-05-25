@@ -32,6 +32,7 @@ _ALLOWED_KINDS = {
     "location",
     "style",
     "brand",
+    "audio",
     "first_frame",
 }
 
@@ -46,6 +47,7 @@ class ReferenceCreate(BaseModel):
     source_board_id: Optional[int] = None
     source_node_short_id: Optional[str] = None
     tags: Optional[list[str]] = None
+    profile: Optional[dict[str, Any]] = None
 
 
 class ReferencePatch(BaseModel):
@@ -53,6 +55,7 @@ class ReferencePatch(BaseModel):
     pinned: Optional[bool] = None
     position: Optional[int] = None
     tags: Optional[list[str]] = None
+    profile: Optional[dict[str, Any]] = None
 
 
 class ReferenceFromNodeCreate(BaseModel):
@@ -94,6 +97,8 @@ def _infer_kind_from_node(node: Node) -> str:
         return "character"
     if node.type == "video":
         return "video"
+    if node.type in {"product", "location", "brand", "audio"}:
+        return node.type
     if node.type == "Storyboard":
         return "storyboard_shot"
     if node.type == "prompt":
@@ -109,6 +114,54 @@ def _infer_kind_from_node(node: Node) -> str:
     return "image"
 
 
+def _profile_from_reference(body: ReferenceCreate) -> dict[str, Any]:
+    profile = dict(body.profile or {})
+    profile.setdefault("kind", body.kind)
+    if body.label:
+        profile.setdefault("name", body.label)
+    if body.ai_brief:
+        profile.setdefault("brief", body.ai_brief)
+    if body.aspect_ratio:
+        profile.setdefault("aspectRatio", body.aspect_ratio)
+    if body.source_node_short_id:
+        profile.setdefault("sourceNodeShortId", body.source_node_short_id)
+    return profile
+
+
+def _profile_from_node(node: Node, kind: str, media_id: str) -> dict[str, Any]:
+    data = node.data or {}
+    profile: dict[str, Any] = {
+        "kind": kind,
+        "mediaId": media_id,
+        "sourceNodeShortId": node.short_id,
+    }
+    title = data.get("title")
+    if isinstance(title, str) and title:
+        profile["name"] = title
+    brief = data.get("aiBrief")
+    if isinstance(brief, str) and brief:
+        profile["brief"] = brief
+    prompt = data.get("prompt")
+    if isinstance(prompt, str) and prompt:
+        profile["prompt"] = prompt
+    for key in (
+        "productName",
+        "brandName",
+        "locationName",
+        "characterName",
+        "voiceName",
+        "claimRules",
+        "brandTone",
+        "palette",
+        "cta",
+        "legalNotes",
+    ):
+        value = data.get(key)
+        if value is not None:
+            profile[key] = value
+    return profile
+
+
 def _create_reference_row(body: ReferenceCreate):
     if body.kind not in _ALLOWED_KINDS:
         raise HTTPException(
@@ -121,6 +174,14 @@ def _create_reference_row(body: ReferenceCreate):
             select(Reference).where(Reference.media_id == body.media_id)
         ).first()
         if existing is not None:
+            incoming_profile = _profile_from_reference(body)
+            if incoming_profile:
+                merged_profile = {**incoming_profile, **dict(existing.profile or {})}
+                if merged_profile != dict(existing.profile or {}):
+                    existing.profile = merged_profile
+                    s.add(existing)
+                    s.commit()
+                    s.refresh(existing)
             return _row_dict(existing)
 
         label = body.label if body.label else _default_label(body)
@@ -134,6 +195,7 @@ def _create_reference_row(body: ReferenceCreate):
             source_board_id=body.source_board_id,
             source_node_short_id=body.source_node_short_id,
             tags=list(body.tags or []),
+            profile=_profile_from_reference(body),
         )
         s.add(row)
         s.commit()
@@ -151,6 +213,7 @@ def _row_dict(row: Reference) -> dict[str, Any]:
         "ai_brief": row.ai_brief,
         "aspect_ratio": row.aspect_ratio,
         "tags": list(row.tags or []),
+        "profile": dict(row.profile or {}),
         "pinned": row.pinned,
         "position": row.position,
         "source_board_id": row.source_board_id,
@@ -203,6 +266,7 @@ def create_reference_from_node(body: ReferenceFromNodeCreate):
             source_board_id=node.board_id,
             source_node_short_id=node.short_id,
             tags=body.tags,
+            profile=_profile_from_node(node, kind, media_id),
         )
     return _create_reference_row(create)
 
@@ -264,6 +328,8 @@ def patch_reference(ref_id: int, body: ReferencePatch):
             row.position = body.position
         if "tags" in fields and body.tags is not None:
             row.tags = list(body.tags)
+        if "profile" in fields and body.profile is not None:
+            row.profile = dict(body.profile)
         s.add(row)
         s.commit()
         s.refresh(row)

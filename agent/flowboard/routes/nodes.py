@@ -17,6 +17,10 @@ NodeType = Literal[
     "prompt",
     "note",
     "visual_asset",
+    "product",
+    "location",
+    "brand",
+    "audio",
     # Storyboard = thin image-node wrapper. Backend treats it the same as
     # `image` for storage / dispatch — see frontend/src/lib/storyboardPrompt.ts
     # for the template that drives gen_image.

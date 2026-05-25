@@ -3,7 +3,7 @@ import { useGenerationStore } from "../store/generation";
 import { useBoardStore, type FlowboardNodeData } from "../store/board";
 import { useSettingsStore } from "../store/settings";
 import { useReferencesStore } from "../store/references";
-import { getMediaStatus, mediaUrl, patchNode, type MediaStatus } from "../api/client";
+import { getMediaStatus, mediaUrl, patchNode, type MediaStatus, type ReferenceKind } from "../api/client";
 import { countryLabel, vibeLabel } from "../constants/character";
 import { bestVariantIndex, preferredMediaIds } from "../lib/bestVariant";
 
@@ -13,6 +13,11 @@ const ICON: Record<string, string> = {
   video: "▶",
   prompt: "✦",
   note: "✎",
+  visual_asset: "◇",
+  product: "▤",
+  location: "⌂",
+  brand: "◈",
+  audio: "♪",
 };
 
 // Friendly labels for the metadata grid's `model` row. Keys match what
@@ -35,6 +40,7 @@ const VIDEO_QUALITY_LABELS: Record<string, string> = {
   abra_r2v_6s: "Omni Flash · 6s",
   abra_r2v_8s: "Omni Flash · 8s",
   abra_r2v_10s: "Omni Flash · 10s",
+  omni_video_edit: "Omni Flash · edit",
 };
 const REVIEW_LABELS: Record<string, string> = {
   good: "good / tốt",
@@ -57,8 +63,44 @@ const VIDEO_ITERATION_METADATA_KEYS: (keyof FlowboardNodeData)[] = [
   "timelineRecipeId",
   "videoRecipeId",
   "videoAudioMode",
+  "videoSourceMode",
+  "videoDurationSec",
+  "videoEditSourceMediaId",
   "aspectRatio",
 ];
+
+function profileFromResult(
+  mediaId: string,
+  data: FlowboardNodeData,
+): Record<string, unknown> {
+  const profile: Record<string, unknown> = {
+    mediaId,
+    kind: data.type,
+    sourceNodeShortId: data.shortId,
+    name: data.title,
+  };
+  for (const key of [
+    "aiBrief",
+    "prompt",
+    "aspectRatio",
+    "productName",
+    "brandName",
+    "locationName",
+    "characterName",
+    "voiceName",
+    "claimRules",
+    "brandTone",
+    "palette",
+    "cta",
+    "legalNotes",
+  ] as (keyof FlowboardNodeData)[]) {
+    const value = data[key];
+    if (value !== undefined && value !== "") {
+      profile[key] = value;
+    }
+  }
+  return profile;
+}
 
 function buildVideoIterationPatch(
   data: FlowboardNodeData,
@@ -196,7 +238,7 @@ export function ResultViewer() {
   // logic as `collectUpstreamRefMediaIds` at dispatch. The chip then
   // shows the exact thumbnail Flow will receive instead of always
   // defaulting to the source's "active" mediaId.
-  const REF_TYPES = new Set(["character", "image", "visual_asset"]);
+  const REF_TYPES = new Set(["character", "image", "visual_asset", "product", "location"]);
   const refSourceNodes = rfId
     ? edges
         .filter((e) => e.target === rfId)
@@ -412,10 +454,68 @@ export function ResultViewer() {
     // gen_image — silently produces a still image, overwriting the
     // actual video result on the node.
     if (data.type === "video") {
-      const upstreamEdge = edges.find((e) => e.target === rfId);
-      const upstreamNode = upstreamEdge
-        ? nodes.find((n) => n.id === upstreamEdge.source)
+      const firstEdge =
+        edges.find((e) => e.target === rfId && e.data?.refRole === "first_frame")
+        ?? edges.find((e) => e.target === rfId && e.data?.refRole !== "last_frame");
+      const lastEdge = edges.find((e) => e.target === rfId && e.data?.refRole === "last_frame");
+      const upstreamNode = firstEdge
+        ? nodes.find((n) => n.id === firstEdge.source)
         : undefined;
+      const lastNode = lastEdge
+        ? nodes.find((n) => n.id === lastEdge.source)
+        : undefined;
+      const lastMediaId = preferredMediaIds(lastNode?.data)[0];
+      const storedMode = data.videoSourceMode ?? "first_frame";
+      const sourceMode =
+        storedMode === "auto"
+          ? lastMediaId
+            ? "first_last"
+            : upstreamNode
+              ? "first_frame"
+              : "text"
+          : storedMode;
+      if (sourceMode === "text") {
+        dispatchGeneration(rfId, {
+          prompt: data.prompt ?? "",
+          kind: "video",
+          sourceMode: "text",
+          aspectRatio,
+          durationSec: data.videoDurationSec,
+          variantCount: 1,
+        });
+        return;
+      }
+      if (sourceMode === "edit") {
+        const sourceVideoMediaId =
+          data.videoEditSourceMediaId ?? currentMediaId ?? data.mediaId;
+        if (!sourceVideoMediaId) {
+          useGenerationStore.setState({
+            error: "Video edit re-gen needs a source video.",
+          });
+          return;
+        }
+        dispatchGeneration(rfId, {
+          prompt: data.prompt ?? "",
+          kind: "video",
+          sourceMode: "edit",
+          sourceVideoMediaId,
+          aspectRatio,
+          durationSec: data.videoDurationSec,
+          variantCount: 1,
+        });
+        return;
+      }
+      if (sourceMode === "ingredients") {
+        dispatchGeneration(rfId, {
+          prompt: data.prompt ?? "",
+          kind: "video",
+          sourceMode: "ingredients",
+          aspectRatio,
+          durationSec: data.videoDurationSec,
+          variantCount: 1,
+        });
+        return;
+      }
       // Best-selected upstreams re-run only that chosen source. Otherwise
       // preserve existing batch behavior and re-run all rendered variants.
       const sourceMediaIds = preferredMediaIds(upstreamNode?.data);
@@ -429,9 +529,12 @@ export function ResultViewer() {
       dispatchGeneration(rfId, {
         prompt: data.prompt ?? "",
         kind: "video",
+        sourceMode,
         sourceMediaId: useMulti ? undefined : sourceMediaIds[0],
         sourceMediaIds: useMulti ? sourceMediaIds : undefined,
+        endMediaId: sourceMode === "first_last" ? lastMediaId : undefined,
         aspectRatio,
+        durationSec: data.videoDurationSec,
         variantCount: sourceMediaIds.length,
       });
       return;
@@ -491,13 +594,21 @@ export function ResultViewer() {
     if (!rfId || !data || !currentMediaId || saving) return;
     setSaving(true);
     try {
-      const kind: "image" | "video" | "character" | "visual_asset" | "storyboard_shot" =
+      const kind: ReferenceKind =
         data.type === "Storyboard"
           ? "storyboard_shot"
           : data.type === "video"
             ? "video"
           : data.type === "character"
             ? "character"
+            : data.type === "product"
+              ? "product"
+            : data.type === "location"
+              ? "location"
+            : data.type === "brand"
+              ? "brand"
+            : data.type === "audio"
+              ? "audio"
             : data.type === "visual_asset"
               ? "visual_asset"
               : "image";
@@ -514,6 +625,7 @@ export function ResultViewer() {
         source_board_id: useBoardStore.getState().boardId,
         source_node_short_id:
           typeof data.shortId === "string" ? data.shortId : null,
+        profile: profileFromResult(currentMediaId, data),
       });
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
@@ -676,7 +788,17 @@ export function ResultViewer() {
       data.prompt ?? "",
       `Refine reviewed variant v${activeIdx + 1}. Change only: ${fix}. Preserve the same shot timing, subject, product/logo, character identity, wardrobe, lighting, location, camera language, audio mode, and claim/safety constraints.`,
     ].filter(Boolean).join("\n\n");
-    const refinePatch = buildVideoIterationPatch(data, title, prompt);
+    const refinePatch = {
+      ...buildVideoIterationPatch(data, title, prompt),
+      videoSourceMode: "edit" as const,
+      videoEditSourceMediaId: currentMediaId,
+      videoDurationSec:
+        typeof data.videoDurationSec === "number"
+          ? data.videoDurationSec
+          : typeof data.shotDurationSec === "number"
+            ? data.shotDurationSec
+            : 8,
+    };
     useBoardStore.getState().updateNodeData(newRfId, refinePatch);
     const dbId = parseInt(newRfId, 10);
     if (!isNaN(dbId)) {
@@ -713,7 +835,20 @@ export function ResultViewer() {
       return;
     }
     closeResultViewer();
-    openGenerationDialog(newRfId, prompt);
+    useGenerationStore.getState().dispatchGeneration(newRfId, {
+      prompt,
+      kind: "video",
+      sourceMode: "edit",
+      sourceVideoMediaId: currentMediaId,
+      aspectRatio:
+        typeof data.aspectRatio === "string"
+          ? data.aspectRatio
+          : "VIDEO_ASPECT_RATIO_PORTRAIT",
+      durationSec: refinePatch.videoDurationSec,
+      audioMode:
+        typeof data.videoAudioMode === "string" ? data.videoAudioMode : undefined,
+      variantCount: 1,
+    });
   }
 
   async function handleSkipVariant() {
@@ -958,6 +1093,18 @@ export function ResultViewer() {
             )}
             <dt>aspect</dt>
             <dd>{formatAspectRatio(data?.aspectRatio)}</dd>
+            {data?.type === "video" && data.videoSourceMode && (
+              <>
+                <dt>source</dt>
+                <dd>{data.videoSourceMode}</dd>
+              </>
+            )}
+            {data?.type === "video" && typeof data.videoDurationSec === "number" && (
+              <>
+                <dt>duration</dt>
+                <dd>{data.videoDurationSec}s</dd>
+              </>
+            )}
             <dt>time</dt>
             <dd>{formatRelativeTime(data?.renderedAt)}</dd>
             {bestIdx !== null && (

@@ -110,7 +110,18 @@ export function getHealth() {
 
 // ── DTOs ────────────────────────────────────────────────────────────────────
 
-export type NodeType = "character" | "image" | "video" | "prompt" | "note" | "visual_asset" | "Storyboard";
+export type NodeType =
+  | "character"
+  | "image"
+  | "video"
+  | "prompt"
+  | "note"
+  | "visual_asset"
+  | "product"
+  | "location"
+  | "brand"
+  | "audio"
+  | "Storyboard";
 export type NodeStatus = "idle" | "queued" | "running" | "done" | "error";
 
 export interface Board {
@@ -157,6 +168,7 @@ export type RefRole =
   | "style_ref"
   | "storyboard_ref"
   | "storyboard_panel"
+  | "audio_ref"
   | "ingredient";
 
 export type VideoRecipeId =
@@ -1035,6 +1047,7 @@ export type ReferenceKind =
   | "location"
   | "style"
   | "brand"
+  | "audio"
   | "first_frame";
 
 export interface ReferenceItem {
@@ -1051,6 +1064,7 @@ export interface ReferenceItem {
   aiBrief: string | null;
   aspectRatio: string | null;
   tags: string[];
+  profile: Record<string, unknown>;
   pinned: boolean;
   position: number;
   sourceBoardId: number | null;
@@ -1069,6 +1083,7 @@ export interface ReferenceCreateInput {
   source_board_id?: number | null;
   source_node_short_id?: string | null;
   tags?: string[];
+  profile?: Record<string, unknown>;
 }
 
 // Wire-shape PATCH body. Same snake_case convention.
@@ -1077,6 +1092,7 @@ export interface ReferencePatchInput {
   pinned?: boolean;
   position?: number;
   tags?: string[];
+  profile?: Record<string, unknown>;
 }
 
 interface ReferenceRowWire {
@@ -1088,6 +1104,7 @@ interface ReferenceRowWire {
   ai_brief: string | null;
   aspect_ratio: string | null;
   tags: string[] | null;
+  profile: Record<string, unknown> | null;
   pinned: boolean;
   position: number;
   source_board_id: number | null;
@@ -1111,6 +1128,7 @@ function mapReferenceRow(row: ReferenceRowWire): ReferenceItem {
     "location",
     "style",
     "brand",
+    "audio",
     "first_frame",
   ];
   const kind: ReferenceKind = (allowed as string[]).includes(row.kind)
@@ -1125,6 +1143,10 @@ function mapReferenceRow(row: ReferenceRowWire): ReferenceItem {
     aiBrief: row.ai_brief,
     aspectRatio: row.aspect_ratio,
     tags: Array.isArray(row.tags) ? row.tags : [],
+    profile:
+      row.profile && typeof row.profile === "object" && !Array.isArray(row.profile)
+        ? row.profile
+        : {},
     pinned: row.pinned,
     position: row.position,
     sourceBoardId: row.source_board_id,

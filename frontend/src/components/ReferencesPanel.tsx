@@ -170,6 +170,7 @@ function ReferenceCard({
       aspectRatio: item.aspectRatio,
       kind: item.kind,
       label: item.label,
+      profile: item.profile,
     };
     e.dataTransfer.setData(
       "application/x-flowboard-reference",
@@ -192,6 +193,7 @@ function ReferenceCard({
         aspectRatio: item.aspectRatio,
         kind: item.kind,
         label: item.label,
+        profile: item.profile,
       },
       pos,
     );

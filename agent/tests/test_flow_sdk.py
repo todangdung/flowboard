@@ -423,6 +423,99 @@ async def test_gen_video_body_shape_and_captcha():
 
 
 @pytest.mark.asyncio
+async def test_gen_video_first_last_uses_transition_endpoint():
+    c = RecordingClient()
+    c.api_response = {
+        "status": 200,
+        "data": {"operations": [{"operation": {"name": "op-fl"}}]},
+    }
+    sdk = FlowSDK(client=c)  # type: ignore[arg-type]
+    out = await sdk.gen_video(
+        prompt="reveal the packaging",
+        project_id="proj-1",
+        start_media_id="first-img",
+        end_media_id="last-img",
+        duration_s=6,
+        aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        paygate_tier="PAYGATE_TIER_ONE",
+    )
+    assert out["operation_names"] == ["op-fl"]
+    call = c.api_calls[0]
+    assert call["url"].endswith("/v1/video:batchAsyncGenerateVideoStartAndEndImage")
+    req0 = call["body"]["requests"][0]
+    assert req0["startImage"]["mediaId"] == "first-img"
+    assert req0["endImage"]["mediaId"] == "last-img"
+    assert "videoLengthSeconds" not in req0
+    assert req0["videoModelKey"] == "veo_3_1_i2v_s_fast_portrait_fl"
+
+
+@pytest.mark.asyncio
+async def test_gen_video_text_uses_text_endpoint_without_image_refs():
+    c = RecordingClient()
+    c.api_response = {
+        "status": 200,
+        "data": {
+            "operations": [
+                {"operation": {"name": "op-txt-1"}},
+                {"operation": {"name": "op-txt-2"}},
+            ]
+        },
+    }
+    sdk = FlowSDK(client=c)  # type: ignore[arg-type]
+    out = await sdk.gen_video_text(
+        prompt="a product pack floating through clean light",
+        project_id="proj-1",
+        count=2,
+        duration_s=4,
+        aspect_ratio="VIDEO_ASPECT_RATIO_LANDSCAPE",
+        paygate_tier="PAYGATE_TIER_ONE",
+    )
+    assert out["operation_names"] == ["op-txt-1", "op-txt-2"]
+    call = c.api_calls[0]
+    assert call["url"].endswith("/v1/video:batchAsyncGenerateVideoText")
+    assert call["captcha_action"] == "VIDEO_GENERATION"
+    items = call["body"]["requests"]
+    assert len(items) == 2
+    assert "startImage" not in items[0]
+    assert items[0]["textInput"]["prompt"] == "a product pack floating through clean light"
+    assert "videoLengthSeconds" not in items[0]
+
+
+@pytest.mark.asyncio
+async def test_edit_video_omni_sends_source_as_video_input():
+    c = RecordingClient()
+    c.api_response = {
+        "status": 200,
+        "data": {"operations": [{"operation": {"name": "op-edit"}}]},
+    }
+    sdk = FlowSDK(client=c)  # type: ignore[arg-type]
+    out = await sdk.edit_video_omni(
+        prompt="fix only the final hand motion",
+        project_id="proj-1",
+        source_video_media_id="video-src",
+        ref_media_ids=["img-ref"],
+        aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        paygate_tier="PAYGATE_TIER_ONE",
+        start_frame_index=3,
+        end_frame_index=90,
+    )
+    assert out["operation_names"] == ["op-edit"]
+    call = c.api_calls[0]
+    assert call["url"].endswith("/v1/video:batchAsyncGenerateVideoEditVideo")
+    assert "useV2ModelConfig" not in call["body"]
+    req0 = call["body"]["requests"][0]
+    assert req0["videoInput"] == {
+        "mediaId": "video-src",
+        "startFrameIndex": 3,
+        "endFrameIndex": 90,
+    }
+    assert req0["videoModelKey"] == "veo_3_1_i2v_fast"
+    assert "referenceVideos" not in req0
+    assert "referenceImages" not in req0
+    assert "startImage" not in req0
+
+
+@pytest.mark.asyncio
 async def test_gen_video_batch_with_multiple_start_media_ids():
     """When the upstream image has N variants, gen_video must dispatch
     one request_item per source so the batch produces N videos in a

@@ -231,6 +231,10 @@ test("builds storyboard sequence shot workflow from palette", async ({
     const exportRunner = page.getByRole("button", { name: "Export short / Xuất video" });
     await expect(exportRunner).toBeEnabled();
     await exportRunner.click();
+    const preflight = page.getByRole("dialog", { name: "Export preflight" });
+    await expect(preflight).toBeVisible();
+    await expect(preflight.getByText("4 clips · 1080x1920")).toBeVisible();
+    await preflight.getByRole("button", { name: "Confirm export / Xuất" }).dispatchEvent("click");
     await expect.poll(() => exportCount).toBe(1);
     await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
     await expect(page.getByText("Export fresh v1 / mới")).toBeVisible();
@@ -745,10 +749,6 @@ test("refines video from note and supersedes timeline clip", async ({
     await viewer.getByLabel("Review note").fill("tighten framing");
     await viewer.getByRole("button", { name: "Refine video from note" }).click();
 
-    const genDialog = page.getByRole("dialog", { name: /Generate video/i });
-    await expect(genDialog).toBeVisible();
-    await expect(genDialog.getByLabel("Motion prompt")).toHaveValue(/tighten framing/);
-
     let refinedId: number | null = null;
     await expect.poll(async () => {
       const detailRes = await request.get(`/api/boards/${board.id}`);
@@ -809,6 +809,8 @@ test("refines video from note and supersedes timeline clip", async ({
         shotDurationSec: 6,
         videoRecipeId: "auto",
         videoAudioMode: "ambient",
+        videoSourceMode: "edit",
+        videoEditSourceMediaId: "refine-a",
       },
       timelineExportMediaId: "old-refine-export",
       timelineExportStatus: "stale",
@@ -818,21 +820,18 @@ test("refines video from note and supersedes timeline clip", async ({
       firstFramePointsToRefine: true,
     });
 
-    const generateButton = genDialog.getByRole("button", { name: "Generate ⌘↵" });
-    await expect(generateButton).toBeEnabled();
-    await generateButton.click();
     await expect
-      .poll(() => Array.from(requestRows.values()).filter((row) => row.type === "gen_video").length)
+      .poll(() => Array.from(requestRows.values()).filter((row) => row.type === "edit_video_omni").length)
       .toBe(1);
     const [videoRequest] = Array.from(requestRows.values()).filter(
-      (row) => row.type === "gen_video",
+      (row) => row.type === "edit_video_omni",
     );
     expect(refinedId).not.toBeNull();
     const refinedNodeId = refinedId as number;
     expect(videoRequest.node_id).toBe(refinedNodeId);
     expect(videoRequest.params.project_id).toBe("flow_refine_project");
-    expect(videoRequest.params.start_media_id).toBe("refine-frame");
-    expect(videoRequest.params.start_media_ids).toBeUndefined();
+    expect(videoRequest.params.source_video_media_id).toBe("refine-a");
+    expect(videoRequest.params.ref_media_ids).toEqual(["refine-frame"]);
     expect(videoRequest.params.aspect_ratio).toBe("VIDEO_ASPECT_RATIO_PORTRAIT");
     expect(String(videoRequest.params.prompt)).toContain("tighten framing");
 
@@ -1038,6 +1037,10 @@ test("skips blocked no-media clip and exports remaining timeline", async ({
     const exportRunner = page.getByRole("button", { name: "Re-export fresh / Xuất lại" });
     await expect(exportRunner).toBeEnabled();
     await exportRunner.click();
+    const preflight = page.getByRole("dialog", { name: "Export preflight" });
+    await expect(preflight).toBeVisible();
+    await expect(preflight.getByText("1 clips · 1080x1920")).toBeVisible();
+    await preflight.getByRole("button", { name: "Confirm export / Xuất" }).dispatchEvent("click");
     await expect.poll(() => exportCount).toBe(1);
     await expect(page.getByText("Export fresh v2 / mới")).toBeVisible();
     await expect(page.getByRole("link", { name: "Open export / Mở file" })).toHaveAttribute(

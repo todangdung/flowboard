@@ -53,6 +53,14 @@ def init_db() -> None:
                 conn.exec_driver_sql("ALTER TABLE edge ADD COLUMN ref_role TEXT")
                 conn.commit()
 
+        if insp.has_table("reference"):
+            ref_cols = {c["name"] for c in insp.get_columns("reference")}
+            if "profile" not in ref_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE reference ADD COLUMN profile JSON DEFAULT '{}'"
+                )
+                conn.commit()
+
     SQLModel.metadata.create_all(engine)
 
 

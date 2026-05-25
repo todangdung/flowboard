@@ -125,6 +125,7 @@ class Reference(SQLModel, table=True):
     ai_brief: Optional[str] = None
     aspect_ratio: Optional[str] = None
     tags: list = Field(default_factory=list, sa_column=Column(JSON))
+    profile: dict = Field(default_factory=dict, sa_column=Column(JSON))
     pinned: bool = False
     position: int = 0
     source_board_id: Optional[int] = Field(default=None, foreign_key="board.id", index=True)
