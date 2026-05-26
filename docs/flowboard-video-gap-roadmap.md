@@ -1,6 +1,6 @@
 # Flowboard Video Gap And Roadmap
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## 2026-05-25 Implementation Checkpoint
 
@@ -79,6 +79,38 @@ Real Flow QA on 2026-05-25:
   `videoInput {mediaId,startFrameIndex,endFrameIndex}` and no
   `useV2ModelConfig`. The free-tier test account (`G1_FREEMIUM`) still returns
   Flow `500 INTERNAL`; Flow UI strings indicate video editing is paid/V2V gated.
+
+Real Flow QA on 2026-05-26 after the video recipe library:
+
+- Account: `dungg.coco@gmail.com`, `G1_FREEMIUM`,
+  `PAYGATE_TIER_ONE`, reported credits `10`.
+- Project under test: `fa239fb7-c4e4-409f-9712-278e8127e55d`.
+- `product_demo` via first-frame i2v passed with request `109`
+  (`gen_video`, source mode `first_frame`, quality `lite`). Flow returned media
+  `2d80e9a2-53a4-4a1b-bccf-0caf2b768606`, and local
+  `/api/media/{id}/status` reports `video/mp4`.
+- `brand_bumper` via text-to-video was blocked by Flow quota on request `108`
+  (`429 RESOURCE_EXHAUSTED`,
+  `PUBLIC_ERROR_USER_QUOTA_REACHED`). A `lite_relaxed` retry on request `113`
+  hit the same quota response.
+- `before_after` via first+last frame was blocked by Flow quota on request
+  `110` (`429 RESOURCE_EXHAUSTED`, `PUBLIC_ERROR_USER_QUOTA_REACHED`).
+  A `lite_relaxed` retry on request `114` returned `403 PERMISSION_DENIED`,
+  `PUBLIC_ERROR_MODEL_ACCESS_DENIED` for the free-tier account.
+- `lifestyle_ad` via Omni ingredients was blocked by Flow quota on request
+  `111` (`429 RESOURCE_EXHAUSTED`, `PUBLIC_ERROR_USER_QUOTA_REACHED`).
+- `edit_video_omni` still reaches the real edit-video endpoint but Flow returns
+  `500 INTERNAL` on request `112`, matching the earlier paid/V2V gate finding.
+- Follow-up free-account Veo Lite batch attempted five first-frame i2v recipe
+  requests with `video_quality: "lite"` and `duration_s: 4`: product demo
+  request `115`, packshot loop request `116`, cinematic reveal request `117`,
+  UGC testimonial request `118`, and lifestyle ad request `119`. All five
+  returned `429 RESOURCE_EXHAUSTED` with
+  `PUBLIC_ERROR_USER_QUOTA_REACHED`, so no new media ids were created.
+- A low-priority first-frame retry with `video_quality: "lite_relaxed"`
+  returned `403 PERMISSION_DENIED`, `PUBLIC_ERROR_MODEL_ACCESS_DENIED` on
+  request `120`. Current free account can validate request wiring, but further
+  real video output needs quota reset or a video-enabled account.
 
 This file is split out from `video-production-workflow-map.md`. It focuses only
 on what Flowboard currently lacks and the development direction suggested by
