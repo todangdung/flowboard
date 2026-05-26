@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { Board } from "./canvas/Board";
 import { AddNodePalette } from "./canvas/AddNodePalette";
+import { NodeLibrarySidebar } from "./canvas/NodeLibrarySidebar";
 import { StatusBar } from "./components/StatusBar";
 import { Toolbar } from "./components/Toolbar";
 // import { ChatSidebar } from "./components/ChatSidebar";
@@ -40,7 +41,10 @@ export function App() {
             <div className="canvas-loading">Loading board…</div>
           ) : (
             <>
-              <Board />
+              <div className="canvas-stage">
+                <NodeLibrarySidebar />
+                <Board />
+              </div>
               <AddNodePalette />
             </>
           )}

@@ -128,6 +128,11 @@ Real Flow QA on 2026-05-26 after the video recipe library:
 - The runner's one-case video smoke on request `133` reached Flow but failed
   with `PUBLIC_ERROR_UNUSUAL_ACTIVITY: reCAPTCHA evaluation failed`, likely
   from rapid repeated video attempts during quota probing.
+- After reloading the Chrome extension, a follow-up runner smoke request `134`
+  still reached Flow and failed with
+  `PUBLIC_ERROR_UNUSUAL_ACTIVITY: reCAPTCHA evaluation failed`. Extension
+  connection was healthy (`last_error: null`), so remaining blocker is Flow's
+  reCAPTCHA/quota side rather than local request wiring.
 
 This file is split out from `video-production-workflow-map.md`. It focuses only
 on what Flowboard currently lacks and the development direction suggested by
