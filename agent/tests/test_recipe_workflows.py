@@ -143,6 +143,15 @@ def test_build_video_recipe_library_scaffolds(client):
         "transition_shot",
         "packshot_loop",
     ]
+    campaign_scaffold_ids = {
+        "product_demo",
+        "lifestyle_ad",
+        "ugc_testimonial",
+        "before_after",
+        "brand_bumper",
+        "audio_led",
+        "packshot_loop",
+    }
 
     for recipe_id in recipe_ids:
         board_id = _make_board()
@@ -175,6 +184,11 @@ def test_build_video_recipe_library_scaffolds(client):
             assert "audio_ref" in roles
         if recipe_id == "location_establishing":
             assert "background_ref" in roles
+        if recipe_id in campaign_scaffold_ids:
+            campaign_nodes = [n for n in body["nodes"] if n["type"] == "campaign"]
+            assert len(campaign_nodes) == 1, recipe_id
+            assert "campaign_ref" in roles, recipe_id
+            assert any(e["source_id"] == campaign_nodes[0]["id"] for e in body["edges"])
 
 
 def test_build_workflow_can_bind_existing_sources(client):

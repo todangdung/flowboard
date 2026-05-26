@@ -112,6 +112,30 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
         nodeLibrary.getByRole("button", { name: `Create ${label} flow` }),
       ).toHaveCount(0);
     }
+    await nodeLibrary
+      .getByRole("button", { name: "Create Product demo flow" })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "Generate video" })
+        .getByText("Campaign node connected"),
+    ).toBeVisible();
+    const detailRes = await request.get(`/api/boards/${board.id}`);
+    expect(detailRes.ok()).toBeTruthy();
+    const detail = await detailRes.json() as {
+      nodes: Array<{ id: number; type: string; data: Record<string, unknown> }>;
+      edges: Array<{ source_id: number; ref_role: string | null }>;
+    };
+    const campaignNode = detail.nodes.find(
+      (node) => node.type === "campaign" && node.data.title === "Product demo campaign",
+    );
+    expect(campaignNode).toBeTruthy();
+    expect(
+      detail.edges.filter(
+        (edge) => edge.source_id === campaignNode?.id && edge.ref_role === "campaign_ref",
+      ),
+    ).toHaveLength(2);
+    await page.getByRole("button", { name: "Close dialog (Escape)" }).click();
+    await expect(page.getByRole("dialog", { name: "Generate video" })).toHaveCount(0);
 
     const sequenceFolder = nodeLibrary.getByRole("button", {
       name: "Storyboard sequence",

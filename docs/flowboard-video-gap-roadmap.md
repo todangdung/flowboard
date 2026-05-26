@@ -66,7 +66,8 @@ Additional gap closure in this pass:
 - Campaign Brief node: `campaign` nodes and `campaign_ref` edges carry
   objective, audience, offer, CTA, claim limits, tone, platform, and
   must-include/avoid rules into video recipe prompt synthesis, preflight
-  warnings, and storyboard/timeline scaffolds.
+  warnings, storyboard/timeline scaffolds, and campaign-recommended ad
+  workflow scaffolds.
 - Asset library profiles: reference rows now store a JSON `profile`, and
   library spawn/drag preserves it back onto new nodes.
 - Export preflight/presets: timeline export opens a preflight with clip
