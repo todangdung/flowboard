@@ -205,7 +205,7 @@ def test_export_timeline_uses_timeline_shot_order_and_metadata(client):
 
     response = client.post(
         f"/api/exports/timelines/{timeline_id}",
-        json={"width": 180, "height": 320},
+        json={"width": 180, "height": 320, "caption_mode": "burn_in"},
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -213,6 +213,7 @@ def test_export_timeline_uses_timeline_shot_order_and_metadata(client):
     assert body["source_shot_ids"] == ["shot-2", "shot-1"]
     assert body["clip_durations_sec"] == [7, 4]
     assert body["clip_captions"] == ["Second caption", "First caption"]
+    assert body["export_caption_mode"] == "burn_in"
 
     with get_session() as s:
         timeline = s.get(Node, timeline_id)
@@ -221,6 +222,7 @@ def test_export_timeline_uses_timeline_shot_order_and_metadata(client):
         assert timeline.data["exportShotIds"] == ["shot-2", "shot-1"]
         assert timeline.data["exportDurationsSec"] == [7, 4]
         assert timeline.data["exportCaptions"] == ["Second caption", "First caption"]
+        assert timeline.data["exportCaptionMode"] == "burn_in"
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")

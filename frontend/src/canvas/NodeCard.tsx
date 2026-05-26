@@ -1711,6 +1711,7 @@ const REVIEW_LABEL_VI: Record<"good" | "redo" | "skip", string> = {
 
 type TimelineExportUiState = "none" | "fresh" | "stale";
 type TimelineExportPresetKey = VideoExportPresetKey;
+type TimelineCaptionMode = "none" | "burn_in";
 
 const TIMELINE_EXPORT_PRESETS: readonly {
   key: TimelineExportPresetKey;
@@ -1860,6 +1861,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const [exportPreflightOpen, setExportPreflightOpen] = useState(false);
   const [exportPresetKey, setExportPresetKey] = useState<TimelineExportPresetKey>(
     timelineDefaultExportPreset(data),
+  );
+  const [exportCaptionMode, setExportCaptionMode] = useState<TimelineCaptionMode>(
+    data.exportCaptionMode === "burn_in" ? "burn_in" : "none",
   );
   const incoming = orderClipsForTimeline(data, edges
     .filter((e) => e.target === rfId)
@@ -2096,6 +2100,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       const result = await exportTimeline(dbId, {
         width: exportPreset.width,
         height: exportPreset.height,
+        caption_mode: exportCaptionMode,
       });
       useBoardStore.getState().updateNodeData(rfId, {
         status: "done",
@@ -2109,6 +2114,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportShotIds: result.source_shot_ids,
         exportDurationsSec: result.clip_durations_sec,
         exportCaptions: result.clip_captions,
+        exportCaptionMode: result.export_caption_mode ?? exportCaptionMode,
         exportHistory: result.export_history,
         exportStaleAt: undefined,
         exportStaleReason: undefined,
@@ -2123,6 +2129,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
             exportPreset: exportPreset.key,
             exportWidth: exportPreset.width,
             exportHeight: exportPreset.height,
+            exportCaptionMode,
           },
         }).catch(() => {});
       }
@@ -2241,6 +2248,16 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               </button>
             ))}
           </div>
+          <label className="timeline-preflight__caption-mode">
+            <input
+              type="checkbox"
+              checked={exportCaptionMode === "burn_in"}
+              onChange={(event) => {
+                setExportCaptionMode(event.target.checked ? "burn_in" : "none");
+              }}
+            />
+            <span>Burn captions / Gắn caption</span>
+          </label>
           <div className="timeline-preflight__clips">
             {shotPairs
               .filter(({ clip }) =>

@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 import shutil
 import subprocess
+import textwrap
 import uuid
 
 from sqlmodel import select
@@ -84,6 +85,10 @@ def _has_audio(path: Path) -> bool:
 def _concat_line(path: Path) -> str:
     escaped = str(path).replace("'", "'\\''")
     return f"file '{escaped}'\n"
+
+
+def _filter_arg(path: Path) -> str:
+    return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
 
 async def _resolve_media_path(media_id: str) -> Path:
@@ -209,18 +214,58 @@ def _clip_caption(timeline: Node, node: Node) -> str | None:
     return None
 
 
+def _caption_file_text(caption: str) -> str:
+    text = " ".join(caption.split())
+    if not text:
+        return ""
+    lines = textwrap.wrap(text, width=36, max_lines=3, placeholder="...")
+    return "\n".join(lines)
+
+
+def _video_filter(
+    *,
+    width: int,
+    height: int,
+    caption_file: Path | None = None,
+) -> str:
+    filters = [
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+        "setsar=1",
+        "fps=30",
+    ]
+    if caption_file is not None:
+        fontsize = max(18, round(height * 0.045))
+        filters.append(
+            "drawtext="
+            f"textfile={_filter_arg(caption_file)}:"
+            f"fontsize={fontsize}:"
+            "fontcolor=white:"
+            "line_spacing=8:"
+            "box=1:"
+            "boxcolor=black@0.58:"
+            "boxborderw=18:"
+            "x=(w-text_w)/2:"
+            "y=h-text_h-(h*0.08)"
+        )
+    filters.append("format=yuv420p")
+    return ",".join(filters)
+
+
 def _normalise_clip(
     source: Path,
     target: Path,
     *,
     width: int,
     height: int,
+    caption: str | None = None,
 ) -> None:
-    vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
-        "setsar=1,fps=30,format=yuv420p"
-    )
+    caption_file: Path | None = None
+    caption_text = _caption_file_text(caption or "")
+    if caption_text:
+        caption_file = target.with_suffix(".caption.txt")
+        caption_file.write_text(caption_text, encoding="utf-8")
+    vf = _video_filter(width=width, height=height, caption_file=caption_file)
     base = [
         "ffmpeg",
         "-y",
@@ -275,7 +320,11 @@ def _normalise_clip(
             str(target),
         ]
     )
-    _run_ffmpeg(cmd)
+    try:
+        _run_ffmpeg(cmd)
+    finally:
+        if caption_file is not None:
+            caption_file.unlink(missing_ok=True)
 
 
 def _register_export(media_id: str, path: Path) -> None:
@@ -305,6 +354,7 @@ def _export_snapshot(data: dict) -> dict | None:
         "sourceShotIds": data.get("exportShotIds"),
         "durationsSec": data.get("exportDurationsSec"),
         "captions": data.get("exportCaptions"),
+        "captionMode": data.get("exportCaptionMode"),
         "staleAt": data.get("exportStaleAt"),
         "staleReason": data.get("exportStaleReason"),
     }
@@ -350,6 +400,7 @@ def _stamp_timeline(
     source_shot_ids: list[str],
     clip_durations_sec: list[int | None],
     clip_captions: list[str | None],
+    caption_mode: str,
 ) -> dict:
     with get_session() as s:
         node = s.get(Node, timeline_node_id)
@@ -371,6 +422,7 @@ def _stamp_timeline(
                 "exportShotIds": source_shot_ids,
                 "exportDurationsSec": clip_durations_sec,
                 "exportCaptions": clip_captions,
+                "exportCaptionMode": caption_mode,
                 "exportHistory": export_history,
             }
         )
@@ -393,11 +445,14 @@ async def export_timeline(
     *,
     width: int = 1080,
     height: int = 1920,
+    caption_mode: str = "none",
 ) -> dict:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         raise VideoExportError("ffmpeg_not_found")
     if width < 64 or height < 64 or width > 4096 or height > 4096:
         raise VideoExportError("invalid_export_size")
+    if caption_mode not in {"none", "burn_in"}:
+        raise VideoExportError("invalid_caption_mode")
     timeline, clips = _timeline_clips(timeline_node_id)
     if not clips:
         raise VideoExportError("timeline_has_no_clips")
@@ -419,7 +474,13 @@ async def export_timeline(
             captions.append(_clip_caption(timeline, clip))
             source = await _resolve_media_path(media_id)
             target = work_dir / f"{index:03d}.mp4"
-            _normalise_clip(source, target, width=width, height=height)
+            _normalise_clip(
+                source,
+                target,
+                width=width,
+                height=height,
+                caption=captions[-1] if caption_mode == "burn_in" else None,
+            )
             normalised.append(target)
 
         concat_file = work_dir / "concat.txt"
@@ -455,6 +516,7 @@ async def export_timeline(
             source_shot_ids=shot_ids,
             clip_durations_sec=durations,
             clip_captions=captions,
+            caption_mode=caption_mode,
         )
         return {
             "timeline_node_id": timeline_node_id,
@@ -465,6 +527,7 @@ async def export_timeline(
             "source_shot_ids": shot_ids,
             "clip_durations_sec": durations,
             "clip_captions": captions,
+            "export_caption_mode": caption_mode,
             "width": width,
             "height": height,
             **stamp,

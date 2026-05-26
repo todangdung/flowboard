@@ -6827,6 +6827,31 @@ button:disabled {
   white-space: nowrap;
 }
 
+.timeline-preflight__caption-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.timeline-preflight__caption-mode input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.timeline-preflight__caption-mode span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .timeline-preflight__clips {
   display: flex;
   flex-direction: column;

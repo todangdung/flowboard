@@ -21,6 +21,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
   >();
   let nextRequestId = 5000;
   let exportCount = 0;
+  const exportPayloads: Array<Record<string, unknown>> = [];
 
   try {
     await page.route("**/api/auth/me", async (route) => {
@@ -109,6 +110,8 @@ test("builds storyboard sequence shot workflow from palette", async ({
         return;
       }
       exportCount += 1;
+      const payload = JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>;
+      exportPayloads.push(payload);
       const timelineId = Number(route.request().url().split("/").pop());
       await route.fulfill({
         status: 200,
@@ -124,6 +127,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
           exported_at: "2026-05-25T00:10:00.000Z",
           export_status: "fresh",
           export_version: 1,
+          export_caption_mode: payload.caption_mode ?? "none",
         }),
       });
     });
@@ -264,8 +268,10 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await expect(preflight.locator(".timeline-preflight__clip").first()).toContainText("Shot 2");
     await expect(preflight.getByText("Second shot caption")).toBeVisible();
     await expect(preflight.getByText(/9s/)).toBeVisible();
+    await preflight.getByLabel("Burn captions / Gắn caption").check();
     await preflight.getByRole("button", { name: "Confirm export / Xuất" }).dispatchEvent("click");
     await expect.poll(() => exportCount).toBe(1);
+    expect(exportPayloads[0]?.caption_mode).toBe("burn_in");
     await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
     await expect(page.getByText("Export fresh v1 / mới")).toBeVisible();
 

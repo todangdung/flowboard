@@ -38,6 +38,7 @@ export interface ExportHistoryItem {
   sourceShotIds?: string[];
   durationsSec?: (number | null)[];
   captions?: (string | null)[];
+  captionMode?: "none" | "burn_in";
   staleAt?: string;
   staleReason?: string;
 }
@@ -177,6 +178,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportShotIds?: string[];
   exportDurationsSec?: (number | null)[];
   exportCaptions?: (string | null)[];
+  exportCaptionMode?: "none" | "burn_in";
   exportStaleAt?: string;
   exportStaleReason?: string;
   exportHistory?: ExportHistoryItem[];
@@ -326,6 +328,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportShotIds: dto.data["exportShotIds"] as string[] | undefined,
       exportDurationsSec: dto.data["exportDurationsSec"] as (number | null)[] | undefined,
       exportCaptions: dto.data["exportCaptions"] as (string | null)[] | undefined,
+      exportCaptionMode: dto.data["exportCaptionMode"] as "none" | "burn_in" | undefined,
       exportStaleAt: dto.data["exportStaleAt"] as string | undefined,
       exportStaleReason: dto.data["exportStaleReason"] as string | undefined,
       exportHistory: dto.data["exportHistory"] as ExportHistoryItem[] | undefined,

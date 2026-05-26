@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -9,6 +11,7 @@ router = APIRouter(prefix="/api/exports", tags=["exports"])
 class TimelineExportBody(BaseModel):
     width: int = Field(default=1080, ge=64, le=4096)
     height: int = Field(default=1920, ge=64, le=4096)
+    caption_mode: Literal["none", "burn_in"] = "none"
 
 
 @router.post("/timelines/{timeline_node_id}")
@@ -22,6 +25,7 @@ async def export_timeline_route(
             timeline_node_id,
             width=body.width,
             height=body.height,
+            caption_mode=body.caption_mode,
         )
     except VideoExportError as exc:
         msg = str(exc)

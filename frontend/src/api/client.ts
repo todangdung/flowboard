@@ -729,17 +729,19 @@ export interface TimelineExportResponse {
     sourceShotIds?: string[];
     durationsSec?: Array<number | null>;
     captions?: Array<string | null>;
+    captionMode?: "none" | "burn_in";
     staleAt?: string;
     staleReason?: string;
   }>;
   source_shot_ids?: string[];
   clip_durations_sec?: Array<number | null>;
   clip_captions?: Array<string | null>;
+  export_caption_mode?: "none" | "burn_in";
 }
 
 export async function exportTimeline(
   timelineNodeId: number,
-  input?: { width?: number; height?: number },
+  input?: { width?: number; height?: number; caption_mode?: "none" | "burn_in" },
 ): Promise<TimelineExportResponse> {
   const res = await fetch(`/api/exports/timelines/${timelineNodeId}`, {
     method: "POST",

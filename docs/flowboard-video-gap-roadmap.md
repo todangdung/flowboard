@@ -54,6 +54,8 @@ Additional gap closure in this pass:
   per-shot duration, and store per-shot captions; export/preflight follows
   timeline order and carries shot id, duration, and caption metadata without
   burning subtitles into the video.
+- Timeline caption export: export preflight can burn timeline captions into
+  the stitched MP4 and stamps `exportCaptionMode` in export metadata/history.
 - Video source modes: Generate Video supports Auto, Text-to-video,
   First frame, First+last frame, and Omni Ingredients paths.
 - First+last frame dispatch: `last_frame` edge role now drives Flow's
@@ -197,7 +199,7 @@ Use this status overlay for current planning:
 
 | Status | Areas |
 | --- | --- |
-| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata, timeline/export/review/refine, asset library profiles, accepted-output references. |
+| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata/export burn-in, timeline/export/review/refine, asset library profiles, accepted-output references. |
 | Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, per-shot trim/transition/audio mix. |
 | Open | Auto-review scoring, multi-provider media abstraction beyond Flow. |
 
