@@ -252,16 +252,18 @@ def test_build_storyboard_sequence_shot_workflow(client):
     assert body["video_node_id"]
     assert body["timeline_node_id"]
     assert len(body["shot_node_ids"]) == 6
-    assert len(body["nodes"]) == 11
-    assert len(body["edges"]) == 27
+    assert len(body["nodes"]) == 12
+    assert len(body["edges"]) == 33
 
     nodes = body["nodes"]
     plan = next(n for n in nodes if n["data"].get("workflowKind") == "storyboard_plan")
     timeline = next(n for n in nodes if n["data"].get("workflowKind") == "timeline")
+    campaign = next(n for n in nodes if n["type"] == "campaign")
     frames = [n for n in nodes if n["data"].get("workflowKind") == "shot_frame"]
     clips = [n for n in nodes if n["data"].get("workflowKind") == "shot_clip"]
 
     assert plan["type"] == "prompt"
+    assert campaign["data"]["objective"] == "define campaign objective"
     assert plan["data"]["brief"] == "skincare serum launch"
     assert plan["data"]["shotPlanSource"] == "fallback"
     assert timeline["type"] == "note"
@@ -280,6 +282,7 @@ def test_build_storyboard_sequence_shot_workflow(client):
     assert sum(1 for e in edges if e["ref_role"] == "first_frame") == 3
     assert sum(1 for e in edges if e["target_id"] == timeline["id"] and e["ref_role"] == "storyboard_panel") == 3
     assert sum(1 for e in edges if e["source_id"] == plan["id"] and e["ref_role"] == "storyboard_ref") == 3
+    assert sum(1 for e in edges if e["source_id"] == campaign["id"] and e["ref_role"] == "campaign_ref") == 6
 
 
 def test_build_storyboard_sequence_uses_custom_shot_plan(client):
@@ -453,19 +456,26 @@ def test_classify_roles_heuristic(client):
             type="image",
             data={"title": "First frame"},
         )
+        campaign = Node(
+            board_id=board_id,
+            short_id="camp",
+            type="campaign",
+            data={"title": "Launch campaign", "cta": "Shop now"},
+        )
         video = Node(
             board_id=board_id,
             short_id="vidx",
             type="video",
             data={"title": "Fashion fit check"},
         )
-        s.add_all([ch, outfit, frame, video])
+        s.add_all([ch, outfit, frame, campaign, video])
         s.commit()
-        for n in (ch, outfit, frame, video):
+        for n in (ch, outfit, frame, campaign, video):
             s.refresh(n)
         s.add(Edge(board_id=board_id, source_id=ch.id, target_id=video.id))
         s.add(Edge(board_id=board_id, source_id=outfit.id, target_id=video.id))
         s.add(Edge(board_id=board_id, source_id=frame.id, target_id=video.id))
+        s.add(Edge(board_id=board_id, source_id=campaign.id, target_id=video.id))
         s.commit()
         video_id = video.id
 
@@ -484,6 +494,7 @@ def test_classify_roles_heuristic(client):
         "char": "character_ref",
         "outf": "product_ref",
         "fram": "first_frame",
+        "camp": "campaign_ref",
     }
     assert all(item["needs_change"] for item in body["suggestions"])
 

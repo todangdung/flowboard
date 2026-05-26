@@ -90,6 +90,15 @@ function profileFromResult(
     "voiceName",
     "claimRules",
     "brandTone",
+    "objective",
+    "audience",
+    "offer",
+    "claimsAllowed",
+    "claimsAvoid",
+    "tone",
+    "platform",
+    "mustInclude",
+    "mustAvoid",
     "palette",
     "cta",
     "legalNotes",
@@ -607,6 +616,8 @@ export function ResultViewer() {
               ? "location"
             : data.type === "brand"
               ? "brand"
+            : data.type === "campaign"
+              ? "campaign"
             : data.type === "audio"
               ? "audio"
             : data.type === "visual_asset"

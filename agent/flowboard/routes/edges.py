@@ -19,6 +19,7 @@ RefRole = Literal[
     "style_ref",
     "storyboard_ref",
     "storyboard_panel",
+    "campaign_ref",
     "audio_ref",
     "ingredient",
 ]

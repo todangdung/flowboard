@@ -830,16 +830,33 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
             },
             status="done",
         )
+        campaign = Node(
+            board_id=b.id, short_id="pdcg", type="campaign",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Launch campaign",
+                "objective": "drive trial kit signups",
+                "audience": "busy skincare beginners",
+                "cta": "tap to claim the starter kit",
+                "claimsAllowed": "visible hydration glow and texture only",
+                "claimsAvoid": "no acne cure or time-bound results",
+                "tone": "clear, credible, upbeat",
+                "platform": "TikTok vertical",
+            },
+            status="done",
+        )
         vid = Node(
             board_id=b.id, short_id="pdvd", type="video",
             x=0, y=0, w=240, h=180,
             data={"title": "Product demo clip"},
             status="idle",
         )
-        s.add_all([src, product, vid]); s.commit()
-        for n in (src, product, vid):
+        s.add_all([src, product, campaign, vid]); s.commit()
+        for n in (src, product, campaign, vid):
             s.refresh(n)
-        board_id, src_id, product_id, vid_id = b.id, src.id, product.id, vid.id
+        board_id, src_id, product_id, campaign_id, vid_id = (
+            b.id, src.id, product.id, campaign.id, vid.id
+        )
 
     client.post(
         "/api/edges",
@@ -859,6 +876,15 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
             "ref_role": "product_ref",
         },
     )
+    client.post(
+        "/api/edges",
+        json={
+            "board_id": board_id,
+            "source_id": campaign_id,
+            "target_id": vid_id,
+            "ref_role": "campaign_ref",
+        },
+    )
 
     captured: dict = {}
 
@@ -874,6 +900,10 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
     sp = captured["system_prompt"] or ""
     assert "first_frame" in user
     assert "product_ref" in user
+    assert "Campaign brief" in user
+    assert "drive trial kit signups" in user
+    assert "tap to claim the starter kit" in user
+    assert "no acne cure" in user
     assert "VIDEO RECIPE PLAN" in user
     assert "Role-bound references" in user
     assert "Recommended generation path: image_to_video" in user
@@ -1319,6 +1349,8 @@ def test_route_lists_video_recipe_catalog(client):
 
     assert "product_ref" in by_id["product_demo"]["required_roles"]
     assert "first_frame" in by_id["product_demo"]["required_roles"]
+    assert "campaign_ref" in by_id["product_demo"]["optional_roles"]
+    assert "campaign_ref" in by_id["storyboard_sequence"]["optional_roles"]
     assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
     assert "medical claims" in by_id["skincare_tvc"]["avoid_hint"]
     scaffold_ids = {
@@ -1443,6 +1475,77 @@ def test_route_product_demo_recipe_plan_ready(client):
     assert "Preserve exact product" in plan["prompt_sections"]["preserve"]
     assert "guaranteed efficacy" in plan["prompt_sections"]["safety"]
     assert "invented labels" in plan["prompt_sections"]["avoid"]
+
+
+def test_route_recipe_plan_includes_campaign_ref(client):
+    with get_session() as s:
+        b = Board(name="campaign-plan")
+        s.add(b); s.commit(); s.refresh(b)
+        product = Node(
+            board_id=b.id, short_id="cprd", type="product",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Serum", "productName": "Glow serum"},
+            status="idle",
+        )
+        frame = Node(
+            board_id=b.id, short_id="cfrm", type="image",
+            x=0, y=0, w=240, h=180,
+            data={"title": "First frame", "mediaId": "media-campaign-frame"},
+            status="done",
+        )
+        campaign = Node(
+            board_id=b.id, short_id="camp", type="campaign",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Trial signup campaign",
+                "objective": "drive starter-kit trials",
+                "audience": "new skincare buyers",
+                "offer": "20% off starter kit",
+                "cta": "tap to start routine",
+                "claimsAllowed": "visible cosmetic glow",
+                "claimsAvoid": "no medical or guaranteed results",
+                "mustInclude": "starter kit hero",
+                "mustAvoid": "before/after promise",
+            },
+            status="idle",
+        )
+        vid = Node(
+            board_id=b.id, short_id="cvid", type="video",
+            x=0, y=0, w=240, h=180,
+            data={"title": "Campaign video"},
+            status="idle",
+        )
+        s.add_all([product, frame, campaign, vid]); s.commit()
+        for n in (product, frame, campaign, vid):
+            s.refresh(n)
+        for source, role in (
+            (product, "product_ref"),
+            (frame, "first_frame"),
+            (campaign, "campaign_ref"),
+        ):
+            s.add(
+                Edge(
+                    board_id=b.id,
+                    source_id=source.id,
+                    target_id=vid.id,
+                    ref_role=role,
+                )
+            )
+        s.commit()
+        vid_id = vid.id
+
+    r = client.get(
+        "/api/prompt/video-recipe-plan",
+        params={"node_id": vid_id, "recipe_id": "product_demo"},
+    )
+    assert r.status_code == 200, r.text
+    plan = r.json()["plan"]
+    assert plan["ready"] is True
+    assert "campaign_ref" in plan["present_roles"]
+    assert "drive starter-kit trials" in plan["prompt_sections"]["refs"]
+    assert "tap to start routine" in plan["prompt_sections"]["action"]
+    assert "visible cosmetic glow" in plan["prompt_sections"]["safety"]
+    assert "before/after promise" in plan["prompt_sections"]["avoid"]
 
 
 def test_route_fashion_fit_recipe_plan_reports_missing_role(client):

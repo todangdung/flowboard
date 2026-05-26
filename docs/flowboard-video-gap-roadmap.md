@@ -35,7 +35,7 @@ Completed vertical slices:
   review note while preserving shot metadata/upstream refs and marking the
   timeline export stale.
 - Project node library placement: the top add-node palette remains the default
-  compact set, while Product, Location, Brand, Audio, and recipe workflow
+  compact set, while Product, Location, Brand, Campaign, Audio, and recipe workflow
   shortcuts live inside the existing Projects sidebar as collapsible folder
   groups. This prevents the canvas palette from wrapping over the board.
 - Recipe catalog sync: backend and frontend recipe entries now expose scaffold,
@@ -60,9 +60,13 @@ Additional gap closure in this pass:
 - Video edit/refine dispatch: reviewed clip refine now creates a replacement
   node and dispatches `edit_video_omni` against the existing video media id
   instead of falling back to first-frame i2v.
-- Domain nodes and profiles: Product, Location, Brand, and Audio nodes have
-  profile fields; saved references persist reusable product/location/brand/
-  audio metadata.
+- Domain nodes and profiles: Product, Location, Brand, Campaign, and Audio
+  nodes have profile fields; saved references persist reusable
+  product/location/brand/campaign/audio metadata.
+- Campaign Brief node: `campaign` nodes and `campaign_ref` edges carry
+  objective, audience, offer, CTA, claim limits, tone, platform, and
+  must-include/avoid rules into video recipe prompt synthesis, preflight
+  warnings, and storyboard/timeline scaffolds.
 - Asset library profiles: reference rows now store a JSON `profile`, and
   library spawn/drag preserves it back onto new nodes.
 - Export preflight/presets: timeline export opens a preflight with clip

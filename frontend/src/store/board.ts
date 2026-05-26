@@ -125,6 +125,15 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   voiceName?: string;
   claimRules?: string;
   brandTone?: string;
+  objective?: string;
+  audience?: string;
+  offer?: string;
+  claimsAllowed?: string;
+  claimsAvoid?: string;
+  tone?: string;
+  platform?: string;
+  mustInclude?: string;
+  mustAvoid?: string;
   palette?: string;
   cta?: string;
   legalNotes?: string;
@@ -211,6 +220,7 @@ const TYPE_TITLE: Record<NodeType, string> = {
   product: "Product",
   location: "Location",
   brand: "Brand kit",
+  campaign: "Campaign brief",
   audio: "Audio",
   Storyboard: "Storyboard",
 };
@@ -255,6 +265,15 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       voiceName: dto.data["voiceName"] as string | undefined,
       claimRules: dto.data["claimRules"] as string | undefined,
       brandTone: dto.data["brandTone"] as string | undefined,
+      objective: dto.data["objective"] as string | undefined,
+      audience: dto.data["audience"] as string | undefined,
+      offer: dto.data["offer"] as string | undefined,
+      claimsAllowed: dto.data["claimsAllowed"] as string | undefined,
+      claimsAvoid: dto.data["claimsAvoid"] as string | undefined,
+      tone: dto.data["tone"] as string | undefined,
+      platform: dto.data["platform"] as string | undefined,
+      mustInclude: dto.data["mustInclude"] as string | undefined,
+      mustAvoid: dto.data["mustAvoid"] as string | undefined,
       palette: dto.data["palette"] as string | undefined,
       cta: dto.data["cta"] as string | undefined,
       legalNotes: dto.data["legalNotes"] as string | undefined,
@@ -673,6 +692,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         ? "location"
         : ref.kind === "brand"
         ? "brand"
+        : ref.kind === "campaign"
+        ? "campaign"
         : ref.kind === "storyboard_shot"
         ? "Storyboard"
         : "visual_asset";

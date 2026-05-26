@@ -20,6 +20,7 @@ NodeType = Literal[
     "product",
     "location",
     "brand",
+    "campaign",
     "audio",
     # Storyboard = thin image-node wrapper. Backend treats it the same as
     # `image` for storage / dispatch — see frontend/src/lib/storyboardPrompt.ts

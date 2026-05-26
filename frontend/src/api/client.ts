@@ -120,6 +120,7 @@ export type NodeType =
   | "product"
   | "location"
   | "brand"
+  | "campaign"
   | "audio"
   | "Storyboard";
 export type NodeStatus = "idle" | "queued" | "running" | "done" | "error";
@@ -168,6 +169,7 @@ export type RefRole =
   | "style_ref"
   | "storyboard_ref"
   | "storyboard_panel"
+  | "campaign_ref"
   | "audio_ref"
   | "ingredient";
 
@@ -1065,6 +1067,7 @@ export type ReferenceKind =
   | "location"
   | "style"
   | "brand"
+  | "campaign"
   | "audio"
   | "first_frame";
 
@@ -1146,6 +1149,7 @@ function mapReferenceRow(row: ReferenceRowWire): ReferenceItem {
     "location",
     "style",
     "brand",
+    "campaign",
     "audio",
     "first_frame",
   ];

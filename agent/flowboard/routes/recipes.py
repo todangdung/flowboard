@@ -808,6 +808,21 @@ _SHOT_WORKFLOWS: dict[str, ShotWorkflowSpec] = {
                 },
                 role="style_ref",
             ),
+            WorkflowNodeSpec(
+                "campaign",
+                "campaign",
+                "Campaign brief / Brief chiến dịch",
+                0,
+                660,
+                data={
+                    "objective": "define campaign objective",
+                    "audience": "target viewer",
+                    "cta": "clear next action",
+                    "claimsAvoid": "no unsupported claims",
+                    "tone": "campaign-safe, concise",
+                },
+                role="campaign_ref",
+            ),
         ),
     ),
 }
@@ -816,6 +831,7 @@ _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("first_frame", ("first frame", "source frame", "opening frame", "start frame", "still")),
     ("last_frame", ("last frame", "final frame", "end frame")),
     ("audio_ref", ("audio", "voice", "voiceover", "voice over", "music", "sound", "sfx")),
+    ("campaign_ref", ("campaign", "objective", "audience", "offer", "cta", "claim", "platform")),
     ("package_ref", ("package", "packaging", "box", "carton", "unbox")),
     ("product_ref", ("product", "garment", "outfit", "shirt", "dress", "bottle", "serum", "cream", "shoe")),
     ("background_ref", ("background", "location", "room", "cafe", "street", "park", "interior", "exterior", "scene")),
@@ -865,6 +881,8 @@ def _heuristic_role(row: dict, target: Node, recipe_id: Optional[str]) -> tuple[
         return "background_ref", 0.95, "location node"
     if source_type == "brand":
         return "style_ref", 0.88, "brand node drives style and rules"
+    if source_type == "campaign":
+        return "campaign_ref", 0.95, "campaign node"
     if source_type == "audio":
         return "audio_ref", 0.95, "audio node"
     if source_type == "visual_asset":
@@ -1289,6 +1307,27 @@ def _normalise_shot_items(
 
 
 def _source_context_for_board(board_id: int, sources: list[SourceBinding]) -> list[dict]:
+    profile_keys = (
+        "productName",
+        "brandName",
+        "locationName",
+        "characterName",
+        "voiceName",
+        "claimRules",
+        "brandTone",
+        "palette",
+        "cta",
+        "legalNotes",
+        "objective",
+        "audience",
+        "offer",
+        "claimsAllowed",
+        "claimsAvoid",
+        "tone",
+        "platform",
+        "mustInclude",
+        "mustAvoid",
+    )
     with get_session() as s:
         board = s.get(Board, board_id)
         if board is None:
@@ -1301,6 +1340,11 @@ def _source_context_for_board(board_id: int, sources: list[SourceBinding]) -> li
             if node.board_id != board_id:
                 raise HTTPException(400, "source node belongs to another board")
             data = node.data or {}
+            profile = {
+                key: value
+                for key in profile_keys
+                if isinstance((value := data.get(key)), str) and value.strip()
+            }
             rows.append(
                 {
                     "node_id": node.id,
@@ -1310,6 +1354,7 @@ def _source_context_for_board(board_id: int, sources: list[SourceBinding]) -> li
                     "title": data.get("title") if isinstance(data.get("title"), str) else None,
                     "brief": data.get("aiBrief") if isinstance(data.get("aiBrief"), str) else None,
                     "prompt": data.get("prompt") if isinstance(data.get("prompt"), str) else None,
+                    "profile": profile,
                     "has_media": bool(data.get("mediaId") or data.get("mediaIds")),
                 }
             )

@@ -154,7 +154,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="fashion_fit_check",
         label="Fashion fit check",
         required_roles=("character_ref", "first_frame"),
-        optional_roles=("product_ref", "background_ref", "style_ref"),
+        optional_roles=("product_ref", "background_ref", "style_ref", "campaign_ref"),
         recommended_generation_path="image_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -229,7 +229,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="product_demo",
         label="Product demo",
         required_roles=("product_ref", "first_frame"),
-        optional_roles=("package_ref", "background_ref", "style_ref"),
+        optional_roles=("package_ref", "background_ref", "style_ref", "campaign_ref"),
         recommended_generation_path="image_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -263,7 +263,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="lifestyle_ad",
         label="Lifestyle ad",
         required_roles=("product_ref", "background_ref"),
-        optional_roles=("character_ref", "style_ref", "audio_ref", "first_frame"),
+        optional_roles=("character_ref", "style_ref", "campaign_ref", "audio_ref", "first_frame"),
         recommended_generation_path="image_to_video",
         default_camera="dynamic",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -288,7 +288,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="ugc_testimonial",
         label="UGC testimonial",
         required_roles=("product_ref", "character_ref"),
-        optional_roles=("first_frame", "background_ref", "style_ref", "audio_ref"),
+        optional_roles=("first_frame", "background_ref", "style_ref", "campaign_ref", "audio_ref"),
         recommended_generation_path="ingredients_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -339,7 +339,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="ugc_review",
         label="UGC review",
         required_roles=("character_ref", "product_ref"),
-        optional_roles=("first_frame", "background_ref", "style_ref"),
+        optional_roles=("first_frame", "background_ref", "style_ref", "campaign_ref"),
         recommended_generation_path="ingredients_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -359,7 +359,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="skincare_tvc",
         label="Skincare TVC",
         required_roles=("product_ref", "first_frame"),
-        optional_roles=("character_ref", "background_ref", "style_ref"),
+        optional_roles=("character_ref", "background_ref", "style_ref", "campaign_ref"),
         recommended_generation_path="per_shot_sequence",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -379,7 +379,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="before_after",
         label="Before / after",
         required_roles=("first_frame", "last_frame"),
-        optional_roles=("character_ref", "product_ref", "style_ref"),
+        optional_roles=("character_ref", "product_ref", "style_ref", "campaign_ref"),
         recommended_generation_path="first_last_frame",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -431,7 +431,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="brand_bumper",
         label="Brand bumper",
         required_roles=("style_ref",),
-        optional_roles=("product_ref", "audio_ref", "first_frame", "background_ref"),
+        optional_roles=("product_ref", "audio_ref", "campaign_ref", "first_frame", "background_ref"),
         recommended_generation_path="text_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -456,7 +456,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="audio_led",
         label="Voiceover / audio-led",
         required_roles=("audio_ref",),
-        optional_roles=("product_ref", "character_ref", "background_ref", "style_ref", "first_frame"),
+        optional_roles=("product_ref", "character_ref", "background_ref", "style_ref", "campaign_ref", "first_frame"),
         recommended_generation_path="text_to_video",
         default_camera="dynamic",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -506,7 +506,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="packshot_loop",
         label="Packshot / hero loop",
         required_roles=("product_ref", "first_frame"),
-        optional_roles=("package_ref", "style_ref", "background_ref", "audio_ref"),
+        optional_roles=("package_ref", "style_ref", "background_ref", "campaign_ref", "audio_ref"),
         recommended_generation_path="image_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -551,7 +551,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="storyboard_sequence",
         label="Storyboard sequence",
         required_roles=("storyboard_ref",),
-        optional_roles=("character_ref", "product_ref", "background_ref"),
+        optional_roles=("character_ref", "product_ref", "background_ref", "campaign_ref"),
         recommended_generation_path="per_shot_sequence",
         default_camera="dynamic",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -578,9 +578,34 @@ _REF_SOURCE_TYPES = {
     "product",
     "location",
     "brand",
+    "campaign",
     "audio",
     "Storyboard",
 }
+
+_PROFILE_FIELD_LABELS = {
+    "productName": "Product",
+    "brandName": "Brand",
+    "locationName": "Location",
+    "characterName": "Character",
+    "voiceName": "Voice",
+    "claimRules": "Claim rules",
+    "brandTone": "Brand tone",
+    "palette": "Palette",
+    "cta": "CTA",
+    "legalNotes": "Legal notes",
+    "objective": "Objective",
+    "audience": "Audience",
+    "offer": "Offer",
+    "claimsAllowed": "Claims allowed",
+    "claimsAvoid": "Claims avoid",
+    "tone": "Tone",
+    "platform": "Platform",
+    "mustInclude": "Must include",
+    "mustAvoid": "Must avoid",
+}
+
+_PROFILE_FIELD_KEYS = tuple(_PROFILE_FIELD_LABELS.keys())
 
 _ROLE_LABELS = {
     "first_frame": "First frame",
@@ -592,6 +617,7 @@ _ROLE_LABELS = {
     "style_ref": "Style",
     "storyboard_ref": "Storyboard",
     "storyboard_panel": "Storyboard panel",
+    "campaign_ref": "Campaign brief",
     "audio_ref": "Audio",
     "ingredient": "Ingredient",
 }
@@ -606,6 +632,7 @@ _ROLE_PRESERVE_HINTS = {
     "style_ref": "Apply style as visual language only; do not let it override identity/product locks.",
     "storyboard_ref": "Preserve panel order, narrative beats, and continuity locks.",
     "storyboard_panel": "Treat panel as one shot reference, not the whole sequence.",
+    "campaign_ref": "Follow campaign objective, audience, offer, CTA, claim limits, tone, platform, and inclusion/exclusion rules.",
     "audio_ref": "Use audio direction as timing, voice, mood, and sound-design guidance.",
     "ingredient": "Use as a conditioning ingredient only when no stricter role is assigned.",
 }
@@ -617,6 +644,61 @@ def list_video_recipes() -> list[dict]:
 
 def get_video_recipe(recipe_id: str) -> Optional[VideoRecipe]:
     return _BY_ID.get(recipe_id)
+
+
+def _profile_from_node_data(data: dict) -> dict[str, str]:
+    profile: dict[str, str] = {}
+    for key in _PROFILE_FIELD_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            profile[key] = value.strip()
+    return profile
+
+
+def _profile_lines(profile: dict | None) -> list[str]:
+    if not isinstance(profile, dict):
+        return []
+    lines: list[str] = []
+    for key in _PROFILE_FIELD_KEYS:
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{_PROFILE_FIELD_LABELS[key]}: {value.strip()}")
+    return lines
+
+
+def _campaign_records(records: list[dict]) -> list[dict]:
+    return [
+        record
+        for record in records
+        if record.get("ref_role") == "campaign_ref" or record.get("type") == "campaign"
+    ]
+
+
+def _campaign_section(records: list[dict]) -> str:
+    sections: list[str] = []
+    for record in _campaign_records(records):
+        title = record.get("title") if isinstance(record.get("title"), str) else "Campaign brief"
+        bits: list[str] = []
+        brief = record.get("brief")
+        if isinstance(brief, str) and brief.strip():
+            bits.append(brief.strip())
+        bits.extend(_profile_lines(record.get("profile")))
+        if bits:
+            sections.append(f"{title}: {'; '.join(bits)}")
+    return " ".join(sections)
+
+
+def _campaign_values(records: list[dict], keys: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    for record in _campaign_records(records):
+        profile = record.get("profile")
+        if not isinstance(profile, dict):
+            continue
+        for key in keys:
+            value = profile.get(key)
+            if isinstance(value, str) and value.strip():
+                values.append(f"{_PROFILE_FIELD_LABELS.get(key, key)}: {value.strip()}")
+    return values
 
 
 def normalize_video_recipe_id(recipe_id: Optional[str]) -> Optional[str]:
@@ -667,7 +749,7 @@ def infer_video_recipe_id(records: list[dict], target_data: dict) -> Optional[st
         return "ugc_testimonial"
     if "review" in blob:
         return "ugc_review"
-    if "lifestyle" in blob or "ad" in blob or "campaign" in blob:
+    if "campaign_ref" in roles or "lifestyle" in blob or "ad" in blob or "campaign" in blob:
         return "lifestyle_ad"
     if "skincare" in blob or "serum" in blob or "beauty" in blob or "tvc" in blob:
         return "skincare_tvc"
@@ -715,6 +797,7 @@ def _collect_plan_context(node_id: int) -> tuple[list[dict], Optional[dict]]:
                     "brief": prompt or ai_brief,
                     "prompt": prompt,
                     "title": data.get("title") if isinstance(data.get("title"), str) else None,
+                    "profile": _profile_from_node_data(data),
                     "has_media": has_media,
                 }
             )
@@ -739,6 +822,9 @@ def _describe_record(record: dict) -> str:
     prefix = f"ref_image_{ref_index}" if ref_index else "text_ref"
     title = record.get("title") if isinstance(record.get("title"), str) else record.get("type")
     brief = record.get("brief") if isinstance(record.get("brief"), str) else ""
+    profile = "; ".join(_profile_lines(record.get("profile")))
+    if profile:
+        brief = f"{brief}; {profile}" if brief else profile
     if brief and title and brief != title:
         return f"{role_label}: {prefix} - {title}: {brief}"
     return f"{role_label}: {prefix} - {title or '(no description)'}"
@@ -797,6 +883,18 @@ def build_video_recipe_plan_from_records(
     missing_roles = [role for role in recipe.required_roles if role not in present_roles]
     target_title = target_data.get("title") if isinstance(target_data.get("title"), str) else None
     camera_mode = camera or recipe.default_camera
+    campaign = _campaign_section(records)
+    claim_limits = _campaign_values(records, ("claimsAllowed", "claimsAvoid", "claimRules"))
+    campaign_avoid = _campaign_values(records, ("claimsAvoid", "mustAvoid", "legalNotes"))
+    action = recipe.action_hint
+    if campaign:
+        action = f"{action} Campaign brief: {campaign}"
+    safety = recipe.safety_hint
+    if claim_limits:
+        safety = f"{safety} Campaign claim limits: {'; '.join(claim_limits)}."
+    avoid = recipe.avoid_hint
+    if campaign_avoid:
+        avoid = f"{avoid} Campaign restrictions: {'; '.join(campaign_avoid)}."
     return {
         "recipe_id": recipe.id,
         "label": recipe.label,
@@ -809,12 +907,12 @@ def build_video_recipe_plan_from_records(
         "prompt_sections": {
             "brief": f"{recipe.label}: {target_title or 'untitled video'}",
             "refs": _refs_section(records),
-            "action": recipe.action_hint,
+            "action": action,
             "camera": f"{camera_mode} camera; default aspect {recipe.default_aspect_ratio}.",
             "audio": recipe.audio_hint,
             "preserve": _preserve_section(recipe, present_roles),
-            "safety": recipe.safety_hint,
-            "avoid": recipe.avoid_hint,
+            "safety": safety,
+            "avoid": avoid,
         },
     }
 

@@ -237,6 +237,35 @@ const RECIPE_PLAN_SECTION_LABELS = {
 } as const;
 type RecipePlanSectionKey = keyof typeof RECIPE_PLAN_SECTION_LABELS;
 
+const CAMPAIGN_FIELD_LABELS: Record<string, string> = {
+  objective: "Objective",
+  audience: "Audience",
+  offer: "Offer",
+  cta: "CTA",
+  claimsAllowed: "Claims allowed",
+  claimsAvoid: "Claims avoid",
+  claimRules: "Claim rules",
+  tone: "Tone",
+  platform: "Platform",
+  mustInclude: "Must include",
+  mustAvoid: "Must avoid",
+};
+
+const CAMPAIGN_FIELD_KEYS = Object.keys(CAMPAIGN_FIELD_LABELS);
+
+function campaignBriefFromData(data: Record<string, unknown>): string {
+  const parts = CAMPAIGN_FIELD_KEYS.flatMap((key) => {
+    const value = data[key];
+    return typeof value === "string" && value.trim().length > 0
+      ? [`${CAMPAIGN_FIELD_LABELS[key]}: ${value.trim()}`]
+      : [];
+  });
+  const prompt = typeof data.prompt === "string" && data.prompt.trim().length > 0
+    ? data.prompt.trim()
+    : "";
+  return [prompt, ...parts].filter((part) => part.length > 0).join("; ");
+}
+
 // Map an upstream image aspect onto the closest video aspect. Square has
 // no direct video equivalent — fall back to portrait per the
 // "default-to-9:16 on mismatch" rule.
@@ -512,8 +541,10 @@ export function GenerationDialog() {
         .filter((e) => e.target === rfId)
         .map((e) => {
           const n = nodes.find((node) => node.id === e.source);
-          if (!n || !["prompt", "brand", "audio"].includes(n.data.type)) return null;
-          const text = typeof n.data.prompt === "string" ? n.data.prompt : "";
+          if (!n || !["prompt", "brand", "campaign", "audio"].includes(n.data.type)) return null;
+          const text = n.data.type === "campaign"
+            ? campaignBriefFromData(n.data)
+            : typeof n.data.prompt === "string" ? n.data.prompt : "";
           return {
             edgeId: e.id,
             node: n,
@@ -1068,6 +1099,7 @@ export function GenerationDialog() {
             durationSec,
             cameraInstruction: camInstruction,
             audioInstruction: audio,
+            campaignBrief: campaignBrief || undefined,
           })
         : [finalPrompt, camInstruction, audio]
             .filter((part) => part.trim().length > 0)
@@ -1170,6 +1202,31 @@ export function GenerationDialog() {
         ? recipePlan?.recipe_id ?? null
         : videoRecipe;
   const activeRecipeDefinition = findVideoRecipeDefinition(activeRecipeId);
+  const campaignRefs = isVideo
+    ? incomingVideoEdges
+        .map((edge) => {
+          const src = nodes.find((n) => n.id === edge.source);
+          if (!src) return null;
+          const refRole = (edge.data?.refRole ?? null) as RefRole | null;
+          return src.data.type === "campaign" || refRole === "campaign_ref"
+            ? src.data
+            : null;
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : [];
+  const campaignBrief = campaignRefs
+    .map(campaignBriefFromData)
+    .filter((text) => text.length > 0)
+    .join(" ");
+  const hasCampaignCta = campaignRefs.some(
+    (data) => typeof data.cta === "string" && data.cta.trim().length > 0,
+  );
+  const hasCampaignClaimLimits = campaignRefs.some((data) =>
+    ["claimsAllowed", "claimsAvoid", "claimRules"].some((key) => {
+      const value = data[key];
+      return typeof value === "string" && value.trim().length > 0;
+    }),
+  );
   const recipePreflightItems: VideoRecipePreflightItem[] =
     isVideo && activeRecipeDefinition
       ? buildVideoRecipePreflight(activeRecipeDefinition, {
@@ -1180,6 +1237,9 @@ export function GenerationDialog() {
           hasLastFrame: !!lastFrameMediaId,
           hasIngredientRefs: ingredientRefCount > 0,
           hasEditSource: !!editSourceMediaId,
+          hasCampaignBrief: campaignBrief.length > 0,
+          hasCampaignCta,
+          hasCampaignClaimLimits,
         })
       : [];
   const recipeLibraryBlocked = recipePreflightItems.some(
@@ -1424,7 +1484,7 @@ export function GenerationDialog() {
                   title={item.detail}
                 >
                   <span>{item.label}</span>
-                  <strong>{item.ok ? "OK" : "Fix"}</strong>
+                  <strong>{item.ok ? "OK" : item.blocking ? "Fix" : "Warn"}</strong>
                   <small>{item.detail}</small>
                 </div>
               ))}

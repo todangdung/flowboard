@@ -44,6 +44,7 @@ const ICON: Record<string, string> = {
   product: "▤",
   location: "⌂",
   brand: "◈",
+  campaign: "◉",
   audio: "♪",
 };
 
@@ -303,6 +304,7 @@ function referenceKindFor(
   if (nodeType === "product") return "product";
   if (nodeType === "location") return "location";
   if (nodeType === "brand") return "brand";
+  if (nodeType === "campaign") return "campaign";
   if (nodeType === "audio") return "audio";
   if (nodeType === "prompt") return "style";
   if (/(package|packaging|box|unbox)/.test(text)) return "package";
@@ -334,6 +336,15 @@ function profileFromNodeData(
     "voiceName",
     "claimRules",
     "brandTone",
+    "objective",
+    "audience",
+    "offer",
+    "claimsAllowed",
+    "claimsAvoid",
+    "tone",
+    "platform",
+    "mustInclude",
+    "mustAvoid",
     "palette",
     "cta",
     "legalNotes",
@@ -368,6 +379,18 @@ const DOMAIN_PROFILE_FIELDS: Record<string, readonly {
     { key: "palette", label: "Palette" },
     { key: "cta", label: "CTA" },
     { key: "legalNotes", label: "Legal", multiline: true },
+  ],
+  campaign: [
+    { key: "objective", label: "Objective", multiline: true },
+    { key: "audience", label: "Audience" },
+    { key: "offer", label: "Offer" },
+    { key: "cta", label: "CTA" },
+    { key: "claimsAllowed", label: "Claims allowed", multiline: true },
+    { key: "claimsAvoid", label: "Claims avoid", multiline: true },
+    { key: "tone", label: "Tone" },
+    { key: "platform", label: "Platform" },
+    { key: "mustInclude", label: "Must include", multiline: true },
+    { key: "mustAvoid", label: "Must avoid", multiline: true },
   ],
   audio: [
     { key: "voiceName", label: "Voice" },
@@ -2267,6 +2290,7 @@ function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
         </>
       );
     case "brand":
+    case "campaign":
     case "audio":
       return (
         <>
@@ -2295,6 +2319,7 @@ export function NodeCard(props: NodeProps<FlowNode>) {
     "product",
     "location",
     "brand",
+    "campaign",
     "audio",
     "character",
     "Storyboard",

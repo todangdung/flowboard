@@ -32,6 +32,7 @@ _ALLOWED_KINDS = {
     "location",
     "style",
     "brand",
+    "campaign",
     "audio",
     "first_frame",
 }
@@ -97,7 +98,7 @@ def _infer_kind_from_node(node: Node) -> str:
         return "character"
     if node.type == "video":
         return "video"
-    if node.type in {"product", "location", "brand", "audio"}:
+    if node.type in {"product", "location", "brand", "campaign", "audio"}:
         return node.type
     if node.type == "Storyboard":
         return "storyboard_shot"
@@ -152,6 +153,15 @@ def _profile_from_node(node: Node, kind: str, media_id: str) -> dict[str, Any]:
         "voiceName",
         "claimRules",
         "brandTone",
+        "objective",
+        "audience",
+        "offer",
+        "claimsAllowed",
+        "claimsAvoid",
+        "tone",
+        "platform",
+        "mustInclude",
+        "mustAvoid",
         "palette",
         "cta",
         "legalNotes",

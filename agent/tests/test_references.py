@@ -25,7 +25,16 @@ def test_create_reference_minimal(client):
 
 
 def test_create_reference_accepts_profile_kinds(client):
-    for kind in ("product", "package", "location", "style", "brand", "audio", "first_frame"):
+    for kind in (
+        "product",
+        "package",
+        "location",
+        "style",
+        "brand",
+        "campaign",
+        "audio",
+        "first_frame",
+    ):
         r = client.post(
             "/api/references",
             json={"media_id": f"m-{kind}", "kind": kind, "label": kind},

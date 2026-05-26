@@ -273,11 +273,37 @@ _ROLE_LABELS = {
     "style_ref": "Style",
     "storyboard_ref": "Storyboard",
     "storyboard_panel": "Storyboard panel",
+    "campaign_ref": "Campaign brief",
     "ingredient": "Ingredient",
 }
 
+_PROFILE_FIELD_LABELS = {
+    "productName": "Product",
+    "brandName": "Brand",
+    "locationName": "Location",
+    "characterName": "Character",
+    "voiceName": "Voice",
+    "claimRules": "Claim rules",
+    "brandTone": "Brand tone",
+    "palette": "Palette",
+    "cta": "CTA",
+    "legalNotes": "Legal notes",
+    "objective": "Objective",
+    "audience": "Audience",
+    "offer": "Offer",
+    "claimsAllowed": "Claims allowed",
+    "claimsAvoid": "Claims avoid",
+    "tone": "Tone",
+    "platform": "Platform",
+    "mustInclude": "Must include",
+    "mustAvoid": "Must avoid",
+}
+
+_PROFILE_FIELD_KEYS = tuple(_PROFILE_FIELD_LABELS.keys())
+
 _FORBIDDEN_FINAL_TOKENS = (
     "background_ref",
+    "campaign_ref",
     "character_ref",
     "first_frame",
     "ingredient_ref",
@@ -298,6 +324,26 @@ def _role_label(role: Optional[str]) -> Optional[str]:
     if not isinstance(role, str) or not role:
         return None
     return _ROLE_LABELS.get(role, role.replace("_", " ").title())
+
+
+def _profile_from_node_data(data: dict) -> dict[str, str]:
+    profile: dict[str, str] = {}
+    for key in _PROFILE_FIELD_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            profile[key] = value.strip()
+    return profile
+
+
+def _profile_lines(profile: dict | None) -> list[str]:
+    if not isinstance(profile, dict):
+        return []
+    lines: list[str] = []
+    for key in _PROFILE_FIELD_KEYS:
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{_PROFILE_FIELD_LABELS[key]}: {value.strip()}")
+    return lines
 
 
 def _first_media_id(data: dict) -> Optional[str]:
@@ -400,6 +446,7 @@ def _collect_upstream(node_id: int) -> tuple[list[dict], Optional[Node]]:
                     "brief": brief if isinstance(brief, str) else None,
                     "prompt": user_prompt,
                     "title": data.get("title") if isinstance(data.get("title"), str) else None,
+                    "profile": _profile_from_node_data(data),
                     "has_media": has_media,
                     "media_id": media_id,
                     "subject_chars": subject_chars,
@@ -642,6 +689,9 @@ def _format_user_message(records: list[dict], target: Node) -> str:
         # Prefer the AI-generated brief; fall back to the user-typed prompt
         # or title so a node with no brief still contributes something.
         text = r["brief"] or r["prompt"] or r["title"] or "(no description)"
+        profile_text = "; ".join(_profile_lines(r.get("profile")))
+        if profile_text:
+            text = f"{text}; {profile_text}" if text != "(no description)" else profile_text
 
         # Cross-reference an image record to the character it embodies,
         # if that character is also upstream as a ref. Translates each
@@ -704,6 +754,12 @@ def _format_user_message(records: list[dict], target: Node) -> str:
         parts.append(
             "Direction / style notes (prompt nodes — apply as styling "
             "guidance):\n  - " + "\n  - ".join(by_type["prompt"])
+        )
+    if by_type.get("campaign"):
+        parts.append(
+            "Campaign brief (apply advertising objective, audience, offer, "
+            "CTA, platform, tone, claim limits, and must-include/avoid rules):\n  - "
+            + "\n  - ".join(by_type["campaign"])
         )
 
     # Surface multi-subject scenes (couple, group) so Claude switches to

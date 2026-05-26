@@ -56,6 +56,7 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
     await expect(topPalette).not.toContainText("Product");
     await expect(topPalette).not.toContainText("Location");
     await expect(topPalette).not.toContainText("Brand");
+    await expect(topPalette).not.toContainText("Campaign");
     await expect(topPalette).not.toContainText("Audio");
 
     const projectSidebar = page.locator(".project-sidebar");
@@ -66,7 +67,7 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
 
     const domainFolder = nodeLibrary.getByRole("button", { name: "Domain nodes" });
     await expect(domainFolder).toHaveAttribute("aria-expanded", "true");
-    for (const label of ["Product", "Location", "Brand", "Audio"]) {
+    for (const label of ["Product", "Location", "Brand", "Campaign", "Audio"]) {
       await expect(
         nodeLibrary.getByRole("button", { name: `Add ${label} node` }),
       ).toBeVisible();
@@ -75,6 +76,9 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
     await expect(domainFolder).toHaveAttribute("aria-expanded", "false");
     await expect(
       nodeLibrary.getByRole("button", { name: "Add Product node" }),
+    ).toHaveCount(0);
+    await expect(
+      nodeLibrary.getByRole("button", { name: "Add Campaign node" }),
     ).toHaveCount(0);
 
     const workflowsFolder = nodeLibrary.getByRole("button", { name: "Video workflows" });

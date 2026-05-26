@@ -17,6 +17,16 @@ def test_create_node_assigns_short_id(client):
     assert node["status"] == "idle"
 
 
+def test_create_campaign_node(client):
+    b = _make_board(client)
+    r = client.post(
+        "/api/nodes",
+        json={"board_id": b["id"], "type": "campaign", "data": {"title": "Campaign"}},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["type"] == "campaign"
+
+
 def test_short_ids_unique_within_board(client):
     b = _make_board(client)
     ids = set()
