@@ -1713,7 +1713,9 @@ type TimelineExportUiState = "none" | "fresh" | "stale";
 type TimelineExportPresetKey = VideoExportPresetKey;
 type TimelineCaptionMode = "none" | "burn_in";
 type TimelineAudioMode = "none" | "mix";
+type TimelineTransitionType = "cut" | "fade";
 type TimelineClipEditMap = Record<string, { trimStartSec?: number; trimEndSec?: number }>;
+type TimelineTransitionMap = Record<string, { type: TimelineTransitionType; durationSec: number }>;
 
 const TIMELINE_EXPORT_PRESETS: readonly {
   key: TimelineExportPresetKey;
@@ -1829,6 +1831,34 @@ function timelineClipEditForShot(
   return {
     trimStartSec: edit?.trimStartSec ?? 0,
     trimEndSec: edit?.trimEndSec ?? 0,
+  };
+}
+
+function timelineTransitionMap(data: FlowboardNodeData): TimelineTransitionMap {
+  const raw = data.timelineTransitions;
+  if (!raw || typeof raw !== "object") return {};
+  const out: TimelineTransitionMap = {};
+  for (const [shotId, transition] of Object.entries(raw)) {
+    if (!shotId || !transition || typeof transition !== "object") continue;
+    const type = (transition as { type?: unknown }).type === "fade" ? "fade" : "cut";
+    if (type !== "fade") continue;
+    const duration = Number((transition as { durationSec?: unknown }).durationSec ?? 0.5);
+    out[shotId] = {
+      type: "fade",
+      durationSec: Number.isFinite(duration) && duration > 0 ? duration : 0.5,
+    };
+  }
+  return out;
+}
+
+function timelineTransitionForShot(
+  data: FlowboardNodeData,
+  shotId?: string,
+): { type: TimelineTransitionType; durationSec: number } {
+  const transition = shotId ? timelineTransitionMap(data)[shotId] : undefined;
+  return {
+    type: transition?.type ?? "cut",
+    durationSec: transition?.durationSec ?? 0.5,
   };
 }
 
@@ -2060,6 +2090,37 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       .filter((item): item is { shot_id: string; trim_start_sec: number; trim_end_sec: number } => !!item);
   }
 
+  function exportTransitionPayload() {
+    const currentData =
+      useBoardStore.getState().nodes.find((node) => node.id === rfId)?.data ?? data;
+    const transitions = timelineTransitionMap(currentData);
+    const exportableShotIds = shotPairs
+      .filter(({ clip }) =>
+        nodeMediaIds(clip.data).length > 0
+        && clip.data.reviewVerdict !== "skip",
+      )
+      .map(({ clip }) => timelineShotId(clip.data))
+      .filter((shotId): shotId is string => !!shotId);
+    return exportableShotIds
+      .slice(0, -1)
+      .map((shotId, index) => {
+        const transition = transitions[shotId];
+        if (!transition || transition.type !== "fade") return null;
+        return {
+          from_shot_id: shotId,
+          to_shot_id: exportableShotIds[index + 1],
+          type: "fade" as const,
+          duration_sec: transition.durationSec,
+        };
+      })
+      .filter((item): item is {
+        from_shot_id: string;
+        to_shot_id: string;
+        type: "fade";
+        duration_sec: number;
+      } => !!item);
+  }
+
   function upstreamScriptCaption(clip: FlowNode): string {
     const scriptTargets = new Set([clip.id, rfId]);
     for (const edge of edges) {
@@ -2169,6 +2230,27 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     await persistTimelineData({ timelineClipEdits: nextEdits }, "timeline_trim_changed");
   }
 
+  async function saveShotTransition(
+    shotId: string,
+    patch: Partial<{ type: TimelineTransitionType; durationSec: number }>,
+  ) {
+    const currentData =
+      useBoardStore.getState().nodes.find((node) => node.id === rfId)?.data ?? data;
+    const nextTransitions = { ...timelineTransitionMap(currentData) };
+    const current = nextTransitions[shotId] ?? { type: "cut" as const, durationSec: 0.5 };
+    const nextTransition = { ...current, ...patch };
+    if (nextTransition.type !== "fade") {
+      delete nextTransitions[shotId];
+    } else {
+      const duration = Number(nextTransition.durationSec);
+      nextTransitions[shotId] = {
+        type: "fade",
+        durationSec: Number(Math.max(0.05, Math.min(5, Number.isFinite(duration) ? duration : 0.5)).toFixed(2)),
+      };
+    }
+    await persistTimelineData({ timelineTransitions: nextTransitions }, "timeline_transition_changed");
+  }
+
   async function moveShot(shotId: string, delta: -1 | 1) {
     const order = orderedShotIds.slice();
     const index = order.indexOf(shotId);
@@ -2258,6 +2340,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           }
           : { clipVolume: 1 };
       const clipEdits = exportClipEditPayload();
+      const transitions = exportTransitionPayload();
       const result = await exportTimeline(dbId, {
         width: exportPreset.width,
         height: exportPreset.height,
@@ -2268,6 +2351,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         voiceover_volume: exportVoiceoverVolume,
         music_volume: exportMusicVolume,
         clip_edits: clipEdits,
+        transitions,
       });
       const storedAudioMode = result.export_audio_mode ?? exportAudioMode;
       const storedAudioMediaIds = result.export_audio_media_ids ?? exportAudioMediaIds;
@@ -2285,6 +2369,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportDurationsSec: result.clip_durations_sec,
         exportEffectiveDurationsSec: result.clip_effective_durations_sec,
         exportClipEdits: result.export_clip_edits,
+        exportTransitions: result.export_transitions,
         exportCaptions: result.clip_captions,
         exportCaptionMode: result.export_caption_mode ?? exportCaptionMode,
         exportAudioMode: storedAudioMode,
@@ -2318,6 +2403,11 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       setExportBusy(false);
     }
   }
+
+  const preflightTransitions = exportTransitionPayload();
+  const preflightTransitionMap = new Map(
+    preflightTransitions.map((transition) => [transition.from_shot_id, transition]),
+  );
 
   return (
     <div className="node-body node-body--timeline">
@@ -2505,8 +2595,10 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 const bestIdx = bestVariantIndex(clip.data);
                 const sourceIds = preferredMediaIds(clip.data);
                 const duration = timelineDuration(clip.data);
-                const edit = timelineClipEditForShot(data, timelineShotId(clip.data) ?? undefined);
+                const shotId = timelineShotId(clip.data);
+                const edit = timelineClipEditForShot(data, shotId ?? undefined);
                 const effectiveDuration = timelineEffectiveDuration(duration, edit);
+                const transition = shotId ? preflightTransitionMap.get(shotId) : undefined;
                 const caption = captionForTimelineRow(clip);
                 return (
                   <div key={clip.id} className="timeline-preflight__clip">
@@ -2519,6 +2611,11 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                       <small>
                         Trim / Cắt: in {edit.trimStartSec}s · end {edit.trimEndSec}s
                         {duration !== null && effectiveDuration !== null ? ` · ${duration}s -> ${effectiveDuration}s` : ""}
+                      </small>
+                    )}
+                    {transition && (
+                      <small>
+                        Transition / Chuyển: fade {transition.duration_sec}s
                       </small>
                     )}
                     {caption && <small>{caption}</small>}
@@ -2600,8 +2697,10 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const duration = timelineDuration(clip.data);
           const trimEdit = timelineClipEditForShot(data, typeof shotId === "string" ? shotId : undefined);
           const effectiveDuration = timelineEffectiveDuration(duration, trimEdit);
+          const transition = timelineTransitionForShot(data, typeof shotId === "string" ? shotId : undefined);
           const caption = captionForTimelineRow(clip);
           const orderIndex = typeof shotId === "string" ? orderedShotIds.indexOf(shotId) : -1;
+          const hasNextTransition = orderIndex >= 0 && orderIndex < orderedShotIds.length - 1;
           const candidates = typeof shotId === "string" && shotId
             ? nodes
               .filter((candidate) =>
@@ -2751,6 +2850,47 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                     />
                   </div>
                 )}
+                {shotId && hasNextTransition && (
+                  <div
+                    className="timeline-shot-row__transition-controls nodrag"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <label className="timeline-shot-row__transition">
+                      <span>next</span>
+                      <select
+                        aria-label={`Shot ${index || "?"} transition type`}
+                        value={transition.type}
+                        onChange={(event) => {
+                          void saveShotTransition(shotId, {
+                            type: event.target.value === "fade" ? "fade" : "cut",
+                          });
+                        }}
+                      >
+                        <option value="cut">cut</option>
+                        <option value="fade">fade</option>
+                      </select>
+                    </label>
+                    <label className="timeline-shot-row__transition timeline-shot-row__transition--duration">
+                      <span>fade</span>
+                      <input
+                        aria-label={`Shot ${index || "?"} transition seconds`}
+                        type="number"
+                        min={0.05}
+                        max={5}
+                        step={0.05}
+                        disabled={transition.type !== "fade"}
+                        defaultValue={transition.type === "fade" ? transition.durationSec : 0.5}
+                        onBlur={(event) => {
+                          const parsed = Number(event.target.value);
+                          void saveShotTransition(shotId, {
+                            durationSec: Number.isFinite(parsed) ? parsed : 0.5,
+                            type: "fade",
+                          });
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
               <span className="timeline-shot-row__status">
                 {hasMedia ? "done / xong" : `${status} / ${STATUS_LABEL_VI[status] ?? status}`}
@@ -2767,6 +2907,11 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 {(trimEdit.trimStartSec > 0 || trimEdit.trimEndSec > 0) && (
                   <span className="timeline-shot-row__review">
                     trim {effectiveDuration ?? "?"}s
+                  </span>
+                )}
+                {transition.type === "fade" && (
+                  <span className="timeline-shot-row__review">
+                    fade {transition.durationSec}s
                   </span>
                 )}
               </span>

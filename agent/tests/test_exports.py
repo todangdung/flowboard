@@ -153,6 +153,7 @@ def test_export_timeline_stitches_shot_clips(client):
     assert body["export_audio_mode"] == "none"
     assert body["export_audio_media_ids"] == {}
     assert body["export_audio_mix"] == {"clipVolume": 1.0}
+    assert body["export_transitions"] == []
     assert body["url"] == f"/media/{body['media_id']}"
     assert media_service.cached_path(body["media_id"]) is not None
 
@@ -172,6 +173,7 @@ def test_export_timeline_stitches_shot_clips(client):
         assert timeline.data["exportAudioMode"] == "none"
         assert timeline.data["exportAudioMediaIds"] == {}
         assert timeline.data["exportAudioMix"] == {"clipVolume": 1.0}
+        assert timeline.data["exportTransitions"] == []
         assert timeline.data["exportHistory"] == []
         assert isinstance(timeline.data["exportedAt"], str)
     assert body["export_status"] == "fresh"
@@ -470,6 +472,110 @@ def test_export_timeline_applies_clip_trim_and_stamps_metadata(client):
             {"shotId": "shot-1", "trimStartSec": 0.5, "trimEndSec": 0.75}
         ]
         assert timeline.data["exportEffectiveDurationsSec"] == pytest.approx([0.75], abs=0.08)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_export_timeline_applies_fade_transition_and_stamps_metadata(client):
+    media_a = "aaaaaaaa-0000-4000-8000-000000000131"
+    media_b = "bbbbbbbb-0000-4000-8000-000000000132"
+    _write_clip(media_a, "red", duration=1.2)
+    _write_clip(media_b, "blue", duration=1.2)
+
+    with get_session() as s:
+        board = Board(name="export-transition")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip_a = Node(
+            board_id=board.id,
+            short_id="trn1",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotId": "shot-1",
+                "shotIndex": 1,
+                "shotDurationSec": 1,
+                "mediaId": media_a,
+                "mediaIds": [media_a],
+            },
+            status="done",
+        )
+        clip_b = Node(
+            board_id=board.id,
+            short_id="trn2",
+            type="video",
+            data={
+                "title": "Shot 2",
+                "workflowKind": "shot_clip",
+                "shotId": "shot-2",
+                "shotIndex": 2,
+                "shotDurationSec": 1,
+                "mediaId": media_b,
+                "mediaIds": [media_b],
+            },
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={
+                "title": "Timeline",
+                "workflowKind": "timeline",
+                "timelineTransitions": {
+                    "shot-1": {"type": "fade", "durationSec": 0.3},
+                },
+            },
+            status="idle",
+        )
+        s.add_all([clip_a, clip_b, timeline])
+        s.commit()
+        for node in (clip_a, clip_b, timeline):
+            s.refresh(node)
+        for clip in (clip_a, clip_b):
+            s.add(
+                Edge(
+                    board_id=board.id,
+                    source_id=clip.id,
+                    target_id=timeline.id,
+                    ref_role="storyboard_panel",
+                )
+            )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}",
+        json={
+            "width": 180,
+            "height": 320,
+            "transitions": [
+                {
+                    "from_shot_id": "shot-1",
+                    "to_shot_id": "shot-2",
+                    "type": "fade",
+                    "duration_sec": 0.3,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["source_shot_ids"] == ["shot-1", "shot-2"]
+    assert body["export_transitions"] == [
+        {"fromShotId": "shot-1", "toShotId": "shot-2", "type": "fade", "durationSec": 0.3}
+    ]
+    exported = media_service.cached_path(body["media_id"])
+    assert exported is not None
+    assert 1.75 <= _probe_duration(exported) <= 2.35
+
+    with get_session() as s:
+        timeline = s.get(Node, timeline_id)
+        assert timeline is not None
+        assert timeline.data["exportTransitions"] == [
+            {"fromShotId": "shot-1", "toShotId": "shot-2", "type": "fade", "durationSec": 0.3}
+        ]
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")

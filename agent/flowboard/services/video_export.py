@@ -49,6 +49,14 @@ class TimelineClipEdit:
     trim_end_sec: float = 0.0
 
 
+@dataclass(frozen=True)
+class TimelineTransition:
+    from_shot_id: str
+    to_shot_id: str
+    type: str = "cut"
+    duration_sec: float = 0.0
+
+
 def _run_ffmpeg(cmd: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         cmd,
@@ -299,6 +307,127 @@ def _clip_edit_export_list(
     return [_clip_edit_dict(edits[shot_id]) for shot_id in shot_ids if shot_id in edits]
 
 
+def _timeline_stored_transitions(data: dict, shot_ids: list[str]) -> list[dict]:
+    raw = data.get("timelineTransitions")
+    if not isinstance(raw, dict):
+        return []
+    out: list[dict] = []
+    adjacent = {shot_ids[index]: shot_ids[index + 1] for index in range(len(shot_ids) - 1)}
+    for from_shot_id, to_shot_id in adjacent.items():
+        transition = raw.get(from_shot_id)
+        if not isinstance(transition, dict):
+            continue
+        out.append({"from_shot_id": from_shot_id, "to_shot_id": to_shot_id, **transition})
+    return out
+
+
+def _clean_transition_duration(
+    value: object,
+    transition_type: str,
+    from_shot_id: str,
+    to_shot_id: str,
+) -> float:
+    if transition_type == "cut":
+        return 0.0
+    if value is None:
+        return 0.5
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise VideoExportError(f"invalid_transition_duration:{from_shot_id}:{to_shot_id}") from exc
+    if seconds < 0.05 or seconds > 5:
+        raise VideoExportError(f"invalid_transition_duration:{from_shot_id}:{to_shot_id}")
+    return round(seconds, 3)
+
+
+def _transition_entry(
+    raw: object,
+    adjacent: dict[str, str],
+    effective_durations: dict[str, float],
+    *,
+    strict: bool,
+) -> TimelineTransition | None:
+    if not isinstance(raw, dict):
+        return None
+    from_shot_id = raw.get("from_shot_id") or raw.get("fromShotId")
+    to_shot_id = raw.get("to_shot_id") or raw.get("toShotId")
+    if not isinstance(from_shot_id, str) or not from_shot_id.strip():
+        if strict:
+            raise VideoExportError("invalid_transition_boundary")
+        return None
+    from_shot_id = from_shot_id.strip()
+    if not isinstance(to_shot_id, str) or not to_shot_id.strip():
+        to_shot_id = adjacent.get(from_shot_id)
+    elif isinstance(to_shot_id, str):
+        to_shot_id = to_shot_id.strip()
+    if not isinstance(to_shot_id, str) or not to_shot_id:
+        if strict:
+            raise VideoExportError(f"invalid_transition_boundary:{from_shot_id}")
+        return None
+    if adjacent.get(from_shot_id) != to_shot_id:
+        if strict:
+            raise VideoExportError(f"invalid_transition_boundary:{from_shot_id}:{to_shot_id}")
+        return None
+    transition_type = raw.get("type") or raw.get("transitionType") or "cut"
+    if transition_type not in {"cut", "fade"}:
+        raise VideoExportError(f"invalid_transition_type:{from_shot_id}:{to_shot_id}")
+    duration = _clean_transition_duration(
+        raw.get("duration_sec", raw.get("durationSec")),
+        transition_type,
+        from_shot_id,
+        to_shot_id,
+    )
+    if transition_type == "fade":
+        max_duration = min(
+            effective_durations.get(from_shot_id, 0.0),
+            effective_durations.get(to_shot_id, 0.0),
+        )
+        if duration >= max_duration:
+            raise VideoExportError(f"invalid_transition_duration:{from_shot_id}:{to_shot_id}")
+    return TimelineTransition(
+        from_shot_id=from_shot_id,
+        to_shot_id=to_shot_id,
+        type=transition_type,
+        duration_sec=duration,
+    )
+
+
+def _resolve_transitions(
+    timeline: Node,
+    raw_transitions: list[dict] | None,
+    shot_ids: list[str],
+    effective_durations_sec: list[float],
+) -> dict[str, TimelineTransition]:
+    if len(shot_ids) < 2:
+        return {}
+    adjacent = {shot_ids[index]: shot_ids[index + 1] for index in range(len(shot_ids) - 1)}
+    durations_by_shot = dict(zip(shot_ids, effective_durations_sec, strict=False))
+    strict = bool(raw_transitions)
+    raw_entries = raw_transitions if raw_transitions else _timeline_stored_transitions(timeline.data or {}, shot_ids)
+    out: dict[str, TimelineTransition] = {}
+    for raw in raw_entries:
+        entry = _transition_entry(raw, adjacent, durations_by_shot, strict=strict)
+        if entry is not None:
+            out[entry.from_shot_id] = entry
+    return out
+
+
+def _transition_dict(transition: TimelineTransition) -> dict[str, float | str]:
+    return {
+        "fromShotId": transition.from_shot_id,
+        "toShotId": transition.to_shot_id,
+        "type": transition.type,
+        "durationSec": transition.duration_sec,
+    }
+
+
+def _transition_export_list(
+    transitions: dict[str, TimelineTransition],
+    shot_ids: list[str],
+) -> list[dict[str, float | str]]:
+    return [_transition_dict(transitions[shot_id]) for shot_id in shot_ids[:-1] if shot_id in transitions]
+
+
 def _effective_clip_duration(
     path: Path,
     edit: TimelineClipEdit | None,
@@ -529,6 +658,130 @@ def _mix_timeline_audio(
     _run_ffmpeg(cmd, timeout=240)
 
 
+def _concat_clips(paths: list[Path], target: Path, concat_file: Path) -> None:
+    concat_file.write_text("".join(_concat_line(path) for path in paths))
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_file),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(target),
+        ],
+        timeout=240,
+    )
+
+
+def _render_transition_sequence(
+    paths: list[Path],
+    target: Path,
+    *,
+    shot_ids: list[str],
+    effective_durations_sec: list[float],
+    transitions: dict[str, TimelineTransition],
+) -> None:
+    if len(paths) == 1:
+        _concat_clips(paths, target, target.with_suffix(".concat.txt"))
+        return
+    cmd = ["ffmpeg", "-y"]
+    for path in paths:
+        cmd.extend(["-i", str(path)])
+
+    filters: list[str] = []
+    for index in range(len(paths)):
+        filters.append(f"[{index}:v:0]setpts=PTS-STARTPTS[v{index}in]")
+        filters.append(f"[{index}:a:0]asetpts=PTS-STARTPTS[a{index}in]")
+
+    video_label = "v0in"
+    audio_label = "a0in"
+    output_duration = effective_durations_sec[0]
+    for index in range(1, len(paths)):
+        from_shot_id = shot_ids[index - 1]
+        transition = transitions.get(from_shot_id)
+        next_video = f"v{index}in"
+        next_audio = f"a{index}in"
+        out_video = f"v{index}out"
+        out_audio = f"a{index}out"
+        if transition is not None and transition.type == "fade":
+            duration = transition.duration_sec
+            offset = max(0.0, output_duration - duration)
+            filters.append(
+                f"[{video_label}][{next_video}]"
+                f"xfade=transition=fade:duration={duration:.3f}:offset={offset:.3f}"
+                f"[{out_video}]"
+            )
+            filters.append(
+                f"[{audio_label}][{next_audio}]"
+                f"acrossfade=d={duration:.3f}:c1=tri:c2=tri"
+                f"[{out_audio}]"
+            )
+            output_duration += effective_durations_sec[index] - duration
+        else:
+            filters.append(f"[{video_label}][{next_video}]concat=n=2:v=1:a=0[{out_video}]")
+            filters.append(f"[{audio_label}][{next_audio}]concat=n=2:v=0:a=1[{out_audio}]")
+            output_duration += effective_durations_sec[index]
+        video_label = out_video
+        audio_label = out_audio
+
+    cmd.extend(
+        [
+            "-filter_complex",
+            ";".join(filters),
+            "-map",
+            f"[{video_label}]",
+            "-map",
+            f"[{audio_label}]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-movflags",
+            "+faststart",
+            str(target),
+        ]
+    )
+    _run_ffmpeg(cmd, timeout=240)
+
+
+def _render_timeline_sequence(
+    paths: list[Path],
+    target: Path,
+    *,
+    shot_ids: list[str],
+    effective_durations_sec: list[float],
+    transitions: dict[str, TimelineTransition],
+    concat_file: Path,
+) -> None:
+    if any(transition.type == "fade" for transition in transitions.values()):
+        _render_transition_sequence(
+            paths,
+            target,
+            shot_ids=shot_ids,
+            effective_durations_sec=effective_durations_sec,
+            transitions=transitions,
+        )
+        return
+    _concat_clips(paths, target, concat_file)
+
+
 def _caption_file_text(caption: str) -> str:
     text = " ".join(caption.split())
     if not text:
@@ -675,6 +928,7 @@ def _export_snapshot(data: dict) -> dict | None:
         "durationsSec": data.get("exportDurationsSec"),
         "effectiveDurationsSec": data.get("exportEffectiveDurationsSec"),
         "clipEdits": data.get("exportClipEdits"),
+        "transitions": data.get("exportTransitions"),
         "captions": data.get("exportCaptions"),
         "captionMode": data.get("exportCaptionMode"),
         "audioMode": data.get("exportAudioMode"),
@@ -726,6 +980,7 @@ def _stamp_timeline(
     clip_durations_sec: list[int | None],
     effective_durations_sec: list[float],
     clip_edits: list[dict[str, float | str]],
+    transitions: list[dict[str, float | str]],
     clip_captions: list[str | None],
     caption_mode: str,
     audio_mode: str,
@@ -753,6 +1008,7 @@ def _stamp_timeline(
                 "exportDurationsSec": clip_durations_sec,
                 "exportEffectiveDurationsSec": effective_durations_sec,
                 "exportClipEdits": clip_edits,
+                "exportTransitions": transitions,
                 "exportCaptions": clip_captions,
                 "exportCaptionMode": caption_mode,
                 "exportAudioMode": audio_mode,
@@ -787,6 +1043,7 @@ async def export_timeline(
     voiceover_volume: float = 1.0,
     music_volume: float = 0.25,
     clip_edits: list[dict] | None = None,
+    transitions: list[dict] | None = None,
 ) -> dict:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         raise VideoExportError("ffmpeg_not_found")
@@ -843,34 +1100,25 @@ async def export_timeline(
             normalised.append(target)
 
         concat_file = work_dir / "concat.txt"
-        concat_file.write_text("".join(_concat_line(path) for path in normalised))
+        transition_edits = _resolve_transitions(timeline, transitions, shot_ids, effective_durations)
+        export_transitions = _transition_export_list(transition_edits, shot_ids)
         export_media_id = str(uuid.uuid4())
         output_path = media_service.MEDIA_CACHE_DIR / f"{export_media_id}.mp4"
         has_extra_audio = audio_paths.voiceover is not None or audio_paths.music is not None
-        concat_output_path = work_dir / "stitched.mp4" if has_extra_audio else output_path
+        sequence_output_path = work_dir / "stitched.mp4" if has_extra_audio else output_path
         if has_extra_audio:
-            scratch_files.append(concat_output_path)
-        _run_ffmpeg(
-            [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_file),
-                "-c",
-                "copy",
-                "-movflags",
-                "+faststart",
-                str(concat_output_path),
-            ],
-            timeout=240,
+            scratch_files.append(sequence_output_path)
+        _render_timeline_sequence(
+            normalised,
+            sequence_output_path,
+            shot_ids=shot_ids,
+            effective_durations_sec=effective_durations,
+            transitions=transition_edits,
+            concat_file=concat_file,
         )
         if has_extra_audio:
             _mix_timeline_audio(
-                concat_output_path,
+                sequence_output_path,
                 output_path,
                 audio=audio,
                 audio_paths=audio_paths,
@@ -887,6 +1135,7 @@ async def export_timeline(
             clip_durations_sec=durations,
             effective_durations_sec=effective_durations,
             clip_edits=_clip_edit_export_list(trim_edits, shot_ids),
+            transitions=export_transitions,
             clip_captions=captions,
             caption_mode=caption_mode,
             audio_mode=audio.mode,
@@ -903,6 +1152,7 @@ async def export_timeline(
             "clip_durations_sec": durations,
             "clip_effective_durations_sec": effective_durations,
             "export_clip_edits": _clip_edit_export_list(trim_edits, shot_ids),
+            "export_transitions": export_transitions,
             "clip_captions": captions,
             "export_caption_mode": caption_mode,
             "export_audio_mode": audio.mode,

@@ -134,6 +134,13 @@ test("builds storyboard sequence shot workflow from palette", async ({
               trimStartSec: edit.trim_start_sec,
               trimEndSec: edit.trim_end_sec,
             })),
+          export_transitions: ((payload.transitions as Array<Record<string, unknown>> | undefined) ?? [])
+            .map((transition) => ({
+              fromShotId: transition.from_shot_id,
+              toShotId: transition.to_shot_id,
+              type: transition.type,
+              durationSec: transition.duration_sec,
+            })),
           export_audio_mode: payload.audio_mode ?? "none",
           export_audio_media_ids: {
             ...(payload.voiceover_media_id ? { voiceover: payload.voiceover_media_id } : {}),
@@ -223,6 +230,8 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await page.getByLabel("Shot 2 trim start seconds").fill("0.5");
     await page.getByLabel("Shot 2 trim end seconds").fill("0.25");
     await page.getByLabel("Shot 2 caption").fill("Second shot caption");
+    await page.getByLabel("Shot 2 transition type").selectOption("fade");
+    await page.getByLabel("Shot 2 transition seconds").fill("0.5");
     await page.locator(".timeline-header").click();
     await expect.poll(async () => {
       const updatedRes = await request.get(`/api/boards/${board.id}`);
@@ -238,6 +247,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
         durations: timeline?.data.timelineDurationsSec,
         captions: timeline?.data.timelineCaptions,
         clipEdits: timeline?.data.timelineClipEdits,
+        transitions: timeline?.data.timelineTransitions,
         shot2Duration: clip?.data.shotDurationSec,
       };
     }).toEqual({
@@ -245,6 +255,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
       durations: [9, 5, 5, 5],
       captions: { shot_02: "Second shot caption" },
       clipEdits: { shot_02: { trimStartSec: 0.5, trimEndSec: 0.25 } },
+      transitions: { shot_02: { type: "fade", durationSec: 0.5 } },
       shot2Duration: 9,
     });
 
@@ -288,6 +299,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await expect(preflight.locator(".timeline-preflight__clip").first()).toContainText("Shot 2");
     await expect(preflight.getByText("Second shot caption")).toBeVisible();
     await expect(preflight.getByText(/Trim \/ Cắt: in 0\.5s/)).toBeVisible();
+    await expect(preflight.getByText(/Transition \/ Chuyển: fade 0\.5s/)).toBeVisible();
     await expect(preflight.getByText(/9s/)).toBeVisible();
     await preflight.getByLabel("Burn captions / Gắn caption").check();
     await preflight.getByLabel("Mix audio / Ghép âm thanh").check();
@@ -304,6 +316,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
     expect(exportPayloads[0]?.caption_mode).toBe("burn_in");
     expect(exportPayloads[0]?.clip_edits).toEqual([
       { shot_id: "shot_02", trim_start_sec: 0.5, trim_end_sec: 0.25 },
+    ]);
+    expect(exportPayloads[0]?.transitions).toEqual([
+      { from_shot_id: "shot_02", to_shot_id: "shot_01", type: "fade", duration_sec: 0.5 },
     ]);
     expect(exportPayloads[0]?.audio_mode).toBe("mix");
     expect(exportPayloads[0]?.voiceover_media_id).toBe("cccccccc-0000-4000-8000-00000000e2e1");

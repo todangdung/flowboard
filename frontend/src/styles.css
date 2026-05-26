@@ -7066,6 +7066,14 @@ button:disabled {
   width: 100%;
 }
 
+.timeline-shot-row__transition-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(54px, 72px);
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+}
+
 .timeline-shot-row__move {
   width: 24px;
   height: 24px;
@@ -7091,7 +7099,23 @@ button:disabled {
   font-size: 9px;
 }
 
+.timeline-shot-row__transition {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 3px;
+  align-items: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.timeline-shot-row__transition--duration {
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
 .timeline-shot-row__duration input,
+.timeline-shot-row__transition select,
+.timeline-shot-row__transition input,
 .timeline-shot-row__caption {
   min-width: 0;
   width: 100%;
@@ -7105,6 +7129,15 @@ button:disabled {
 
 .timeline-shot-row__duration input {
   padding: 2px 4px;
+}
+
+.timeline-shot-row__transition select,
+.timeline-shot-row__transition input {
+  padding: 2px 4px;
+}
+
+.timeline-shot-row__transition input:disabled {
+  opacity: 0.45;
 }
 
 .timeline-shot-row__caption {

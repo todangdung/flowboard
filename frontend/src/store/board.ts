@@ -39,6 +39,7 @@ export interface ExportHistoryItem {
   durationsSec?: (number | null)[];
   effectiveDurationsSec?: number[];
   clipEdits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
+  transitions?: Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }>;
   captions?: (string | null)[];
   captionMode?: "none" | "burn_in";
   audioMode?: "none" | "mix";
@@ -178,6 +179,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   timelineDurationsSec?: number[];
   timelineCaptions?: Record<string, string>;
   timelineClipEdits?: Record<string, { trimStartSec?: number; trimEndSec?: number }>;
+  timelineTransitions?: Record<string, { type?: "cut" | "fade"; durationSec?: number }>;
   exportMediaId?: string;
   exportedAt?: string;
   exportClipCount?: number;
@@ -189,6 +191,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportDurationsSec?: (number | null)[];
   exportEffectiveDurationsSec?: number[];
   exportClipEdits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
+  exportTransitions?: Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }>;
   exportCaptions?: (string | null)[];
   exportCaptionMode?: "none" | "burn_in";
   exportAudioMode?: "none" | "mix";
@@ -338,6 +341,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       timelineDurationsSec: dto.data["timelineDurationsSec"] as number[] | undefined,
       timelineCaptions: dto.data["timelineCaptions"] as Record<string, string> | undefined,
       timelineClipEdits: dto.data["timelineClipEdits"] as Record<string, { trimStartSec?: number; trimEndSec?: number }> | undefined,
+      timelineTransitions: dto.data["timelineTransitions"] as Record<string, { type?: "cut" | "fade"; durationSec?: number }> | undefined,
       exportMediaId: dto.data["exportMediaId"] as string | undefined,
       exportedAt: dto.data["exportedAt"] as string | undefined,
       exportClipCount: dto.data["exportClipCount"] as number | undefined,
@@ -349,6 +353,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportDurationsSec: dto.data["exportDurationsSec"] as (number | null)[] | undefined,
       exportEffectiveDurationsSec: dto.data["exportEffectiveDurationsSec"] as number[] | undefined,
       exportClipEdits: dto.data["exportClipEdits"] as Array<{ shotId: string; trimStartSec: number; trimEndSec: number }> | undefined,
+      exportTransitions: dto.data["exportTransitions"] as Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }> | undefined,
       exportCaptions: dto.data["exportCaptions"] as (string | null)[] | undefined,
       exportCaptionMode: dto.data["exportCaptionMode"] as "none" | "burn_in" | undefined,
       exportAudioMode: dto.data["exportAudioMode"] as "none" | "mix" | undefined,

@@ -18,6 +18,7 @@ class TimelineExportBody(BaseModel):
     voiceover_volume: float = Field(default=1.0, ge=0, le=2)
     music_volume: float = Field(default=0.25, ge=0, le=2)
     clip_edits: list[dict] = Field(default_factory=list)
+    transitions: list[dict] = Field(default_factory=list)
 
 
 @router.post("/timelines/{timeline_node_id}")
@@ -38,6 +39,7 @@ async def export_timeline_route(
             voiceover_volume=body.voiceover_volume,
             music_volume=body.music_volume,
             clip_edits=body.clip_edits,
+            transitions=body.transitions,
         )
     except VideoExportError as exc:
         msg = str(exc)
