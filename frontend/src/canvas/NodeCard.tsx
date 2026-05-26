@@ -1712,6 +1712,7 @@ const REVIEW_LABEL_VI: Record<"good" | "redo" | "skip", string> = {
 type TimelineExportUiState = "none" | "fresh" | "stale";
 type TimelineExportPresetKey = VideoExportPresetKey;
 type TimelineCaptionMode = "none" | "burn_in";
+type TimelineAudioMode = "none" | "mix";
 
 const TIMELINE_EXPORT_PRESETS: readonly {
   key: TimelineExportPresetKey;
@@ -1865,6 +1866,25 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const [exportCaptionMode, setExportCaptionMode] = useState<TimelineCaptionMode>(
     data.exportCaptionMode === "burn_in" ? "burn_in" : "none",
   );
+  const [exportAudioMode, setExportAudioMode] = useState<TimelineAudioMode>(
+    data.exportAudioMode === "mix" ? "mix" : "none",
+  );
+  const [exportVoiceoverMediaId, setExportVoiceoverMediaId] = useState(
+    data.exportAudioMediaIds?.voiceover ?? "",
+  );
+  const [exportMusicMediaId, setExportMusicMediaId] = useState(
+    data.exportAudioMediaIds?.music ?? "",
+  );
+  const [exportVoiceoverVolume, setExportVoiceoverVolume] = useState(
+    typeof data.exportAudioMix?.voiceoverVolume === "number"
+      ? data.exportAudioMix.voiceoverVolume
+      : 1,
+  );
+  const [exportMusicVolume, setExportMusicVolume] = useState(
+    typeof data.exportAudioMix?.musicVolume === "number"
+      ? data.exportAudioMix.musicVolume
+      : 0.25,
+  );
   const incoming = orderClipsForTimeline(data, edges
     .filter((e) => e.target === rfId)
     .map((e) => nodes.find((n) => n.id === e.source))
@@ -1951,6 +1971,32 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const orderedShotIds = rows
     .map((row) => timelineShotId(row.data))
     .filter((shotId): shotId is string => !!shotId);
+  const audioRefDefaults = (() => {
+    const targetIds = new Set([rfId, ...incoming.map((clip) => clip.id)]);
+    const out: { voiceover?: string; music?: string } = {};
+    for (const edge of edges) {
+      if (!targetIds.has(edge.target)) continue;
+      if (edge.data?.refRole !== "script_ref" && edge.data?.refRole !== "audio_ref") continue;
+      const source = nodes.find((node) => node.id === edge.source);
+      const mediaId = source ? preferredMediaIds(source.data)[0] : undefined;
+      if (!mediaId) continue;
+      if (edge.data?.refRole === "script_ref" || source?.data.type === "script") {
+        out.voiceover ??= mediaId;
+      } else if (edge.data?.refRole === "audio_ref" || source?.data.type === "audio") {
+        out.music ??= mediaId;
+      }
+    }
+    return out;
+  })();
+
+  function setVolume(raw: string, fallback: number, setter: (value: number) => void) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      setter(fallback);
+      return;
+    }
+    setter(Math.max(0, Math.min(2, parsed)));
+  }
 
   function upstreamScriptCaption(clip: FlowNode): string {
     const scriptTargets = new Set([clip.id, rfId]);
@@ -2097,11 +2143,42 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     try {
       const dbId = parseInt(rfId, 10);
       if (isNaN(dbId)) return;
+      const voiceoverMediaId =
+        exportAudioMode === "mix"
+          ? (exportVoiceoverMediaId.trim() || audioRefDefaults.voiceover || undefined)
+          : undefined;
+      const musicMediaId =
+        exportAudioMode === "mix"
+          ? (exportMusicMediaId.trim() || audioRefDefaults.music || undefined)
+          : undefined;
+      const exportAudioMediaIds =
+        exportAudioMode === "mix"
+          ? {
+            ...(voiceoverMediaId ? { voiceover: voiceoverMediaId } : {}),
+            ...(musicMediaId ? { music: musicMediaId } : {}),
+          }
+          : {};
+      const exportAudioMix =
+        exportAudioMode === "mix"
+          ? {
+            clipVolume: 1,
+            voiceoverVolume: voiceoverMediaId ? exportVoiceoverVolume : 0,
+            musicVolume: musicMediaId ? exportMusicVolume : 0,
+          }
+          : { clipVolume: 1 };
       const result = await exportTimeline(dbId, {
         width: exportPreset.width,
         height: exportPreset.height,
         caption_mode: exportCaptionMode,
+        audio_mode: exportAudioMode,
+        ...(voiceoverMediaId ? { voiceover_media_id: voiceoverMediaId } : {}),
+        ...(musicMediaId ? { music_media_id: musicMediaId } : {}),
+        voiceover_volume: exportVoiceoverVolume,
+        music_volume: exportMusicVolume,
       });
+      const storedAudioMode = result.export_audio_mode ?? exportAudioMode;
+      const storedAudioMediaIds = result.export_audio_media_ids ?? exportAudioMediaIds;
+      const storedAudioMix = result.export_audio_mix ?? exportAudioMix;
       useBoardStore.getState().updateNodeData(rfId, {
         status: "done",
         exportMediaId: result.media_id,
@@ -2115,6 +2192,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportDurationsSec: result.clip_durations_sec,
         exportCaptions: result.clip_captions,
         exportCaptionMode: result.export_caption_mode ?? exportCaptionMode,
+        exportAudioMode: storedAudioMode,
+        exportAudioMediaIds: storedAudioMediaIds,
+        exportAudioMix: storedAudioMix,
         exportHistory: result.export_history,
         exportStaleAt: undefined,
         exportStaleReason: undefined,
@@ -2130,6 +2210,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
             exportWidth: exportPreset.width,
             exportHeight: exportPreset.height,
             exportCaptionMode,
+            exportAudioMode: storedAudioMode,
+            exportAudioMediaIds: storedAudioMediaIds,
+            exportAudioMix: storedAudioMix,
           },
         }).catch(() => {});
       }
@@ -2258,6 +2341,64 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
             />
             <span>Burn captions / Gắn caption</span>
           </label>
+          <label className="timeline-preflight__caption-mode">
+            <input
+              type="checkbox"
+              checked={exportAudioMode === "mix"}
+              onChange={(event) => {
+                setExportAudioMode(event.target.checked ? "mix" : "none");
+              }}
+            />
+            <span>Mix audio / Ghép âm thanh</span>
+          </label>
+          {exportAudioMode === "mix" && (
+            <div className="timeline-preflight__audio">
+              <label className="timeline-preflight__audio-row">
+                <span>Voiceover media ID / ID lồng tiếng</span>
+                <input
+                  aria-label="Voiceover media ID / ID lồng tiếng"
+                  value={exportVoiceoverMediaId}
+                  placeholder={audioRefDefaults.voiceover ?? "optional"}
+                  onChange={(event) => setExportVoiceoverMediaId(event.target.value)}
+                />
+              </label>
+              <label className="timeline-preflight__audio-row">
+                <span>Music media ID / ID nhạc nền</span>
+                <input
+                  aria-label="Music media ID / ID nhạc nền"
+                  value={exportMusicMediaId}
+                  placeholder={audioRefDefaults.music ?? "optional"}
+                  onChange={(event) => setExportMusicMediaId(event.target.value)}
+                />
+              </label>
+              <div className="timeline-preflight__audio-grid">
+                <label className="timeline-preflight__audio-row">
+                  <span>Voiceover volume / Âm lượng voiceover</span>
+                  <input
+                    aria-label="Voiceover volume / Âm lượng voiceover"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={exportVoiceoverVolume}
+                    onChange={(event) => setVolume(event.target.value, 1, setExportVoiceoverVolume)}
+                  />
+                </label>
+                <label className="timeline-preflight__audio-row">
+                  <span>Music volume / Âm lượng nhạc</span>
+                  <input
+                    aria-label="Music volume / Âm lượng nhạc"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={exportMusicVolume}
+                    onChange={(event) => setVolume(event.target.value, 0.25, setExportMusicVolume)}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
           <div className="timeline-preflight__clips">
             {shotPairs
               .filter(({ clip }) =>

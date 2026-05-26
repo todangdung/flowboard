@@ -39,6 +39,13 @@ export interface ExportHistoryItem {
   durationsSec?: (number | null)[];
   captions?: (string | null)[];
   captionMode?: "none" | "burn_in";
+  audioMode?: "none" | "mix";
+  audioMediaIds?: { voiceover?: string; music?: string };
+  audioMix?: {
+    clipVolume?: number;
+    voiceoverVolume?: number;
+    musicVolume?: number;
+  };
   staleAt?: string;
   staleReason?: string;
 }
@@ -179,6 +186,13 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportDurationsSec?: (number | null)[];
   exportCaptions?: (string | null)[];
   exportCaptionMode?: "none" | "burn_in";
+  exportAudioMode?: "none" | "mix";
+  exportAudioMediaIds?: { voiceover?: string; music?: string };
+  exportAudioMix?: {
+    clipVolume?: number;
+    voiceoverVolume?: number;
+    musicVolume?: number;
+  };
   exportStaleAt?: string;
   exportStaleReason?: string;
   exportHistory?: ExportHistoryItem[];
@@ -329,6 +343,13 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportDurationsSec: dto.data["exportDurationsSec"] as (number | null)[] | undefined,
       exportCaptions: dto.data["exportCaptions"] as (string | null)[] | undefined,
       exportCaptionMode: dto.data["exportCaptionMode"] as "none" | "burn_in" | undefined,
+      exportAudioMode: dto.data["exportAudioMode"] as "none" | "mix" | undefined,
+      exportAudioMediaIds: dto.data["exportAudioMediaIds"] as { voiceover?: string; music?: string } | undefined,
+      exportAudioMix: dto.data["exportAudioMix"] as {
+        clipVolume?: number;
+        voiceoverVolume?: number;
+        musicVolume?: number;
+      } | undefined,
       exportStaleAt: dto.data["exportStaleAt"] as string | undefined,
       exportStaleReason: dto.data["exportStaleReason"] as string | undefined,
       exportHistory: dto.data["exportHistory"] as ExportHistoryItem[] | undefined,

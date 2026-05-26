@@ -1,6 +1,7 @@
 """Timeline video export helpers."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -24,6 +25,21 @@ EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 class VideoExportError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class TimelineAudioOptions:
+    mode: str = "none"
+    voiceover_media_id: str | None = None
+    music_media_id: str | None = None
+    voiceover_volume: float = 1.0
+    music_volume: float = 0.25
+
+
+@dataclass(frozen=True)
+class TimelineAudioPaths:
+    voiceover: Path | None = None
+    music: Path | None = None
 
 
 def _run_ffmpeg(cmd: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -214,6 +230,207 @@ def _clip_caption(timeline: Node, node: Node) -> str | None:
     return None
 
 
+def _node_media_id(node: Node) -> str | None:
+    data = node.data or {}
+    media_id = data.get("mediaId")
+    if isinstance(media_id, str) and media_id:
+        return media_id
+    media_ids = data.get("mediaIds")
+    if isinstance(media_ids, list):
+        for item in media_ids:
+            if isinstance(item, str) and item:
+                return item
+    return None
+
+
+def _timeline_audio_ref_media_ids(timeline_node_id: int, clips: list[Node]) -> dict[str, str]:
+    target_ids = [timeline_node_id]
+    target_ids.extend(node.id for node in clips if isinstance(node.id, int))
+    with get_session() as s:
+        edges = s.exec(
+            select(Edge)
+            .where(Edge.target_id.in_(target_ids))  # type: ignore[attr-defined]
+            .order_by(Edge.id)
+        ).all()
+        out: dict[str, str] = {}
+        for edge in edges:
+            if edge.ref_role not in {"audio_ref", "script_ref"}:
+                continue
+            source = s.get(Node, edge.source_id)
+            if source is None:
+                continue
+            media_id = _node_media_id(source)
+            if not media_id:
+                continue
+            source_kind = (source.data or {}).get("type") or source.type
+            if edge.ref_role == "script_ref" or source_kind == "script":
+                out.setdefault("voiceover", media_id)
+            elif edge.ref_role == "audio_ref" or source_kind == "audio":
+                out.setdefault("music", media_id)
+        return out
+
+
+def _clean_optional_media_id(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    media_id = media_service.normalize_media_id(value.strip())
+    if not media_id:
+        return None
+    if not media_service.is_valid_media_id(media_id):
+        raise VideoExportError(f"invalid_{field}_media_id")
+    return media_id
+
+
+def _clean_volume(value: float, field: str) -> float:
+    try:
+        volume = float(value)
+    except (TypeError, ValueError) as exc:
+        raise VideoExportError(f"invalid_{field}_volume") from exc
+    if volume < 0 or volume > 2:
+        raise VideoExportError(f"invalid_{field}_volume")
+    return volume
+
+
+def _resolve_audio_options(
+    timeline_node_id: int,
+    clips: list[Node],
+    *,
+    audio_mode: str,
+    voiceover_media_id: str | None,
+    music_media_id: str | None,
+    voiceover_volume: float,
+    music_volume: float,
+) -> TimelineAudioOptions:
+    if audio_mode not in {"none", "mix"}:
+        raise VideoExportError("invalid_audio_mode")
+    voiceover = _clean_optional_media_id(voiceover_media_id, "voiceover")
+    music = _clean_optional_media_id(music_media_id, "music")
+    voiceover_vol = _clean_volume(voiceover_volume, "voiceover")
+    music_vol = _clean_volume(music_volume, "music")
+    if audio_mode == "mix":
+        refs = _timeline_audio_ref_media_ids(timeline_node_id, clips)
+        voiceover = voiceover or _clean_optional_media_id(refs.get("voiceover"), "voiceover")
+        music = music or _clean_optional_media_id(refs.get("music"), "music")
+    return TimelineAudioOptions(
+        mode=audio_mode,
+        voiceover_media_id=voiceover if audio_mode == "mix" else None,
+        music_media_id=music if audio_mode == "mix" else None,
+        voiceover_volume=voiceover_vol,
+        music_volume=music_vol,
+    )
+
+
+def _audio_media_ids(audio: TimelineAudioOptions) -> dict[str, str]:
+    if audio.mode != "mix":
+        return {}
+    out: dict[str, str] = {}
+    if audio.voiceover_media_id:
+        out["voiceover"] = audio.voiceover_media_id
+    if audio.music_media_id:
+        out["music"] = audio.music_media_id
+    return out
+
+
+def _audio_mix(audio: TimelineAudioOptions) -> dict[str, float]:
+    if audio.mode != "mix":
+        return {"clipVolume": 1.0}
+    mix = {
+        "clipVolume": 1.0,
+        "voiceoverVolume": audio.voiceover_volume if audio.voiceover_media_id else 0.0,
+        "musicVolume": audio.music_volume if audio.music_media_id else 0.0,
+    }
+    return mix
+
+
+async def _resolve_audio_paths(audio: TimelineAudioOptions) -> TimelineAudioPaths:
+    if audio.mode != "mix":
+        return TimelineAudioPaths()
+
+    async def resolve(media_id: str | None) -> Path | None:
+        if not media_id:
+            return None
+        path = await _resolve_media_path(media_id)
+        if not _has_audio(path):
+            raise VideoExportError(f"audio_media_has_no_audio:{media_id}")
+        return path
+
+    return TimelineAudioPaths(
+        voiceover=await resolve(audio.voiceover_media_id),
+        music=await resolve(audio.music_media_id),
+    )
+
+
+def _volume_arg(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _mix_timeline_audio(
+    source: Path,
+    target: Path,
+    *,
+    audio: TimelineAudioOptions,
+    audio_paths: TimelineAudioPaths,
+) -> None:
+    duration = _duration_sec(source)
+    cmd = ["ffmpeg", "-y", "-i", str(source)]
+    filters = ["[0:a:0]volume=1,asetpts=PTS-STARTPTS[a0]"]
+    labels = ["[a0]"]
+    input_index = 1
+
+    if audio_paths.voiceover is not None:
+        cmd.extend(["-i", str(audio_paths.voiceover)])
+        label = f"a{input_index}"
+        filters.append(
+            f"[{input_index}:a:0]"
+            f"volume={_volume_arg(audio.voiceover_volume)},"
+            f"atrim=0:{duration:.3f},asetpts=PTS-STARTPTS[{label}]"
+        )
+        labels.append(f"[{label}]")
+        input_index += 1
+
+    if audio_paths.music is not None:
+        cmd.extend(["-stream_loop", "-1", "-i", str(audio_paths.music)])
+        label = f"a{input_index}"
+        filters.append(
+            f"[{input_index}:a:0]"
+            f"volume={_volume_arg(audio.music_volume)},"
+            f"atrim=0:{duration:.3f},asetpts=PTS-STARTPTS[{label}]"
+        )
+        labels.append(f"[{label}]")
+
+    filters.append(
+        "".join(labels)
+        + f"amix=inputs={len(labels)}:duration=first:dropout_transition=0:normalize=0,"
+        + "alimiter=limit=0.98[aout]"
+    )
+    cmd.extend(
+        [
+            "-filter_complex",
+            ";".join(filters),
+            "-map",
+            "0:v:0",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-t",
+            f"{duration:.3f}",
+            "-movflags",
+            "+faststart",
+            str(target),
+        ]
+    )
+    _run_ffmpeg(cmd, timeout=240)
+
+
 def _caption_file_text(caption: str) -> str:
     text = " ".join(caption.split())
     if not text:
@@ -355,6 +572,9 @@ def _export_snapshot(data: dict) -> dict | None:
         "durationsSec": data.get("exportDurationsSec"),
         "captions": data.get("exportCaptions"),
         "captionMode": data.get("exportCaptionMode"),
+        "audioMode": data.get("exportAudioMode"),
+        "audioMediaIds": data.get("exportAudioMediaIds"),
+        "audioMix": data.get("exportAudioMix"),
         "staleAt": data.get("exportStaleAt"),
         "staleReason": data.get("exportStaleReason"),
     }
@@ -401,6 +621,9 @@ def _stamp_timeline(
     clip_durations_sec: list[int | None],
     clip_captions: list[str | None],
     caption_mode: str,
+    audio_mode: str,
+    audio_media_ids: dict[str, str],
+    audio_mix: dict[str, float],
 ) -> dict:
     with get_session() as s:
         node = s.get(Node, timeline_node_id)
@@ -423,6 +646,9 @@ def _stamp_timeline(
                 "exportDurationsSec": clip_durations_sec,
                 "exportCaptions": clip_captions,
                 "exportCaptionMode": caption_mode,
+                "exportAudioMode": audio_mode,
+                "exportAudioMediaIds": audio_media_ids,
+                "exportAudioMix": audio_mix,
                 "exportHistory": export_history,
             }
         )
@@ -446,6 +672,11 @@ async def export_timeline(
     width: int = 1080,
     height: int = 1920,
     caption_mode: str = "none",
+    audio_mode: str = "none",
+    voiceover_media_id: str | None = None,
+    music_media_id: str | None = None,
+    voiceover_volume: float = 1.0,
+    music_volume: float = 0.25,
 ) -> dict:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         raise VideoExportError("ffmpeg_not_found")
@@ -457,10 +688,23 @@ async def export_timeline(
     if not clips:
         raise VideoExportError("timeline_has_no_clips")
     export_clips = _exportable_clips(clips)
+    audio = _resolve_audio_options(
+        timeline_node_id,
+        export_clips,
+        audio_mode=audio_mode,
+        voiceover_media_id=voiceover_media_id,
+        music_media_id=music_media_id,
+        voiceover_volume=voiceover_volume,
+        music_volume=music_volume,
+    )
+    audio_paths = await _resolve_audio_paths(audio)
+    audio_media_ids = _audio_media_ids(audio)
+    audio_mix = _audio_mix(audio)
 
     work_dir = EXPORT_DIR / f"timeline-{timeline_node_id}-{uuid.uuid4().hex[:8]}"
     work_dir.mkdir(parents=True, exist_ok=True)
     normalised: list[Path] = []
+    scratch_files: list[Path] = []
     media_ids: list[str] = []
     shot_ids: list[str] = []
     durations: list[int | None] = []
@@ -487,6 +731,10 @@ async def export_timeline(
         concat_file.write_text("".join(_concat_line(path) for path in normalised))
         export_media_id = str(uuid.uuid4())
         output_path = media_service.MEDIA_CACHE_DIR / f"{export_media_id}.mp4"
+        has_extra_audio = audio_paths.voiceover is not None or audio_paths.music is not None
+        concat_output_path = work_dir / "stitched.mp4" if has_extra_audio else output_path
+        if has_extra_audio:
+            scratch_files.append(concat_output_path)
         _run_ffmpeg(
             [
                 "ffmpeg",
@@ -501,10 +749,17 @@ async def export_timeline(
                 "copy",
                 "-movflags",
                 "+faststart",
-                str(output_path),
+                str(concat_output_path),
             ],
             timeout=240,
         )
+        if has_extra_audio:
+            _mix_timeline_audio(
+                concat_output_path,
+                output_path,
+                audio=audio,
+                audio_paths=audio_paths,
+            )
         _register_export(export_media_id, output_path)
         stamp = _stamp_timeline(
             timeline.id,  # type: ignore[arg-type]
@@ -517,6 +772,9 @@ async def export_timeline(
             clip_durations_sec=durations,
             clip_captions=captions,
             caption_mode=caption_mode,
+            audio_mode=audio.mode,
+            audio_media_ids=audio_media_ids,
+            audio_mix=audio_mix,
         )
         return {
             "timeline_node_id": timeline_node_id,
@@ -528,6 +786,9 @@ async def export_timeline(
             "clip_durations_sec": durations,
             "clip_captions": captions,
             "export_caption_mode": caption_mode,
+            "export_audio_mode": audio.mode,
+            "export_audio_media_ids": audio_media_ids,
+            "export_audio_mix": audio_mix,
             "width": width,
             "height": height,
             **stamp,
@@ -536,6 +797,11 @@ async def export_timeline(
         raise VideoExportError("ffmpeg_timeout") from exc
     finally:
         for path in normalised:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for path in scratch_files:
             try:
                 path.unlink(missing_ok=True)
             except OSError:

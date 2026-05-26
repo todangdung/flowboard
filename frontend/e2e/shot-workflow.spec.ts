@@ -128,6 +128,16 @@ test("builds storyboard sequence shot workflow from palette", async ({
           export_status: "fresh",
           export_version: 1,
           export_caption_mode: payload.caption_mode ?? "none",
+          export_audio_mode: payload.audio_mode ?? "none",
+          export_audio_media_ids: {
+            ...(payload.voiceover_media_id ? { voiceover: payload.voiceover_media_id } : {}),
+            ...(payload.music_media_id ? { music: payload.music_media_id } : {}),
+          },
+          export_audio_mix: {
+            clipVolume: 1,
+            voiceoverVolume: payload.voiceover_volume ?? 0,
+            musicVolume: payload.music_volume ?? 0,
+          },
         }),
       });
     });
@@ -269,9 +279,23 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await expect(preflight.getByText("Second shot caption")).toBeVisible();
     await expect(preflight.getByText(/9s/)).toBeVisible();
     await preflight.getByLabel("Burn captions / Gắn caption").check();
+    await preflight.getByLabel("Mix audio / Ghép âm thanh").check();
+    await preflight
+      .getByLabel("Voiceover media ID / ID lồng tiếng")
+      .fill("cccccccc-0000-4000-8000-00000000e2e1");
+    await preflight
+      .getByLabel("Music media ID / ID nhạc nền")
+      .fill("dddddddd-0000-4000-8000-00000000e2e2");
+    await preflight.getByLabel("Voiceover volume / Âm lượng voiceover").fill("0.8");
+    await preflight.getByLabel("Music volume / Âm lượng nhạc").fill("0.3");
     await preflight.getByRole("button", { name: "Confirm export / Xuất" }).dispatchEvent("click");
     await expect.poll(() => exportCount).toBe(1);
     expect(exportPayloads[0]?.caption_mode).toBe("burn_in");
+    expect(exportPayloads[0]?.audio_mode).toBe("mix");
+    expect(exportPayloads[0]?.voiceover_media_id).toBe("cccccccc-0000-4000-8000-00000000e2e1");
+    expect(exportPayloads[0]?.music_media_id).toBe("dddddddd-0000-4000-8000-00000000e2e2");
+    expect(exportPayloads[0]?.voiceover_volume).toBe(0.8);
+    expect(exportPayloads[0]?.music_volume).toBe(0.3);
     await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();
     await expect(page.getByText("Export fresh v1 / mới")).toBeVisible();
 

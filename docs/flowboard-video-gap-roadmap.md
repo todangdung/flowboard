@@ -56,6 +56,9 @@ Additional gap closure in this pass:
   burning subtitles into the video.
 - Timeline caption export: export preflight can burn timeline captions into
   the stitched MP4 and stamps `exportCaptionMode` in export metadata/history.
+- Timeline audio mix: timeline export can mux the stitched clip audio with
+  voiceover and BGM media via local ffmpeg, using simple volume controls and
+  stamping `exportAudioMode`, `exportAudioMediaIds`, and `exportAudioMix`.
 - Video source modes: Generate Video supports Auto, Text-to-video,
   First frame, First+last frame, and Omni Ingredients paths.
 - First+last frame dispatch: `last_frame` edge role now drives Flow's

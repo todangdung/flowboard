@@ -31,6 +31,29 @@ def _write_clip(media_id: str, color: str) -> None:
     assert result.returncode == 0, result.stderr[-500:]
 
 
+def _write_audio(media_id: str, frequency: int) -> None:
+    path = media_service.MEDIA_CACHE_DIR / f"{media_id}.wav"
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency={frequency}:sample_rate=48000",
+            "-t",
+            "0.5",
+            "-ac",
+            "2",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr[-500:]
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
 def test_export_timeline_stitches_shot_clips(client):
     media_a = "aaaaaaaa-0000-4000-8000-000000000001"
@@ -107,6 +130,9 @@ def test_export_timeline_stitches_shot_clips(client):
     body = response.json()
     assert body["clip_count"] == 2
     assert body["source_media_ids"] == [media_a, media_b]
+    assert body["export_audio_mode"] == "none"
+    assert body["export_audio_media_ids"] == {}
+    assert body["export_audio_mix"] == {"clipVolume": 1.0}
     assert body["url"] == f"/media/{body['media_id']}"
     assert media_service.cached_path(body["media_id"]) is not None
 
@@ -123,6 +149,9 @@ def test_export_timeline_stitches_shot_clips(client):
         assert timeline.data["exportStatus"] == "fresh"
         assert timeline.data["exportVersion"] == 1
         assert timeline.data["exportSourceMediaIds"] == [media_a, media_b]
+        assert timeline.data["exportAudioMode"] == "none"
+        assert timeline.data["exportAudioMediaIds"] == {}
+        assert timeline.data["exportAudioMix"] == {"clipVolume": 1.0}
         assert timeline.data["exportHistory"] == []
         assert isinstance(timeline.data["exportedAt"], str)
     assert body["export_status"] == "fresh"
@@ -223,6 +252,115 @@ def test_export_timeline_uses_timeline_shot_order_and_metadata(client):
         assert timeline.data["exportDurationsSec"] == [7, 4]
         assert timeline.data["exportCaptions"] == ["Second caption", "First caption"]
         assert timeline.data["exportCaptionMode"] == "burn_in"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_export_timeline_mixes_audio_refs_and_stamps_metadata(client):
+    media_a = "aaaaaaaa-0000-4000-8000-000000000111"
+    voiceover = "cccccccc-0000-4000-8000-000000000112"
+    music = "dddddddd-0000-4000-8000-000000000113"
+    _write_clip(media_a, "red")
+    _write_audio(voiceover, 440)
+    _write_audio(music, 220)
+
+    with get_session() as s:
+        board = Board(name="export-audio")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="audv",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotIndex": 1,
+                "mediaId": media_a,
+                "mediaIds": [media_a],
+            },
+            status="done",
+        )
+        script = Node(
+            board_id=board.id,
+            short_id="scrp",
+            type="script",
+            data={"type": "script", "title": "VO", "mediaId": voiceover},
+            status="done",
+        )
+        audio = Node(
+            board_id=board.id,
+            short_id="audn",
+            type="audio",
+            data={"type": "audio", "title": "BGM", "mediaId": music},
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={"title": "Timeline", "workflowKind": "timeline"},
+            status="idle",
+        )
+        s.add_all([clip, script, audio, timeline])
+        s.commit()
+        for node in (clip, script, audio, timeline):
+            s.refresh(node)
+        for source, role in (
+            (clip, "storyboard_panel"),
+            (script, "script_ref"),
+            (audio, "audio_ref"),
+        ):
+            s.add(
+                Edge(
+                    board_id=board.id,
+                    source_id=source.id,
+                    target_id=timeline.id,
+                    ref_role=role,
+                )
+            )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}",
+        json={
+            "width": 180,
+            "height": 320,
+            "audio_mode": "mix",
+            "voiceover_volume": 0.8,
+            "music_volume": 0.3,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["clip_count"] == 1
+    assert body["source_media_ids"] == [media_a]
+    assert body["export_audio_mode"] == "mix"
+    assert body["export_audio_media_ids"] == {
+        "voiceover": voiceover,
+        "music": music,
+    }
+    assert body["export_audio_mix"] == {
+        "clipVolume": 1.0,
+        "voiceoverVolume": 0.8,
+        "musicVolume": 0.3,
+    }
+    assert media_service.cached_path(body["media_id"]) is not None
+
+    with get_session() as s:
+        timeline = s.get(Node, timeline_id)
+        assert timeline is not None
+        assert timeline.data["exportAudioMode"] == "mix"
+        assert timeline.data["exportAudioMediaIds"] == {
+            "voiceover": voiceover,
+            "music": music,
+        }
+        assert timeline.data["exportAudioMix"] == {
+            "clipVolume": 1.0,
+            "voiceoverVolume": 0.8,
+            "musicVolume": 0.3,
+        }
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")

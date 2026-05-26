@@ -730,6 +730,13 @@ export interface TimelineExportResponse {
     durationsSec?: Array<number | null>;
     captions?: Array<string | null>;
     captionMode?: "none" | "burn_in";
+    audioMode?: "none" | "mix";
+    audioMediaIds?: { voiceover?: string; music?: string };
+    audioMix?: {
+      clipVolume?: number;
+      voiceoverVolume?: number;
+      musicVolume?: number;
+    };
     staleAt?: string;
     staleReason?: string;
   }>;
@@ -737,11 +744,27 @@ export interface TimelineExportResponse {
   clip_durations_sec?: Array<number | null>;
   clip_captions?: Array<string | null>;
   export_caption_mode?: "none" | "burn_in";
+  export_audio_mode?: "none" | "mix";
+  export_audio_media_ids?: { voiceover?: string; music?: string };
+  export_audio_mix?: {
+    clipVolume?: number;
+    voiceoverVolume?: number;
+    musicVolume?: number;
+  };
 }
 
 export async function exportTimeline(
   timelineNodeId: number,
-  input?: { width?: number; height?: number; caption_mode?: "none" | "burn_in" },
+  input?: {
+    width?: number;
+    height?: number;
+    caption_mode?: "none" | "burn_in";
+    audio_mode?: "none" | "mix";
+    voiceover_media_id?: string;
+    music_media_id?: string;
+    voiceover_volume?: number;
+    music_volume?: number;
+  },
 ): Promise<TimelineExportResponse> {
   const res = await fetch(`/api/exports/timelines/${timelineNodeId}`, {
     method: "POST",
