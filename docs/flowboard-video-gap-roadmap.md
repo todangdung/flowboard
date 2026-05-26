@@ -111,6 +111,23 @@ Real Flow QA on 2026-05-26 after the video recipe library:
   returned `403 PERMISSION_DENIED`, `PUBLIC_ERROR_MODEL_ACCESS_DENIED` on
   request `120`. Current free account can validate request wiring, but further
   real video output needs quota reset or a video-enabled account.
+- Real Flow QA runner added: `scripts/real_flow_qa.py`. Use
+  `agent/.venv/bin/python scripts/real_flow_qa.py --mode fixtures` to create a
+  reusable QA board/manifest, and
+  `agent/.venv/bin/python scripts/real_flow_qa.py --mode videos --video-profile free-lite`
+  or `--video-profile full` to rerun matrix cases after quota/account changes.
+- Fixture pack created on board `10`, project
+  `4c3ff49e-5404-4712-8b3b-72f9ef8546c5`, with saved references for product,
+  location, brand, character, first-frame, and last-frame:
+  product `e8db2a90-5b80-4ed8-b691-08e0cb01d0d4`, location
+  `067273b8-542b-4ab6-90f3-7932319c089c`, brand
+  `cb011ac1-3b4b-4f18-8e10-f39fad70403e`, character
+  `0ac02a83-2e22-41ab-9723-01b160db7fa1`, first-frame
+  `67ee6bc3-9624-4fe2-831e-cc7c6787d919`, and last-frame
+  `bf7c5b11-aedd-4dcb-8356-ee8d03326a09`.
+- The runner's one-case video smoke on request `133` reached Flow but failed
+  with `PUBLIC_ERROR_UNUSUAL_ACTIVITY: reCAPTCHA evaluation failed`, likely
+  from rapid repeated video attempts during quota probing.
 
 This file is split out from `video-production-workflow-map.md`. It focuses only
 on what Flowboard currently lacks and the development direction suggested by
