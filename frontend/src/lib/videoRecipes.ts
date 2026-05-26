@@ -23,7 +23,7 @@ export const VIDEO_RECIPES: readonly VideoRecipeOption[] = [
     defaultCamera: recipe.defaultCamera,
     defaultAspectRatio: recipe.defaultAspectRatio,
     defaultSourceMode: recipe.defaultSourceMode,
-    scaffold: recipe.id === "product_demo",
+    scaffold: true,
   })),
   { key: "fashion_fit_check", label: "Fashion fit check", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
   { key: "mirror_selfie", label: "Mirror selfie", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },

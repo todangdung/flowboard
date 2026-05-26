@@ -196,10 +196,14 @@ _WORKFLOWS: dict[str, RecipeWorkflowSpec] = {
         nodes=(
             WorkflowNodeSpec(
                 "product",
-                "visual_asset",
-                "Product ref",
+                "product",
+                "Product profile",
                 0,
                 0,
+                data={
+                    "productName": "Product",
+                    "claimRules": "visible product facts only; no unsupported claims",
+                },
                 role="product_ref",
             ),
             WorkflowNodeSpec(
@@ -222,13 +226,547 @@ _WORKFLOWS: dict[str, RecipeWorkflowSpec] = {
                 "Product demo video",
                 720,
                 0,
-                data={"videoRecipeId": "product_demo"},
+                data={
+                    "videoRecipeId": "product_demo",
+                    "videoSourceMode": "first_frame",
+                    "videoDurationSec": 6,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
             ),
         ),
         edges=(
             WorkflowEdgeSpec("product", "frame", "product_ref"),
             WorkflowEdgeSpec("frame", "video", "first_frame"),
             WorkflowEdgeSpec("product", "video", "product_ref"),
+        ),
+    ),
+    "lifestyle_ad": RecipeWorkflowSpec(
+        frame_key="frame",
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "product",
+                "product",
+                "Lifestyle product",
+                0,
+                0,
+                data={"productName": "Hero product"},
+                role="product_ref",
+            ),
+            WorkflowNodeSpec(
+                "location",
+                "location",
+                "Lifestyle location",
+                0,
+                220,
+                data={"locationName": "Use context", "palette": "natural lifestyle palette"},
+                role="background_ref",
+            ),
+            WorkflowNodeSpec(
+                "brand",
+                "brand",
+                "Brand mood",
+                0,
+                440,
+                data={"brandTone": "warm, useful, aspirational", "palette": "brand-safe"},
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "frame",
+                "image",
+                "Lifestyle first frame",
+                360,
+                130,
+                data={
+                    "prompt": (
+                        "Photoreal lifestyle ad first frame, hero product visible "
+                        "inside a believable real-use location, brand palette and "
+                        "lighting locked, no text overlays."
+                    ),
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Lifestyle ad video",
+                720,
+                130,
+                data={
+                    "videoRecipeId": "lifestyle_ad",
+                    "videoSourceMode": "first_frame",
+                    "videoDurationSec": 8,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("product", "frame", "product_ref"),
+            WorkflowEdgeSpec("location", "frame", "background_ref"),
+            WorkflowEdgeSpec("brand", "frame", "style_ref"),
+            WorkflowEdgeSpec("frame", "video", "first_frame"),
+            WorkflowEdgeSpec("product", "video", "product_ref"),
+            WorkflowEdgeSpec("location", "video", "background_ref"),
+            WorkflowEdgeSpec("brand", "video", "style_ref"),
+        ),
+    ),
+    "ugc_testimonial": RecipeWorkflowSpec(
+        frame_key="frame",
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "character",
+                "character",
+                "UGC creator",
+                0,
+                0,
+                role="character_ref",
+            ),
+            WorkflowNodeSpec(
+                "product",
+                "product",
+                "UGC product",
+                0,
+                220,
+                data={"productName": "Reviewed product"},
+                role="product_ref",
+            ),
+            WorkflowNodeSpec(
+                "audio",
+                "audio",
+                "UGC audio direction",
+                0,
+                440,
+                data={"voiceName": "Casual creator voice", "legalNotes": "exact script only"},
+                role="audio_ref",
+            ),
+            WorkflowNodeSpec(
+                "frame",
+                "image",
+                "UGC first frame",
+                360,
+                130,
+                data={
+                    "prompt": (
+                        "Photoreal creator-shot first frame, creator naturally "
+                        "holding the product near camera, casual room light, "
+                        "no captions, no lip-sync setup."
+                    ),
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "UGC testimonial video",
+                720,
+                130,
+                data={
+                    "videoRecipeId": "ugc_testimonial",
+                    "videoSourceMode": "first_frame",
+                    "videoDurationSec": 8,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("character", "frame", "character_ref"),
+            WorkflowEdgeSpec("product", "frame", "product_ref"),
+            WorkflowEdgeSpec("frame", "video", "first_frame"),
+            WorkflowEdgeSpec("character", "video", "character_ref"),
+            WorkflowEdgeSpec("product", "video", "product_ref"),
+            WorkflowEdgeSpec("audio", "video", "audio_ref"),
+        ),
+    ),
+    "cinematic_reveal": RecipeWorkflowSpec(
+        frame_key="frame",
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "subject",
+                "visual_asset",
+                "Reveal subject",
+                0,
+                0,
+                role="product_ref",
+            ),
+            WorkflowNodeSpec(
+                "style",
+                "prompt",
+                "Reveal direction",
+                0,
+                220,
+                data={
+                    "prompt": (
+                        "cinematic reveal, slow push or light sweep, controlled "
+                        "atmosphere, preserve subject silhouette"
+                    ),
+                    "status": "done",
+                },
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "frame",
+                "image",
+                "Cinematic reveal first frame",
+                360,
+                70,
+                data={
+                    "prompt": (
+                        "Cinematic first frame with the subject partially "
+                        "concealed by light, shadow, foreground, or framing; "
+                        "premium lighting, no text overlays."
+                    ),
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+                },
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Cinematic reveal video",
+                720,
+                70,
+                data={
+                    "videoRecipeId": "cinematic_reveal",
+                    "videoSourceMode": "first_frame",
+                    "videoDurationSec": 6,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("subject", "frame", "product_ref"),
+            WorkflowEdgeSpec("style", "frame", "style_ref"),
+            WorkflowEdgeSpec("frame", "video", "first_frame"),
+            WorkflowEdgeSpec("subject", "video", "product_ref"),
+            WorkflowEdgeSpec("style", "video", "style_ref"),
+        ),
+    ),
+    "before_after": RecipeWorkflowSpec(
+        frame_key="first",
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "product",
+                "product",
+                "Before/after product",
+                0,
+                0,
+                data={"claimRules": "no medical or guaranteed result claims"},
+                role="product_ref",
+            ),
+            WorkflowNodeSpec(
+                "first",
+                "image",
+                "Before frame",
+                360,
+                0,
+                data={
+                    "prompt": (
+                        "Photoreal before frame, clear starting state, stable "
+                        "composition, neutral claim-safe framing."
+                    ),
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "last",
+                "image",
+                "After frame",
+                360,
+                220,
+                data={
+                    "prompt": (
+                        "Photoreal after frame, same subject/product and "
+                        "composition, visible cosmetic or visual endpoint only."
+                    ),
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Before/after video",
+                720,
+                110,
+                data={
+                    "videoRecipeId": "before_after",
+                    "videoSourceMode": "first_last",
+                    "videoDurationSec": 6,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("product", "first", "product_ref"),
+            WorkflowEdgeSpec("product", "last", "product_ref"),
+            WorkflowEdgeSpec("first", "video", "first_frame"),
+            WorkflowEdgeSpec("last", "video", "last_frame"),
+            WorkflowEdgeSpec("product", "video", "product_ref"),
+        ),
+    ),
+    "location_establishing": RecipeWorkflowSpec(
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "location",
+                "location",
+                "Establishing location",
+                0,
+                0,
+                data={"locationName": "Hero location", "palette": "realistic location light"},
+                role="background_ref",
+            ),
+            WorkflowNodeSpec(
+                "style",
+                "prompt",
+                "Establishing direction",
+                0,
+                220,
+                data={
+                    "prompt": (
+                        "wide geography first, motivated camera move inward, "
+                        "preserve architecture and time of day"
+                    ),
+                    "status": "done",
+                },
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Location establishing video",
+                360,
+                80,
+                data={
+                    "prompt": (
+                        "Establish the location with a readable wide view, then "
+                        "move inward toward the action area. No random signage."
+                    ),
+                    "videoRecipeId": "location_establishing",
+                    "videoSourceMode": "text",
+                    "videoDurationSec": 6,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("location", "video", "background_ref"),
+            WorkflowEdgeSpec("style", "video", "style_ref"),
+        ),
+    ),
+    "brand_bumper": RecipeWorkflowSpec(
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "brand",
+                "brand",
+                "Brand kit",
+                0,
+                0,
+                data={
+                    "brandTone": "concise, polished, brand-safe",
+                    "cta": "End on clean brand hold",
+                    "legalNotes": "no invented claims or random taglines",
+                },
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "audio",
+                "audio",
+                "Bumper audio",
+                0,
+                220,
+                data={"voiceName": "short sting", "brandTone": "clean audio logo"},
+                role="audio_ref",
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Brand bumper video",
+                360,
+                80,
+                data={
+                    "prompt": (
+                        "Create a short brand bumper with one simple motion idea "
+                        "and a clean final hold. Keep typography area readable."
+                    ),
+                    "videoRecipeId": "brand_bumper",
+                    "videoSourceMode": "text",
+                    "videoDurationSec": 4,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("brand", "video", "style_ref"),
+            WorkflowEdgeSpec("audio", "video", "audio_ref"),
+        ),
+    ),
+    "audio_led": RecipeWorkflowSpec(
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "audio",
+                "audio",
+                "Audio direction",
+                0,
+                0,
+                data={
+                    "voiceName": "Voice / music direction",
+                    "legalNotes": "exact script only; no unscripted speech",
+                },
+                role="audio_ref",
+            ),
+            WorkflowNodeSpec(
+                "brand",
+                "brand",
+                "Audio-led brand tone",
+                0,
+                220,
+                data={"brandTone": "match visual beats to audio cadence"},
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Voiceover / audio-led video",
+                360,
+                80,
+                data={
+                    "prompt": (
+                        "Build visual beats around the supplied audio direction. "
+                        "Use only supplied script wording if speech is present."
+                    ),
+                    "videoRecipeId": "audio_led",
+                    "videoSourceMode": "text",
+                    "videoDurationSec": 8,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("audio", "video", "audio_ref"),
+            WorkflowEdgeSpec("brand", "video", "style_ref"),
+        ),
+    ),
+    "transition_shot": RecipeWorkflowSpec(
+        frame_key="first",
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "first",
+                "image",
+                "Transition start frame",
+                0,
+                0,
+                data={
+                    "prompt": "Start frame for a transition shot; clear source state.",
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "last",
+                "image",
+                "Transition end frame",
+                0,
+                220,
+                data={
+                    "prompt": "End frame for a transition shot; clear target state.",
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "style",
+                "prompt",
+                "Transition direction",
+                0,
+                440,
+                data={
+                    "prompt": "object pass, match cut, wipe, whip pan, or light move",
+                    "status": "done",
+                },
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Transition shot video",
+                360,
+                120,
+                data={
+                    "videoRecipeId": "transition_shot",
+                    "videoSourceMode": "first_last",
+                    "videoDurationSec": 4,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("first", "video", "first_frame"),
+            WorkflowEdgeSpec("last", "video", "last_frame"),
+            WorkflowEdgeSpec("style", "video", "style_ref"),
+        ),
+    ),
+    "packshot_loop": RecipeWorkflowSpec(
+        frame_key="frame",
+        video_key="video",
+        nodes=(
+            WorkflowNodeSpec(
+                "product",
+                "product",
+                "Packshot product",
+                0,
+                0,
+                data={"productName": "Hero product", "brandName": "Brand"},
+                role="product_ref",
+            ),
+            WorkflowNodeSpec(
+                "brand",
+                "brand",
+                "Packshot brand rules",
+                0,
+                220,
+                data={
+                    "brandTone": "clean hero product loop",
+                    "legalNotes": "preserve label area; no invented typography",
+                },
+                role="style_ref",
+            ),
+            WorkflowNodeSpec(
+                "frame",
+                "image",
+                "Packshot first frame",
+                360,
+                80,
+                data={
+                    "prompt": (
+                        "Clean centered packshot first frame, product fully "
+                        "readable, label area preserved, loop-safe composition."
+                    ),
+                    "aspectRatio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+            WorkflowNodeSpec(
+                "video",
+                "video",
+                "Packshot / hero loop video",
+                720,
+                80,
+                data={
+                    "videoRecipeId": "packshot_loop",
+                    "videoSourceMode": "first_frame",
+                    "videoDurationSec": 4,
+                    "aspectRatio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+                },
+            ),
+        ),
+        edges=(
+            WorkflowEdgeSpec("product", "frame", "product_ref"),
+            WorkflowEdgeSpec("brand", "frame", "style_ref"),
+            WorkflowEdgeSpec("frame", "video", "first_frame"),
+            WorkflowEdgeSpec("product", "video", "product_ref"),
+            WorkflowEdgeSpec("brand", "video", "style_ref"),
         ),
     ),
 }

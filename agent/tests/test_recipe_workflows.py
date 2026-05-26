@@ -130,6 +130,53 @@ def test_build_fashion_fit_check_workflow(client):
     assert roles.count("first_frame") == 1
 
 
+def test_build_video_recipe_library_scaffolds(client):
+    recipe_ids = [
+        "product_demo",
+        "lifestyle_ad",
+        "ugc_testimonial",
+        "cinematic_reveal",
+        "before_after",
+        "location_establishing",
+        "brand_bumper",
+        "audio_led",
+        "transition_shot",
+        "packshot_loop",
+    ]
+
+    for recipe_id in recipe_ids:
+        board_id = _make_board()
+        r = client.post(
+            "/api/recipes/build-workflow",
+            json={"board_id": board_id, "recipe_id": recipe_id},
+        )
+        assert r.status_code == 200, f"{recipe_id}: {r.text}"
+        body = r.json()
+        assert body["recipe_id"] == recipe_id
+        assert body["video_node_id"], recipe_id
+        assert body["nodes"], recipe_id
+        assert body["edges"], recipe_id
+
+        video_nodes = [n for n in body["nodes"] if n["type"] == "video"]
+        assert len(video_nodes) == 1, recipe_id
+        assert video_nodes[0]["data"]["videoRecipeId"] == recipe_id
+        assert video_nodes[0]["data"]["videoSourceMode"] in {
+            "text",
+            "first_frame",
+            "first_last",
+            "ingredients",
+            "edit",
+        }
+
+        roles = {e["ref_role"] for e in body["edges"]}
+        if recipe_id in {"before_after", "transition_shot"}:
+            assert {"first_frame", "last_frame"}.issubset(roles)
+        if recipe_id in {"brand_bumper", "audio_led"}:
+            assert "audio_ref" in roles
+        if recipe_id == "location_establishing":
+            assert "background_ref" in roles
+
+
 def test_build_workflow_can_bind_existing_sources(client):
     board_id = _make_board()
     with get_session() as s:
