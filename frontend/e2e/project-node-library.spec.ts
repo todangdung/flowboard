@@ -57,6 +57,7 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
     await expect(topPalette).not.toContainText("Location");
     await expect(topPalette).not.toContainText("Brand");
     await expect(topPalette).not.toContainText("Campaign");
+    await expect(topPalette).not.toContainText("Script");
     await expect(topPalette).not.toContainText("Audio");
 
     const projectSidebar = page.locator(".project-sidebar");
@@ -67,7 +68,7 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
 
     const domainFolder = nodeLibrary.getByRole("button", { name: "Domain nodes" });
     await expect(domainFolder).toHaveAttribute("aria-expanded", "true");
-    for (const label of ["Product", "Location", "Brand", "Campaign", "Audio"]) {
+    for (const label of ["Product", "Location", "Brand", "Campaign", "Script", "Audio"]) {
       await expect(
         nodeLibrary.getByRole("button", { name: `Add ${label} node` }),
       ).toBeVisible();
@@ -79,6 +80,9 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
     ).toHaveCount(0);
     await expect(
       nodeLibrary.getByRole("button", { name: "Add Campaign node" }),
+    ).toHaveCount(0);
+    await expect(
+      nodeLibrary.getByRole("button", { name: "Add Script node" }),
     ).toHaveCount(0);
 
     const workflowsFolder = nodeLibrary.getByRole("button", { name: "Video workflows" });
@@ -118,6 +122,10 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
     await expect(
       page.getByRole("dialog", { name: "Generate video" })
         .getByText("Campaign node connected"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "Generate video" })
+        .getByText("CTA present; add a Script node"),
     ).toBeVisible();
     const detailRes = await request.get(`/api/boards/${board.id}`);
     expect(detailRes.ok()).toBeTruthy();

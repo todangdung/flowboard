@@ -96,6 +96,7 @@ export const REF_ROLE_OPTIONS: readonly { key: "" | RefRole; label: string }[] =
   { key: "storyboard_ref", label: "Storyboard" },
   { key: "storyboard_panel", label: "Panel" },
   { key: "campaign_ref", label: "Campaign" },
+  { key: "script_ref", label: "Script" },
   { key: "audio_ref", label: "Audio" },
   { key: "ingredient", label: "Ingredient" },
 ];
@@ -111,6 +112,7 @@ export const REF_ROLE_LABELS: Record<RefRole, string> = {
   storyboard_ref: "Storyboard",
   storyboard_panel: "Panel",
   campaign_ref: "Campaign",
+  script_ref: "Script",
   audio_ref: "Audio",
   ingredient: "Ingredient",
 };

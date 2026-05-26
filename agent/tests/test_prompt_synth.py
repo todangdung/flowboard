@@ -845,17 +845,29 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
             },
             status="done",
         )
+        script = Node(
+            board_id=b.id, short_id="pdsc", type="script",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "Launch VO",
+                "scriptHook": "See the glow in one step",
+                "voiceoverText": "Apply one drop, then tap to claim the starter kit.",
+                "captionText": "Starter kit now open",
+                "mustNotSay": "no acne cure",
+            },
+            status="done",
+        )
         vid = Node(
             board_id=b.id, short_id="pdvd", type="video",
             x=0, y=0, w=240, h=180,
             data={"title": "Product demo clip"},
             status="idle",
         )
-        s.add_all([src, product, campaign, vid]); s.commit()
-        for n in (src, product, campaign, vid):
+        s.add_all([src, product, campaign, script, vid]); s.commit()
+        for n in (src, product, campaign, script, vid):
             s.refresh(n)
-        board_id, src_id, product_id, campaign_id, vid_id = (
-            b.id, src.id, product.id, campaign.id, vid.id
+        board_id, src_id, product_id, campaign_id, script_id, vid_id = (
+            b.id, src.id, product.id, campaign.id, script.id, vid.id
         )
 
     client.post(
@@ -885,6 +897,15 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
             "ref_role": "campaign_ref",
         },
     )
+    client.post(
+        "/api/edges",
+        json={
+            "board_id": board_id,
+            "source_id": script_id,
+            "target_id": vid_id,
+            "ref_role": "script_ref",
+        },
+    )
 
     captured: dict = {}
 
@@ -903,6 +924,9 @@ async def test_auto_prompt_video_product_demo_recipe_uses_ref_roles(
     assert "Campaign brief" in user
     assert "drive trial kit signups" in user
     assert "tap to claim the starter kit" in user
+    assert "Script / voiceover" in user
+    assert "Apply one drop" in user
+    assert "Starter kit now open" in user
     assert "no acne cure" in user
     assert "VIDEO RECIPE PLAN" in user
     assert "Role-bound references" in user
@@ -1350,7 +1374,9 @@ def test_route_lists_video_recipe_catalog(client):
     assert "product_ref" in by_id["product_demo"]["required_roles"]
     assert "first_frame" in by_id["product_demo"]["required_roles"]
     assert "campaign_ref" in by_id["product_demo"]["optional_roles"]
+    assert "script_ref" in by_id["product_demo"]["optional_roles"]
     assert "campaign_ref" in by_id["storyboard_sequence"]["optional_roles"]
+    assert "script_ref" in by_id["storyboard_sequence"]["optional_roles"]
     assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
     assert "medical claims" in by_id["skincare_tvc"]["avoid_hint"]
     scaffold_ids = {
@@ -1509,19 +1535,32 @@ def test_route_recipe_plan_includes_campaign_ref(client):
             },
             status="idle",
         )
+        script = Node(
+            board_id=b.id, short_id="scrp", type="script",
+            x=0, y=0, w=240, h=180,
+            data={
+                "title": "CTA script",
+                "scriptHook": "Start simple",
+                "voiceoverText": "Tap to start your routine today.",
+                "captionText": "20% off starter kit",
+                "mustNotSay": "guaranteed results",
+            },
+            status="idle",
+        )
         vid = Node(
             board_id=b.id, short_id="cvid", type="video",
             x=0, y=0, w=240, h=180,
             data={"title": "Campaign video"},
             status="idle",
         )
-        s.add_all([product, frame, campaign, vid]); s.commit()
-        for n in (product, frame, campaign, vid):
+        s.add_all([product, frame, campaign, script, vid]); s.commit()
+        for n in (product, frame, campaign, script, vid):
             s.refresh(n)
         for source, role in (
             (product, "product_ref"),
             (frame, "first_frame"),
             (campaign, "campaign_ref"),
+            (script, "script_ref"),
         ):
             s.add(
                 Edge(
@@ -1542,10 +1581,14 @@ def test_route_recipe_plan_includes_campaign_ref(client):
     plan = r.json()["plan"]
     assert plan["ready"] is True
     assert "campaign_ref" in plan["present_roles"]
+    assert "script_ref" in plan["present_roles"]
     assert "drive starter-kit trials" in plan["prompt_sections"]["refs"]
     assert "tap to start routine" in plan["prompt_sections"]["action"]
+    assert "Tap to start your routine today" in plan["prompt_sections"]["action"]
+    assert "20% off starter kit" in plan["prompt_sections"]["audio"]
     assert "visible cosmetic glow" in plan["prompt_sections"]["safety"]
     assert "before/after promise" in plan["prompt_sections"]["avoid"]
+    assert "guaranteed results" in plan["prompt_sections"]["avoid"]
 
 
 def test_route_fashion_fit_recipe_plan_reports_missing_role(client):

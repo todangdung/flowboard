@@ -128,6 +128,17 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   objective?: string;
   audience?: string;
   offer?: string;
+  scriptHook?: string;
+  voiceoverText?: string;
+  onScreenText?: string;
+  captionText?: string;
+  scriptBeats?: string;
+  language?: string;
+  pacing?: string;
+  speaker?: string;
+  pronunciation?: string;
+  mustSay?: string;
+  mustNotSay?: string;
   claimsAllowed?: string;
   claimsAvoid?: string;
   tone?: string;
@@ -221,6 +232,7 @@ const TYPE_TITLE: Record<NodeType, string> = {
   location: "Location",
   brand: "Brand kit",
   campaign: "Campaign brief",
+  script: "Script / voiceover",
   audio: "Audio",
   Storyboard: "Storyboard",
 };
@@ -268,6 +280,17 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       objective: dto.data["objective"] as string | undefined,
       audience: dto.data["audience"] as string | undefined,
       offer: dto.data["offer"] as string | undefined,
+      scriptHook: dto.data["scriptHook"] as string | undefined,
+      voiceoverText: dto.data["voiceoverText"] as string | undefined,
+      onScreenText: dto.data["onScreenText"] as string | undefined,
+      captionText: dto.data["captionText"] as string | undefined,
+      scriptBeats: dto.data["scriptBeats"] as string | undefined,
+      language: dto.data["language"] as string | undefined,
+      pacing: dto.data["pacing"] as string | undefined,
+      speaker: dto.data["speaker"] as string | undefined,
+      pronunciation: dto.data["pronunciation"] as string | undefined,
+      mustSay: dto.data["mustSay"] as string | undefined,
+      mustNotSay: dto.data["mustNotSay"] as string | undefined,
       claimsAllowed: dto.data["claimsAllowed"] as string | undefined,
       claimsAvoid: dto.data["claimsAvoid"] as string | undefined,
       tone: dto.data["tone"] as string | undefined,
@@ -694,6 +717,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         ? "brand"
         : ref.kind === "campaign"
         ? "campaign"
+        : ref.kind === "script"
+        ? "script"
         : ref.kind === "storyboard_shot"
         ? "Storyboard"
         : "visual_asset";

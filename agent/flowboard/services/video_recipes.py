@@ -154,7 +154,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="fashion_fit_check",
         label="Fashion fit check",
         required_roles=("character_ref", "first_frame"),
-        optional_roles=("product_ref", "background_ref", "style_ref", "campaign_ref"),
+        optional_roles=("product_ref", "background_ref", "style_ref", "campaign_ref", "script_ref"),
         recommended_generation_path="image_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -209,7 +209,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="unbox",
         label="Unbox",
         required_roles=("package_ref", "first_frame"),
-        optional_roles=("product_ref", "background_ref", "style_ref"),
+        optional_roles=("product_ref", "background_ref", "style_ref", "script_ref"),
         recommended_generation_path="first_last_frame",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -229,7 +229,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="product_demo",
         label="Product demo",
         required_roles=("product_ref", "first_frame"),
-        optional_roles=("package_ref", "background_ref", "style_ref", "campaign_ref"),
+        optional_roles=("package_ref", "background_ref", "style_ref", "campaign_ref", "script_ref"),
         recommended_generation_path="image_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -263,7 +263,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="lifestyle_ad",
         label="Lifestyle ad",
         required_roles=("product_ref", "background_ref"),
-        optional_roles=("character_ref", "style_ref", "campaign_ref", "audio_ref", "first_frame"),
+        optional_roles=("character_ref", "style_ref", "campaign_ref", "script_ref", "audio_ref", "first_frame"),
         recommended_generation_path="image_to_video",
         default_camera="dynamic",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -288,7 +288,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="ugc_testimonial",
         label="UGC testimonial",
         required_roles=("product_ref", "character_ref"),
-        optional_roles=("first_frame", "background_ref", "style_ref", "campaign_ref", "audio_ref"),
+        optional_roles=("first_frame", "background_ref", "style_ref", "campaign_ref", "script_ref", "audio_ref"),
         recommended_generation_path="ingredients_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -339,7 +339,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="ugc_review",
         label="UGC review",
         required_roles=("character_ref", "product_ref"),
-        optional_roles=("first_frame", "background_ref", "style_ref", "campaign_ref"),
+        optional_roles=("first_frame", "background_ref", "style_ref", "campaign_ref", "script_ref"),
         recommended_generation_path="ingredients_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -359,7 +359,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="skincare_tvc",
         label="Skincare TVC",
         required_roles=("product_ref", "first_frame"),
-        optional_roles=("character_ref", "background_ref", "style_ref", "campaign_ref"),
+        optional_roles=("character_ref", "background_ref", "style_ref", "campaign_ref", "script_ref"),
         recommended_generation_path="per_shot_sequence",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -379,7 +379,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="before_after",
         label="Before / after",
         required_roles=("first_frame", "last_frame"),
-        optional_roles=("character_ref", "product_ref", "style_ref", "campaign_ref"),
+        optional_roles=("character_ref", "product_ref", "style_ref", "campaign_ref", "script_ref"),
         recommended_generation_path="first_last_frame",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -431,7 +431,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="brand_bumper",
         label="Brand bumper",
         required_roles=("style_ref",),
-        optional_roles=("product_ref", "audio_ref", "campaign_ref", "first_frame", "background_ref"),
+        optional_roles=("product_ref", "audio_ref", "campaign_ref", "script_ref", "first_frame", "background_ref"),
         recommended_generation_path="text_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -456,7 +456,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="audio_led",
         label="Voiceover / audio-led",
         required_roles=("audio_ref",),
-        optional_roles=("product_ref", "character_ref", "background_ref", "style_ref", "campaign_ref", "first_frame"),
+        optional_roles=("product_ref", "character_ref", "background_ref", "style_ref", "campaign_ref", "script_ref", "first_frame"),
         recommended_generation_path="text_to_video",
         default_camera="dynamic",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -506,7 +506,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="packshot_loop",
         label="Packshot / hero loop",
         required_roles=("product_ref", "first_frame"),
-        optional_roles=("package_ref", "style_ref", "background_ref", "campaign_ref", "audio_ref"),
+        optional_roles=("package_ref", "style_ref", "background_ref", "campaign_ref", "script_ref", "audio_ref"),
         recommended_generation_path="image_to_video",
         default_camera="static",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -551,7 +551,7 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
         id="storyboard_sequence",
         label="Storyboard sequence",
         required_roles=("storyboard_ref",),
-        optional_roles=("character_ref", "product_ref", "background_ref", "campaign_ref"),
+        optional_roles=("character_ref", "product_ref", "background_ref", "campaign_ref", "script_ref"),
         recommended_generation_path="per_shot_sequence",
         default_camera="dynamic",
         default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -579,6 +579,7 @@ _REF_SOURCE_TYPES = {
     "location",
     "brand",
     "campaign",
+    "script",
     "audio",
     "Storyboard",
 }
@@ -597,6 +598,17 @@ _PROFILE_FIELD_LABELS = {
     "objective": "Objective",
     "audience": "Audience",
     "offer": "Offer",
+    "scriptHook": "Hook",
+    "voiceoverText": "Voiceover",
+    "onScreenText": "On-screen text",
+    "captionText": "Caption",
+    "scriptBeats": "Beats",
+    "language": "Language",
+    "pacing": "Pacing",
+    "speaker": "Speaker",
+    "pronunciation": "Pronunciation",
+    "mustSay": "Must say",
+    "mustNotSay": "Must not say",
     "claimsAllowed": "Claims allowed",
     "claimsAvoid": "Claims avoid",
     "tone": "Tone",
@@ -618,6 +630,7 @@ _ROLE_LABELS = {
     "storyboard_ref": "Storyboard",
     "storyboard_panel": "Storyboard panel",
     "campaign_ref": "Campaign brief",
+    "script_ref": "Script / voiceover",
     "audio_ref": "Audio",
     "ingredient": "Ingredient",
 }
@@ -633,6 +646,7 @@ _ROLE_PRESERVE_HINTS = {
     "storyboard_ref": "Preserve panel order, narrative beats, and continuity locks.",
     "storyboard_panel": "Treat panel as one shot reference, not the whole sequence.",
     "campaign_ref": "Follow campaign objective, audience, offer, CTA, claim limits, tone, platform, and inclusion/exclusion rules.",
+    "script_ref": "Use supplied hook, voiceover, caption, on-screen copy, and must-say/must-not-say constraints exactly.",
     "audio_ref": "Use audio direction as timing, voice, mood, and sound-design guidance.",
     "ingredient": "Use as a conditioning ingredient only when no stricter role is assigned.",
 }
@@ -691,6 +705,41 @@ def _campaign_section(records: list[dict]) -> str:
 def _campaign_values(records: list[dict], keys: tuple[str, ...]) -> list[str]:
     values: list[str] = []
     for record in _campaign_records(records):
+        profile = record.get("profile")
+        if not isinstance(profile, dict):
+            continue
+        for key in keys:
+            value = profile.get(key)
+            if isinstance(value, str) and value.strip():
+                values.append(f"{_PROFILE_FIELD_LABELS.get(key, key)}: {value.strip()}")
+    return values
+
+
+def _script_records(records: list[dict]) -> list[dict]:
+    return [
+        record
+        for record in records
+        if record.get("ref_role") == "script_ref" or record.get("type") == "script"
+    ]
+
+
+def _script_section(records: list[dict]) -> str:
+    sections: list[str] = []
+    for record in _script_records(records):
+        title = record.get("title") if isinstance(record.get("title"), str) else "Script / voiceover"
+        bits: list[str] = []
+        brief = record.get("brief")
+        if isinstance(brief, str) and brief.strip():
+            bits.append(brief.strip())
+        bits.extend(_profile_lines(record.get("profile")))
+        if bits:
+            sections.append(f"{title}: {'; '.join(bits)}")
+    return " ".join(sections)
+
+
+def _script_values(records: list[dict], keys: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    for record in _script_records(records):
         profile = record.get("profile")
         if not isinstance(profile, dict):
             continue
@@ -884,17 +933,29 @@ def build_video_recipe_plan_from_records(
     target_title = target_data.get("title") if isinstance(target_data.get("title"), str) else None
     camera_mode = camera or recipe.default_camera
     campaign = _campaign_section(records)
+    script = _script_section(records)
     claim_limits = _campaign_values(records, ("claimsAllowed", "claimsAvoid", "claimRules"))
     campaign_avoid = _campaign_values(records, ("claimsAvoid", "mustAvoid", "legalNotes"))
+    script_copy = _script_values(records, ("scriptHook", "voiceoverText", "onScreenText", "captionText", "mustSay"))
+    script_avoid = _script_values(records, ("mustNotSay", "legalNotes"))
     action = recipe.action_hint
     if campaign:
         action = f"{action} Campaign brief: {campaign}"
+    if script:
+        action = f"{action} Script / voiceover: {script}"
+    audio = recipe.audio_hint
+    if script:
+        audio = f"{audio} Use exact supplied script/caption wording only: {script}"
     safety = recipe.safety_hint
     if claim_limits:
         safety = f"{safety} Campaign claim limits: {'; '.join(claim_limits)}."
+    if script_copy:
+        safety = f"{safety} Script copy allowed: {'; '.join(script_copy)}."
     avoid = recipe.avoid_hint
     if campaign_avoid:
         avoid = f"{avoid} Campaign restrictions: {'; '.join(campaign_avoid)}."
+    if script_avoid:
+        avoid = f"{avoid} Script restrictions: {'; '.join(script_avoid)}."
     return {
         "recipe_id": recipe.id,
         "label": recipe.label,
@@ -909,7 +970,7 @@ def build_video_recipe_plan_from_records(
             "refs": _refs_section(records),
             "action": action,
             "camera": f"{camera_mode} camera; default aspect {recipe.default_aspect_ratio}.",
-            "audio": recipe.audio_hint,
+            "audio": audio,
             "preserve": _preserve_section(recipe, present_roles),
             "safety": safety,
             "avoid": avoid,

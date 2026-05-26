@@ -161,7 +161,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
       .click();
 
     await expect(planDialog).toBeHidden();
-    await expect(page.locator(".node-card")).toHaveCount(13);
+    await expect(page.locator(".node-card")).toHaveCount(14);
     await expect(page.getByText("Timeline / Dòng dựng").first()).toBeVisible();
     await expect(page.locator(".timeline-shot-row")).toHaveCount(4);
     await expect(

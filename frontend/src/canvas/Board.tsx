@@ -31,6 +31,8 @@ const nodeTypes = {
   product: NodeCard,
   location: NodeCard,
   brand: NodeCard,
+  campaign: NodeCard,
+  script: NodeCard,
   audio: NodeCard,
   Storyboard: NodeCard,
 };

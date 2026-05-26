@@ -274,6 +274,8 @@ _ROLE_LABELS = {
     "storyboard_ref": "Storyboard",
     "storyboard_panel": "Storyboard panel",
     "campaign_ref": "Campaign brief",
+    "script_ref": "Script / voiceover",
+    "audio_ref": "Audio",
     "ingredient": "Ingredient",
 }
 
@@ -291,6 +293,17 @@ _PROFILE_FIELD_LABELS = {
     "objective": "Objective",
     "audience": "Audience",
     "offer": "Offer",
+    "scriptHook": "Hook",
+    "voiceoverText": "Voiceover",
+    "onScreenText": "On-screen text",
+    "captionText": "Caption",
+    "scriptBeats": "Beats",
+    "language": "Language",
+    "pacing": "Pacing",
+    "speaker": "Speaker",
+    "pronunciation": "Pronunciation",
+    "mustSay": "Must say",
+    "mustNotSay": "Must not say",
     "claimsAllowed": "Claims allowed",
     "claimsAvoid": "Claims avoid",
     "tone": "Tone",
@@ -311,6 +324,7 @@ _FORBIDDEN_FINAL_TOKENS = (
     "outfit_ref",
     "package_ref",
     "product_ref",
+    "script_ref",
     "storyboard_ref",
     "style_ref",
 )
@@ -760,6 +774,12 @@ def _format_user_message(records: list[dict], target: Node) -> str:
             "Campaign brief (apply advertising objective, audience, offer, "
             "CTA, platform, tone, claim limits, and must-include/avoid rules):\n  - "
             + "\n  - ".join(by_type["campaign"])
+        )
+    if by_type.get("script"):
+        parts.append(
+            "Script / voiceover (use exact supplied wording for speech, captions, "
+            "and on-screen copy; do not improvise claims):\n  - "
+            + "\n  - ".join(by_type["script"])
         )
 
     # Surface multi-subject scenes (couple, group) so Claude switches to

@@ -35,7 +35,7 @@ Completed vertical slices:
   review note while preserving shot metadata/upstream refs and marking the
   timeline export stale.
 - Project node library placement: the top add-node palette remains the default
-  compact set, while Product, Location, Brand, Campaign, Audio, and recipe workflow
+  compact set, while Product, Location, Brand, Campaign, Script, Audio, and recipe workflow
   shortcuts live inside the existing Projects sidebar as collapsible folder
   groups. This prevents the canvas palette from wrapping over the board.
 - Recipe catalog sync: backend and frontend recipe entries now expose scaffold,
@@ -60,14 +60,18 @@ Additional gap closure in this pass:
 - Video edit/refine dispatch: reviewed clip refine now creates a replacement
   node and dispatches `edit_video_omni` against the existing video media id
   instead of falling back to first-frame i2v.
-- Domain nodes and profiles: Product, Location, Brand, Campaign, and Audio
+- Domain nodes and profiles: Product, Location, Brand, Campaign, Script, and Audio
   nodes have profile fields; saved references persist reusable
-  product/location/brand/campaign/audio metadata.
+  product/location/brand/campaign/script/audio metadata.
 - Campaign Brief node: `campaign` nodes and `campaign_ref` edges carry
   objective, audience, offer, CTA, claim limits, tone, platform, and
   must-include/avoid rules into video recipe prompt synthesis, preflight
   warnings, storyboard/timeline scaffolds, and campaign-recommended ad
   workflow scaffolds.
+- Script / voiceover node: `script` nodes and `script_ref` edges carry exact
+  hook, voiceover, caption/on-screen copy, pacing, language, pronunciation,
+  and must-say/must-not-say constraints into video recipe prompt synthesis,
+  preflight warnings, and audio-led workflow scaffolds.
 - Asset library profiles: reference rows now store a JSON `profile`, and
   library spawn/drag preserves it back onto new nodes.
 - Export preflight/presets: timeline export opens a preflight with clip
@@ -156,7 +160,8 @@ the video-production workflow research.
 Already present:
 
 - Node graph with `image`, `video`, `character`, `prompt`, `note`,
-  `visual_asset`, `product`, `location`, `brand`, `audio`, and
+  `visual_asset`, `product`, `location`, `brand`, `campaign`, `script`,
+  `audio`, and
   `Storyboard` nodes.
 - Upstream media references plus per-edge production roles.
 - Video generation from text, first frame, first+last frame, Omni ingredients,
@@ -177,8 +182,7 @@ Remaining limitations:
 - Real Flow validation is partial because the current free account hit quota,
   model access, reCAPTCHA, and edit-video/V2V gates.
 - Native video extend is not yet validated as a first-class Flow endpoint.
-- Campaign brief, script/voiceover asset pipeline, per-shot edit controls,
-  and auto-review scoring are still future work.
+- Per-shot edit controls and auto-review scoring are still future work.
 
 ## Original Gap Map (Historical)
 
@@ -189,8 +193,8 @@ Use this status overlay for current planning:
 | Status | Areas |
 | --- | --- |
 | Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline/export/review/refine, asset library profiles, accepted-output references. |
-| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, audio/voiceover pipeline, storyboard panel/source editing, native video extend. |
-| Open | Structured campaign brief node, per-shot trim/reorder/transition/caption/audio mix, auto-review scoring, multi-provider media abstraction beyond Flow. |
+| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend. |
+| Open | Per-shot trim/reorder/transition/caption/audio mix, auto-review scoring, multi-provider media abstraction beyond Flow. |
 
 | Area | Original gap | Why it mattered |
 | --- | --- | --- |

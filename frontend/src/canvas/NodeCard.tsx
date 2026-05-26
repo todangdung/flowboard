@@ -45,6 +45,7 @@ const ICON: Record<string, string> = {
   location: "⌂",
   brand: "◈",
   campaign: "◉",
+  script: "☷",
   audio: "♪",
 };
 
@@ -305,6 +306,7 @@ function referenceKindFor(
   if (nodeType === "location") return "location";
   if (nodeType === "brand") return "brand";
   if (nodeType === "campaign") return "campaign";
+  if (nodeType === "script") return "script";
   if (nodeType === "audio") return "audio";
   if (nodeType === "prompt") return "style";
   if (/(package|packaging|box|unbox)/.test(text)) return "package";
@@ -339,6 +341,17 @@ function profileFromNodeData(
     "objective",
     "audience",
     "offer",
+    "scriptHook",
+    "voiceoverText",
+    "onScreenText",
+    "captionText",
+    "scriptBeats",
+    "language",
+    "pacing",
+    "speaker",
+    "pronunciation",
+    "mustSay",
+    "mustNotSay",
     "claimsAllowed",
     "claimsAvoid",
     "tone",
@@ -391,6 +404,20 @@ const DOMAIN_PROFILE_FIELDS: Record<string, readonly {
     { key: "platform", label: "Platform" },
     { key: "mustInclude", label: "Must include", multiline: true },
     { key: "mustAvoid", label: "Must avoid", multiline: true },
+  ],
+  script: [
+    { key: "scriptHook", label: "Hook", multiline: true },
+    { key: "voiceoverText", label: "Voiceover", multiline: true },
+    { key: "onScreenText", label: "On-screen text", multiline: true },
+    { key: "captionText", label: "Caption", multiline: true },
+    { key: "scriptBeats", label: "Beats", multiline: true },
+    { key: "language", label: "Language" },
+    { key: "pacing", label: "Pacing" },
+    { key: "speaker", label: "Speaker" },
+    { key: "pronunciation", label: "Pronunciation", multiline: true },
+    { key: "mustSay", label: "Must say", multiline: true },
+    { key: "mustNotSay", label: "Must not say", multiline: true },
+    { key: "legalNotes", label: "Legal", multiline: true },
   ],
   audio: [
     { key: "voiceName", label: "Voice" },
@@ -2291,6 +2318,7 @@ function NodeBody({ rfId, data }: { rfId: string; data: FlowboardNodeData }) {
       );
     case "brand":
     case "campaign":
+    case "script":
     case "audio":
       return (
         <>
@@ -2320,6 +2348,7 @@ export function NodeCard(props: NodeProps<FlowNode>) {
     "location",
     "brand",
     "campaign",
+    "script",
     "audio",
     "character",
     "Storyboard",

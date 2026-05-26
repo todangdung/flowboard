@@ -744,6 +744,22 @@ _WORKFLOWS: dict[str, RecipeWorkflowSpec] = {
                 role="campaign_ref",
             ),
             WorkflowNodeSpec(
+                "script",
+                "script",
+                "Voiceover script",
+                0,
+                660,
+                data={
+                    "scriptHook": "opening hook",
+                    "voiceoverText": "exact voiceover wording",
+                    "captionText": "matching short caption",
+                    "language": "Vietnamese or English",
+                    "pacing": "paced to 8 seconds",
+                    "mustNotSay": "no unsupported claims",
+                },
+                role="script_ref",
+            ),
+            WorkflowNodeSpec(
                 "video",
                 "video",
                 "Voiceover / audio-led video",
@@ -765,6 +781,7 @@ _WORKFLOWS: dict[str, RecipeWorkflowSpec] = {
             WorkflowEdgeSpec("audio", "video", "audio_ref"),
             WorkflowEdgeSpec("brand", "video", "style_ref"),
             WorkflowEdgeSpec("campaign", "video", "campaign_ref"),
+            WorkflowEdgeSpec("script", "video", "script_ref"),
         ),
     ),
     "transition_shot": RecipeWorkflowSpec(
@@ -967,6 +984,7 @@ _SHOT_WORKFLOWS: dict[str, ShotWorkflowSpec] = {
 _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("first_frame", ("first frame", "source frame", "opening frame", "start frame", "still")),
     ("last_frame", ("last frame", "final frame", "end frame")),
+    ("script_ref", ("script", "voiceover", "voice over", "caption", "copy", "hook", "cta line", "must say")),
     ("audio_ref", ("audio", "voice", "voiceover", "voice over", "music", "sound", "sfx")),
     ("campaign_ref", ("campaign", "objective", "audience", "offer", "cta", "claim", "platform")),
     ("package_ref", ("package", "packaging", "box", "carton", "unbox")),
@@ -1020,6 +1038,8 @@ def _heuristic_role(row: dict, target: Node, recipe_id: Optional[str]) -> tuple[
         return "style_ref", 0.88, "brand node drives style and rules"
     if source_type == "campaign":
         return "campaign_ref", 0.95, "campaign node"
+    if source_type == "script":
+        return "script_ref", 0.95, "script node"
     if source_type == "audio":
         return "audio_ref", 0.95, "audio node"
     if source_type == "visual_asset":
@@ -1458,6 +1478,17 @@ def _source_context_for_board(board_id: int, sources: list[SourceBinding]) -> li
         "objective",
         "audience",
         "offer",
+        "scriptHook",
+        "voiceoverText",
+        "onScreenText",
+        "captionText",
+        "scriptBeats",
+        "language",
+        "pacing",
+        "speaker",
+        "pronunciation",
+        "mustSay",
+        "mustNotSay",
         "claimsAllowed",
         "claimsAvoid",
         "tone",

@@ -266,6 +266,36 @@ function campaignBriefFromData(data: Record<string, unknown>): string {
   return [prompt, ...parts].filter((part) => part.length > 0).join("; ");
 }
 
+const SCRIPT_FIELD_LABELS: Record<string, string> = {
+  scriptHook: "Hook",
+  voiceoverText: "Voiceover",
+  onScreenText: "On-screen text",
+  captionText: "Caption",
+  scriptBeats: "Beats",
+  language: "Language",
+  pacing: "Pacing",
+  speaker: "Speaker",
+  pronunciation: "Pronunciation",
+  mustSay: "Must say",
+  mustNotSay: "Must not say",
+  legalNotes: "Legal",
+};
+
+const SCRIPT_FIELD_KEYS = Object.keys(SCRIPT_FIELD_LABELS);
+
+function scriptBriefFromData(data: Record<string, unknown>): string {
+  const parts = SCRIPT_FIELD_KEYS.flatMap((key) => {
+    const value = data[key];
+    return typeof value === "string" && value.trim().length > 0
+      ? [`${SCRIPT_FIELD_LABELS[key]}: ${value.trim()}`]
+      : [];
+  });
+  const prompt = typeof data.prompt === "string" && data.prompt.trim().length > 0
+    ? data.prompt.trim()
+    : "";
+  return [prompt, ...parts].filter((part) => part.length > 0).join("; ");
+}
+
 // Map an upstream image aspect onto the closest video aspect. Square has
 // no direct video equivalent — fall back to portrait per the
 // "default-to-9:16 on mismatch" rule.
@@ -541,10 +571,12 @@ export function GenerationDialog() {
         .filter((e) => e.target === rfId)
         .map((e) => {
           const n = nodes.find((node) => node.id === e.source);
-          if (!n || !["prompt", "brand", "campaign", "audio"].includes(n.data.type)) return null;
+          if (!n || !["prompt", "brand", "campaign", "script", "audio"].includes(n.data.type)) return null;
           const text = n.data.type === "campaign"
             ? campaignBriefFromData(n.data)
-            : typeof n.data.prompt === "string" ? n.data.prompt : "";
+            : n.data.type === "script"
+              ? scriptBriefFromData(n.data)
+              : typeof n.data.prompt === "string" ? n.data.prompt : "";
           return {
             edgeId: e.id,
             node: n,
@@ -1100,8 +1132,15 @@ export function GenerationDialog() {
             cameraInstruction: camInstruction,
             audioInstruction: audio,
             campaignBrief: campaignBrief || undefined,
+            scriptBrief: scriptBrief || undefined,
           })
-        : [finalPrompt, camInstruction, audio]
+        : [
+            finalPrompt,
+            campaignBrief ? `Campaign brief: ${campaignBrief}` : "",
+            scriptBrief ? `Script / voiceover: ${scriptBrief}` : "",
+            camInstruction,
+            audio,
+          ]
             .filter((part) => part.trim().length > 0)
             .join(". ");
       // Filter the upstream variants to the user's selection — the dialog
@@ -1218,6 +1257,28 @@ export function GenerationDialog() {
     .map(campaignBriefFromData)
     .filter((text) => text.length > 0)
     .join(" ");
+  const scriptRefs = isVideo
+    ? incomingVideoEdges
+        .map((edge) => {
+          const src = nodes.find((n) => n.id === edge.source);
+          if (!src) return null;
+          const refRole = (edge.data?.refRole ?? null) as RefRole | null;
+          return src.data.type === "script" || refRole === "script_ref"
+            ? src.data
+            : null;
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : [];
+  const scriptBrief = scriptRefs
+    .map(scriptBriefFromData)
+    .filter((text) => text.length > 0)
+    .join(" ");
+  const hasScriptCaption = scriptRefs.some((data) =>
+    ["captionText", "onScreenText"].some((key) => {
+      const value = data[key];
+      return typeof value === "string" && value.trim().length > 0;
+    }),
+  );
   const hasCampaignCta = campaignRefs.some(
     (data) => typeof data.cta === "string" && data.cta.trim().length > 0,
   );
@@ -1240,6 +1301,8 @@ export function GenerationDialog() {
           hasCampaignBrief: campaignBrief.length > 0,
           hasCampaignCta,
           hasCampaignClaimLimits,
+          hasScriptBrief: scriptBrief.length > 0,
+          hasScriptCaption,
         })
       : [];
   const recipeLibraryBlocked = recipePreflightItems.some(

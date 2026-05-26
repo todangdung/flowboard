@@ -6,6 +6,7 @@ export type VideoRecipeNodeKind =
   | "location"
   | "brand"
   | "campaign"
+  | "script"
   | "audio"
   | "character"
   | "media";
@@ -55,6 +56,7 @@ export interface VideoRecipePromptInput {
   cameraInstruction?: string;
   audioInstruction?: string;
   campaignBrief?: string;
+  scriptBrief?: string;
 }
 
 export interface VideoRecipePreflightContext {
@@ -68,6 +70,8 @@ export interface VideoRecipePreflightContext {
   hasCampaignBrief?: boolean;
   hasCampaignCta?: boolean;
   hasCampaignClaimLimits?: boolean;
+  hasScriptBrief?: boolean;
+  hasScriptCaption?: boolean;
 }
 
 export interface VideoRecipePreflightItem {
@@ -102,9 +106,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "One visible product operation with product fidelity locked.",
     qaStatus: "real_pass",
     requiredNodeKinds: ["product", "media"],
-    optionalNodeKinds: ["brand", "campaign", "location", "audio", "character"],
+    optionalNodeKinds: ["brand", "campaign", "script", "location", "audio", "character"],
     requiredRoles: ["product_ref", "first_frame"],
-    optionalRoles: ["package_ref", "background_ref", "style_ref", "campaign_ref", "audio_ref", "character_ref"],
+    optionalRoles: ["package_ref", "background_ref", "style_ref", "campaign_ref", "script_ref", "audio_ref", "character_ref"],
     allowedSourceModes: ["first_frame", "ingredients", "edit"],
     defaultSourceMode: "first_frame",
     durationRangeSec: { min: 4, max: 8, recommended: 6 },
@@ -127,9 +131,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Product in a believable location with brand mood and human context.",
     qaStatus: "blocked_quota",
     requiredNodeKinds: ["product", "location"],
-    optionalNodeKinds: ["brand", "campaign", "character", "audio", "media"],
+    optionalNodeKinds: ["brand", "campaign", "script", "character", "audio", "media"],
     requiredRoles: ["product_ref", "background_ref"],
-    optionalRoles: ["character_ref", "style_ref", "campaign_ref", "audio_ref", "first_frame"],
+    optionalRoles: ["character_ref", "style_ref", "campaign_ref", "script_ref", "audio_ref", "first_frame"],
     allowedSourceModes: ["text", "first_frame", "ingredients"],
     defaultSourceMode: "first_frame",
     durationRangeSec: { min: 6, max: 10, recommended: 8 },
@@ -152,9 +156,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Creator-style product proof without forced captions or unsafe claims.",
     qaStatus: "blocked_quota",
     requiredNodeKinds: ["product", "character"],
-    optionalNodeKinds: ["brand", "campaign", "location", "audio", "media"],
+    optionalNodeKinds: ["brand", "campaign", "script", "location", "audio", "media"],
     requiredRoles: ["product_ref", "character_ref"],
-    optionalRoles: ["first_frame", "background_ref", "style_ref", "campaign_ref", "audio_ref"],
+    optionalRoles: ["first_frame", "background_ref", "style_ref", "campaign_ref", "script_ref", "audio_ref"],
     allowedSourceModes: ["text", "first_frame", "ingredients", "edit"],
     defaultSourceMode: "first_frame",
     durationRangeSec: { min: 6, max: 10, recommended: 8 },
@@ -202,9 +206,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Readable transformation from a first frame to a final frame.",
     qaStatus: "blocked_quota",
     requiredNodeKinds: ["media"],
-    optionalNodeKinds: ["product", "brand", "campaign", "character", "audio"],
+    optionalNodeKinds: ["product", "brand", "campaign", "script", "character", "audio"],
     requiredRoles: ["first_frame", "last_frame"],
-    optionalRoles: ["product_ref", "character_ref", "style_ref", "campaign_ref", "audio_ref"],
+    optionalRoles: ["product_ref", "character_ref", "style_ref", "campaign_ref", "script_ref", "audio_ref"],
     allowedSourceModes: ["first_last", "edit"],
     defaultSourceMode: "first_last",
     durationRangeSec: { min: 4, max: 8, recommended: 6 },
@@ -251,9 +255,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Short branded opener or closer with strict logo and tone control.",
     qaStatus: "blocked_quota",
     requiredNodeKinds: ["brand"],
-    optionalNodeKinds: ["product", "campaign", "audio", "media", "location"],
+    optionalNodeKinds: ["product", "campaign", "script", "audio", "media", "location"],
     requiredRoles: ["style_ref"],
-    optionalRoles: ["product_ref", "audio_ref", "campaign_ref", "first_frame", "background_ref"],
+    optionalRoles: ["product_ref", "audio_ref", "campaign_ref", "script_ref", "first_frame", "background_ref"],
     allowedSourceModes: ["text", "first_frame", "ingredients", "edit"],
     defaultSourceMode: "text",
     durationRangeSec: { min: 2, max: 6, recommended: 4 },
@@ -275,9 +279,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Video structured around voice, rhythm, or sound design.",
     qaStatus: "untested",
     requiredNodeKinds: ["audio"],
-    optionalNodeKinds: ["brand", "campaign", "product", "character", "location", "media"],
+    optionalNodeKinds: ["brand", "campaign", "script", "product", "character", "location", "media"],
     requiredRoles: ["audio_ref"],
-    optionalRoles: ["product_ref", "character_ref", "background_ref", "style_ref", "campaign_ref", "first_frame"],
+    optionalRoles: ["product_ref", "character_ref", "background_ref", "style_ref", "campaign_ref", "script_ref", "first_frame"],
     allowedSourceModes: ["text", "ingredients", "edit"],
     defaultSourceMode: "text",
     durationRangeSec: { min: 6, max: 10, recommended: 8 },
@@ -325,9 +329,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Loopable hero product shot for ads, PDPs, and end cards.",
     qaStatus: "blocked_quota",
     requiredNodeKinds: ["product", "media"],
-    optionalNodeKinds: ["brand", "campaign", "location", "audio"],
+    optionalNodeKinds: ["brand", "campaign", "script", "location", "audio"],
     requiredRoles: ["product_ref", "first_frame"],
-    optionalRoles: ["package_ref", "style_ref", "background_ref", "campaign_ref", "audio_ref"],
+    optionalRoles: ["package_ref", "style_ref", "background_ref", "campaign_ref", "script_ref", "audio_ref"],
     allowedSourceModes: ["first_frame", "ingredients", "edit"],
     defaultSourceMode: "first_frame",
     durationRangeSec: { min: 4, max: 6, recommended: 4 },
@@ -400,9 +404,9 @@ export const VIDEO_RECIPE_LIBRARY = [
     summary: "Build shot-frame nodes, shot-clip nodes, and a timeline from a sequence brief.",
     qaStatus: "mocked",
     requiredNodeKinds: ["media"],
-    optionalNodeKinds: ["product", "location", "brand", "campaign", "audio", "character"],
+    optionalNodeKinds: ["product", "location", "brand", "campaign", "script", "audio", "character"],
     requiredRoles: ["storyboard_ref"],
-    optionalRoles: ["character_ref", "product_ref", "background_ref", "campaign_ref", "audio_ref"],
+    optionalRoles: ["character_ref", "product_ref", "background_ref", "campaign_ref", "script_ref", "audio_ref"],
     allowedSourceModes: ["first_frame"],
     defaultSourceMode: "first_frame",
     durationRangeSec: { min: 2, max: 10, recommended: 4 },
@@ -431,6 +435,7 @@ const NODE_KIND_LABELS: Record<VideoRecipeNodeKind, string> = {
   brand: "Brand",
   campaign: "Campaign",
   audio: "Audio",
+  script: "Script",
   character: "Character",
   media: "Media",
 };
@@ -499,6 +504,7 @@ export function recipeNodeKindsForSource(input: {
   if (type === "location" || refRole === "background_ref") kinds.add("location");
   if (type === "brand") kinds.add("brand");
   if (type === "campaign" || refRole === "campaign_ref") kinds.add("campaign");
+  if (type === "script" || refRole === "script_ref") kinds.add("script");
   if (type === "audio" || refRole === "audio_ref") kinds.add("audio");
   if (type === "character" || refRole === "character_ref") kinds.add("character");
   if (hasMedia || type === "image" || type === "visual_asset" || type === "Storyboard" || type === "video") {
@@ -521,6 +527,7 @@ export function buildVideoRecipePrompt(
     `Source mode: ${labelForVideoSourceMode(input.sourceMode)}. Target duration: ${input.durationSec}s.`,
     `Suggested shot structure: ${shotStructure}`,
     input.campaignBrief ? `Campaign brief: ${input.campaignBrief}` : undefined,
+    input.scriptBrief ? `Script / voiceover: ${input.scriptBrief}` : undefined,
     input.cameraInstruction,
     input.audioInstruction,
     `Preserve: ${recipe.preserve}`,
@@ -615,6 +622,8 @@ export function buildVideoRecipePreflight(
     const hasBrief = context.hasCampaignBrief === true;
     const hasCta = context.hasCampaignCta === true;
     const hasClaimLimits = context.hasCampaignClaimLimits === true;
+    const hasScript = context.hasScriptBrief === true;
+    const hasCaption = context.hasScriptCaption === true;
     items.push(
       {
         key: "campaign_brief",
@@ -633,6 +642,17 @@ export function buildVideoRecipePreflight(
         detail: hasCta && hasClaimLimits
           ? "CTA and claim limits present"
           : "Campaign should include CTA plus claimsAllowed/claimsAvoid or claim rules.",
+      },
+      {
+        key: "script_caption",
+        label: "Script / caption",
+        ok: !hasCta || hasScript || hasCaption,
+        blocking: false,
+        detail: !hasCta
+          ? "No campaign CTA supplied"
+          : hasScript || hasCaption
+            ? "Script or caption connected"
+            : "CTA present; add a Script node with script_ref for exact voiceover, caption, or on-screen copy.",
       },
     );
   }

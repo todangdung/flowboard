@@ -182,6 +182,10 @@ def test_build_video_recipe_library_scaffolds(client):
             assert {"first_frame", "last_frame"}.issubset(roles)
         if recipe_id in {"brand_bumper", "audio_led"}:
             assert "audio_ref" in roles
+        if recipe_id == "audio_led":
+            script_nodes = [n for n in body["nodes"] if n["type"] == "script"]
+            assert len(script_nodes) == 1
+            assert "script_ref" in roles
         if recipe_id == "location_establishing":
             assert "background_ref" in roles
         if recipe_id in campaign_scaffold_ids:

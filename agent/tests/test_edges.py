@@ -86,6 +86,21 @@ def test_create_edge_with_campaign_ref_role(client):
     assert r.json()["ref_role"] == "campaign_ref"
 
 
+def test_create_edge_with_script_ref_role(client):
+    b, a, c = _scaffold(client)
+    r = client.post(
+        "/api/edges",
+        json={
+            "board_id": b["id"],
+            "source_id": a["id"],
+            "target_id": c["id"],
+            "ref_role": "script_ref",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["ref_role"] == "script_ref"
+
+
 def test_patch_edge_variant_pin(client):
     """PATCH updates the variant pin in place. Setting an int pins;
     explicit null clears the pin (revert to source.mediaId)."""

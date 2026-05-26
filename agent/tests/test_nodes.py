@@ -27,6 +27,16 @@ def test_create_campaign_node(client):
     assert r.json()["type"] == "campaign"
 
 
+def test_create_script_node(client):
+    b = _make_board(client)
+    r = client.post(
+        "/api/nodes",
+        json={"board_id": b["id"], "type": "script", "data": {"title": "Script"}},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["type"] == "script"
+
+
 def test_short_ids_unique_within_board(client):
     b = _make_board(client)
     ids = set()

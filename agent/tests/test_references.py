@@ -32,6 +32,7 @@ def test_create_reference_accepts_profile_kinds(client):
         "style",
         "brand",
         "campaign",
+        "script",
         "audio",
         "first_frame",
     ):

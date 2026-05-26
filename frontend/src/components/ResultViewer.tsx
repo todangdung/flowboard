@@ -17,6 +17,8 @@ const ICON: Record<string, string> = {
   product: "▤",
   location: "⌂",
   brand: "◈",
+  campaign: "◉",
+  script: "☷",
   audio: "♪",
 };
 
@@ -93,6 +95,17 @@ function profileFromResult(
     "objective",
     "audience",
     "offer",
+    "scriptHook",
+    "voiceoverText",
+    "onScreenText",
+    "captionText",
+    "scriptBeats",
+    "language",
+    "pacing",
+    "speaker",
+    "pronunciation",
+    "mustSay",
+    "mustNotSay",
     "claimsAllowed",
     "claimsAvoid",
     "tone",
@@ -618,6 +631,8 @@ export function ResultViewer() {
               ? "brand"
             : data.type === "campaign"
               ? "campaign"
+            : data.type === "script"
+              ? "script"
             : data.type === "audio"
               ? "audio"
             : data.type === "visual_asset"

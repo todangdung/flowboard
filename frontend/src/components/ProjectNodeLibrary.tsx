@@ -15,6 +15,7 @@ const DOMAIN_NODES: LibraryNodeItem[] = [
   { type: "location", icon: "⌂", label: "Location" },
   { type: "brand", icon: "◈", label: "Brand" },
   { type: "campaign", icon: "◉", label: "Campaign" },
+  { type: "script", icon: "☷", label: "Script" },
   { type: "audio", icon: "♪", label: "Audio" },
 ];
 
