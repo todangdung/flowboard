@@ -6,6 +6,7 @@ import {
   syncBoardsUpToFlow,
   type BoardFlowStatus,
 } from "../api/client";
+import { ProjectNodeLibrary } from "./ProjectNodeLibrary";
 
 /**
  * Left sidebar listing every local "project" (Board). Click an item to
@@ -257,100 +258,101 @@ export function ProjectSidebar() {
               {syncSummary}
             </div>
           )}
-          <ul className="project-sidebar__list">
-            {boards.map((b) => {
-              const isActive = b.id === activeId;
-              const isRenaming = b.id === renamingId;
-              const status = flowStatus.get(b.id);
-              // Orphan = bound flow_project_id is missing from Flow's
-              // remote list. We only flag once we've synced at least
-              // once (status is present); pre-sync state is "unknown".
-              const isOrphan =
-                status !== undefined
-                && status.flow_project_id !== null
-                && status.exists_on_flow === false;
-              return (
-                <li
-                  key={b.id}
-                  className={`project-sidebar__item${isActive ? " project-sidebar__item--active" : ""}`}
-                >
-                  {isRenaming ? (
-                    <input
-                      ref={renameInputRef}
-                      className="project-sidebar__rename-input"
-                      value={renameDraft}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onBlur={commitRename}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename();
-                        if (e.key === "Escape") setRenamingId(null);
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="project-sidebar__name"
-                        onClick={() => switchBoard(b.id)}
-                        title={
-                          isOrphan
-                            ? `${b.name} — Flow project ${status?.flow_project_id ?? ""} không tồn tại trên Google Flow. Click ⋯ → Rebind to re-link.`
-                            : b.name
-                        }
-                      >
-                        {b.name || "Untitled"}
-                        {isOrphan && (
-                          <span
-                            className="project-sidebar__orphan-badge"
-                            title="Flow project not found — rebind required"
-                            aria-label="orphan"
-                          >
-                            ⚠
-                          </span>
+          <div className="project-sidebar__content">
+            <ul className="project-sidebar__list">
+              {boards.map((b) => {
+                const isActive = b.id === activeId;
+                const isRenaming = b.id === renamingId;
+                const status = flowStatus.get(b.id);
+                // Orphan = bound flow_project_id is missing from Flow's
+                // remote list. We only flag once we've synced at least
+                // once (status is present); pre-sync state is "unknown".
+                const isOrphan =
+                  status !== undefined
+                  && status.flow_project_id !== null
+                  && status.exists_on_flow === false;
+                return (
+                  <li
+                    key={b.id}
+                    className={`project-sidebar__item${isActive ? " project-sidebar__item--active" : ""}`}
+                  >
+                    {isRenaming ? (
+                      <input
+                        ref={renameInputRef}
+                        className="project-sidebar__rename-input"
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename();
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="project-sidebar__name"
+                          onClick={() => switchBoard(b.id)}
+                          title={
+                            isOrphan
+                              ? `${b.name} — Flow project ${status?.flow_project_id ?? ""} không tồn tại trên Google Flow. Click ⋯ → Rebind to re-link.`
+                              : b.name
+                          }
+                        >
+                          {b.name || "Untitled"}
+                          {isOrphan && (
+                            <span
+                              className="project-sidebar__orphan-badge"
+                              title="Flow project not found — rebind required"
+                              aria-label="orphan"
+                            >
+                              ⚠
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="project-sidebar__kebab"
+                          onClick={() =>
+                            setOpenMenuId((cur) => (cur === b.id ? null : b.id))
+                          }
+                          aria-label="Project actions"
+                        >
+                          ⋯
+                        </button>
+                        {openMenuId === b.id && (
+                          <div className="project-sidebar__menu" role="menu">
+                            <button
+                              type="button"
+                              onClick={() => startRename(b.id, b.name)}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              className="project-sidebar__menu-danger"
+                              onClick={() => openDeleteConfirm(b.id, b.name)}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         )}
-                      </button>
-                      <button
-                        type="button"
-                        className="project-sidebar__kebab"
-                        onClick={() =>
-                          setOpenMenuId((cur) => (cur === b.id ? null : b.id))
-                        }
-                        aria-label="Project actions"
-                      >
-                        ⋯
-                      </button>
-                      {openMenuId === b.id && (
-                        <div className="project-sidebar__menu" role="menu">
-                          <button
-                            type="button"
-                            onClick={() => startRename(b.id, b.name)}
-                          >
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            className="project-sidebar__menu-danger"
-                            onClick={() => openDeleteConfirm(b.id, b.name)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </li>
-              );
-            })}
-            {boards.length === 0 && (
-              <li className="project-sidebar__empty">No projects yet</li>
-            )}
-          </ul>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+              {boards.length === 0 && (
+                <li className="project-sidebar__empty">No projects yet</li>
+              )}
+            </ul>
+            <ProjectNodeLibrary />
+          </div>
         </>
       )}
 
-      {/* Pinned-bottom account chip — sits below the project list because
-          the list above has flex: 1 and pushes everything that follows
-          to the bottom of the column. */}
+      {/* Pinned-bottom account chip. Project list + node library scroll above it. */}
       <AccountPanel collapsed={collapsed} />
 
       {deleteTarget && (

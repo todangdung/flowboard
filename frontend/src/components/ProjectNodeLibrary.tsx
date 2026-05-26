@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { useReactFlow } from "@xyflow/react";
 import { buildShotPlan, type ShotPlanItem, type ShotPlanResponse } from "../api/client";
 import { FLOW_SCAFFOLD_RECIPES } from "../lib/videoRecipes";
 import { useBoardStore } from "../store/board";
 import type { NodeType, VideoRecipeId } from "../store/board";
 
-interface SidebarNodeItem {
+interface LibraryNodeItem {
   type: NodeType;
   icon: string;
   label: string;
 }
 
-const DOMAIN_NODES: SidebarNodeItem[] = [
+const DOMAIN_NODES: LibraryNodeItem[] = [
   { type: "product", icon: "▤", label: "Product" },
   { type: "location", icon: "⌂", label: "Location" },
   { type: "brand", icon: "◈", label: "Brand" },
@@ -19,21 +18,27 @@ const DOMAIN_NODES: SidebarNodeItem[] = [
 ];
 
 const STORYBOARD_RECIPE_ID: VideoRecipeId = "storyboard_sequence";
-const SIDEBAR_RECIPE_LIMIT = 5;
 
-const SIDEBAR_RECIPES = [
+const WORKFLOW_RECIPES = [
   ...FLOW_SCAFFOLD_RECIPES.filter((recipe) => recipe.key === STORYBOARD_RECIPE_ID),
   ...FLOW_SCAFFOLD_RECIPES.filter((recipe) => recipe.key !== STORYBOARD_RECIPE_ID),
 ];
 
-export function NodeLibrarySidebar() {
-  const { screenToFlowPosition } = useReactFlow();
+function appendPosition(offsetX = 320) {
+  const current = useBoardStore.getState().nodes;
+  if (current.length === 0) return { x: 0, y: 0 };
+  const maxX = Math.max(...current.map((node) => node.position.x));
+  const minY = Math.min(...current.map((node) => node.position.y));
+  return { x: maxX + offsetX, y: minY };
+}
+
+export function ProjectNodeLibrary() {
   const boardId = useBoardStore((s) => s.boardId);
   const addNodeOfType = useBoardStore((s) => s.addNodeOfType);
   const addFlowFromRecipe = useBoardStore((s) => s.addFlowFromRecipe);
-  const [domainExpanded, setDomainExpanded] = useState(false);
-  const [recipesExpanded, setRecipesExpanded] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [domainOpen, setDomainOpen] = useState(true);
+  const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  const [sequenceOpen, setSequenceOpen] = useState(true);
   const [sequenceShotCount, setSequenceShotCount] = useState(3);
   const [sequenceDurationSec, setSequenceDurationSec] = useState(4);
   const [sequenceBrief, setSequenceBrief] = useState("");
@@ -42,33 +47,14 @@ export function NodeLibrarySidebar() {
   const [shotPlanLoading, setShotPlanLoading] = useState(false);
   const [shotPlanError, setShotPlanError] = useState<string | null>(null);
 
-  const visibleDomainNodes = domainExpanded ? DOMAIN_NODES : DOMAIN_NODES.slice(0, 3);
-  const visibleRecipes = recipesExpanded
-    ? SIDEBAR_RECIPES
-    : SIDEBAR_RECIPES.slice(0, SIDEBAR_RECIPE_LIMIT);
-
-  function nodePosition() {
-    return screenToFlowPosition({
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
-    });
-  }
-
-  function sequencePosition() {
-    return screenToFlowPosition({
-      x: window.innerWidth / 2 - 320,
-      y: window.innerHeight / 2 - 120,
-    });
-  }
-
   function handleAdd(type: NodeType) {
-    void addNodeOfType(type, nodePosition());
+    void addNodeOfType(type, appendPosition());
   }
 
   function handleRecipe(recipeId: VideoRecipeId) {
     void addFlowFromRecipe(
       recipeId,
-      sequencePosition(),
+      appendPosition(360),
       recipeId === STORYBOARD_RECIPE_ID
         ? {
             shotCount: sequenceShotCount,
@@ -119,7 +105,7 @@ export function NodeLibrarySidebar() {
 
   async function handleCreateFromPreview() {
     if (shotPlanPreview === null) return;
-    const createdId = await addFlowFromRecipe(STORYBOARD_RECIPE_ID, sequencePosition(), {
+    const createdId = await addFlowFromRecipe(STORYBOARD_RECIPE_ID, appendPosition(360), {
       shotCount: shotPlanPreview.shots.length,
       shotDurationSec: sequenceDurationSec,
       brief: shotPlanPreview.brief,
@@ -137,179 +123,165 @@ export function NodeLibrarySidebar() {
 
   return (
     <>
-      <aside
-        className={`node-library-sidebar${
-          sidebarCollapsed ? " node-library-sidebar--collapsed" : ""
-        }`}
-        aria-label="Node library"
-      >
-        <header className="node-library-sidebar__header">
-          {!sidebarCollapsed && <span>Nodes</span>}
-          <button
-            type="button"
-            className="node-library-sidebar__collapse"
-            aria-label={sidebarCollapsed ? "Expand node sidebar" : "Collapse node sidebar"}
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          >
-            {sidebarCollapsed ? "›" : "‹"}
-          </button>
-        </header>
-
-        {sidebarCollapsed ? (
-          <div className="node-library-sidebar__rail" aria-hidden="true">
-            <span>▤</span>
-            <span>▱</span>
-          </div>
-        ) : (
-          <div className="node-library-sidebar__body">
-            <section className="node-library-section">
-              <div className="node-library-section__header">
-                <span>Domain nodes</span>
-                <button
-                  type="button"
-                  onClick={() => setDomainExpanded((expanded) => !expanded)}
-                >
-                  {domainExpanded ? "Show less" : "Show more"}
-                </button>
-              </div>
-              <div className="node-library-list">
-                {visibleDomainNodes.map((node) => (
-                  <button
-                    key={node.type}
-                    type="button"
-                    className="node-library-item"
-                    aria-label={`Add ${node.label} node`}
-                    onClick={() => handleAdd(node.type)}
-                  >
-                    <span aria-hidden="true">{node.icon}</span>
-                    <span>{node.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="node-library-section">
-              <div className="node-library-section__header">
-                <span>Video workflows</span>
-                <button
-                  type="button"
-                  onClick={() => setRecipesExpanded((expanded) => !expanded)}
-                >
-                  {recipesExpanded ? "Show less" : "Show more"}
-                </button>
-              </div>
-              <div className="node-library-list node-library-list--recipes">
-                {visibleRecipes.map((recipe) => (
-                  <button
-                    key={recipe.key}
-                    type="button"
-                    className="node-library-item node-library-item--recipe"
-                    aria-label={`Create ${recipe.label} flow`}
-                    onClick={() => handleRecipe(recipe.key)}
-                  >
-                    <span aria-hidden="true">▱</span>
-                    <span>{recipe.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="node-library-section node-library-section--sequence">
-              <div className="node-library-section__header">
-                <span>Storyboard sequence</span>
-              </div>
-              <div className="node-library-sequence-controls">
-                <span className="node-library-stepper" aria-label="Shot count / Số cảnh">
-                  <button
-                    type="button"
-                    aria-label="Decrease shot count"
-                    onClick={() => setSequenceShotCount((n) => Math.max(2, n - 1))}
-                    disabled={sequenceShotCount <= 2}
-                  >
-                    −
-                  </button>
-                  <span>{sequenceShotCount} shots</span>
-                  <button
-                    type="button"
-                    aria-label="Increase shot count"
-                    onClick={() => setSequenceShotCount((n) => Math.min(6, n + 1))}
-                    disabled={sequenceShotCount >= 6}
-                  >
-                    +
-                  </button>
-                </span>
-                <span className="node-library-stepper" aria-label="Shot duration / Giây mỗi cảnh">
-                  <button
-                    type="button"
-                    aria-label="Decrease shot duration"
-                    onClick={() => setSequenceDurationSec((n) => Math.max(2, n - 1))}
-                    disabled={sequenceDurationSec <= 2}
-                  >
-                    −
-                  </button>
-                  <span>{sequenceDurationSec}s</span>
-                  <button
-                    type="button"
-                    aria-label="Increase shot duration"
-                    onClick={() => setSequenceDurationSec((n) => Math.min(10, n + 1))}
-                    disabled={sequenceDurationSec >= 10}
-                  >
-                    +
-                  </button>
-                </span>
-                <label className="node-library-brief">
-                  <span className="visually-hidden">Sequence brief / Ý tưởng chuỗi cảnh</span>
-                  <input
-                    aria-label="Sequence brief / Ý tưởng chuỗi cảnh"
-                    value={sequenceBrief}
-                    onChange={(event) => setSequenceBrief(event.target.value)}
-                    placeholder="Brief / Ý tưởng"
-                    maxLength={220}
-                  />
-                </label>
-                <label
-                  className={`node-library-toggle${
-                    sequenceUseAi ? " node-library-toggle--active" : ""
-                  }`}
-                  title="Use AI shot plan / Dùng AI dựng cảnh"
-                >
-                  <input
-                    type="checkbox"
-                    checked={sequenceUseAi}
-                    onChange={(event) => setSequenceUseAi(event.target.checked)}
-                    aria-label="Use AI shot plan / Dùng AI dựng cảnh"
-                  />
-                  <span>AI plan</span>
-                </label>
-                <div className="node-library-sequence-actions">
-                  <button
-                    type="button"
-                    className="node-library-primary"
-                    aria-label="Create storyboard sequence / Tạo chuỗi cảnh"
-                    onClick={() => handleRecipe(STORYBOARD_RECIPE_ID)}
-                  >
-                    Create
-                  </button>
-                  <button
-                    type="button"
-                    className="node-library-secondary"
-                    aria-label="Plan storyboard sequence / Lập cảnh chuỗi"
-                    onClick={handlePreviewSequence}
-                    disabled={shotPlanLoading}
-                  >
-                    {shotPlanLoading ? "Planning" : "Plan"}
-                  </button>
-                </div>
-                {shotPlanError && (
-                  <span className="node-library-error" role="alert">
-                    {shotPlanError}
-                  </span>
-                )}
-              </div>
-            </section>
+      <section className="project-node-library" aria-label="Node library">
+        <button
+          type="button"
+          className="project-node-library__folder"
+          aria-expanded={domainOpen}
+          onClick={() => setDomainOpen((open) => !open)}
+        >
+          <span className="project-node-library__chevron" aria-hidden="true">
+            {domainOpen ? "▾" : "▸"}
+          </span>
+          <span>Domain nodes</span>
+        </button>
+        {domainOpen && (
+          <div className="project-node-library__items">
+            {DOMAIN_NODES.map((node) => (
+              <button
+                key={node.type}
+                type="button"
+                className="project-node-library__item"
+                aria-label={`Add ${node.label} node`}
+                onClick={() => handleAdd(node.type)}
+              >
+                <span aria-hidden="true">{node.icon}</span>
+                <span>{node.label}</span>
+              </button>
+            ))}
           </div>
         )}
-      </aside>
+
+        <button
+          type="button"
+          className="project-node-library__folder"
+          aria-expanded={workflowsOpen}
+          onClick={() => setWorkflowsOpen((open) => !open)}
+        >
+          <span className="project-node-library__chevron" aria-hidden="true">
+            {workflowsOpen ? "▾" : "▸"}
+          </span>
+          <span>Video workflows</span>
+        </button>
+        {workflowsOpen && (
+          <div className="project-node-library__items">
+            {WORKFLOW_RECIPES.map((recipe) => (
+              <button
+                key={recipe.key}
+                type="button"
+                className="project-node-library__item project-node-library__item--recipe"
+                aria-label={`Create ${recipe.label} flow`}
+                onClick={() => handleRecipe(recipe.key)}
+              >
+                <span aria-hidden="true">▱</span>
+                <span>{recipe.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="project-node-library__folder"
+          aria-expanded={sequenceOpen}
+          onClick={() => setSequenceOpen((open) => !open)}
+        >
+          <span className="project-node-library__chevron" aria-hidden="true">
+            {sequenceOpen ? "▾" : "▸"}
+          </span>
+          <span>Storyboard sequence</span>
+        </button>
+        {sequenceOpen && (
+          <div className="project-node-library__sequence">
+            <span className="project-node-library__stepper" aria-label="Shot count / Số cảnh">
+              <button
+                type="button"
+                aria-label="Decrease shot count"
+                onClick={() => setSequenceShotCount((n) => Math.max(2, n - 1))}
+                disabled={sequenceShotCount <= 2}
+              >
+                −
+              </button>
+              <span>{sequenceShotCount} shots</span>
+              <button
+                type="button"
+                aria-label="Increase shot count"
+                onClick={() => setSequenceShotCount((n) => Math.min(6, n + 1))}
+                disabled={sequenceShotCount >= 6}
+              >
+                +
+              </button>
+            </span>
+            <span className="project-node-library__stepper" aria-label="Shot duration / Giây mỗi cảnh">
+              <button
+                type="button"
+                aria-label="Decrease shot duration"
+                onClick={() => setSequenceDurationSec((n) => Math.max(2, n - 1))}
+                disabled={sequenceDurationSec <= 2}
+              >
+                −
+              </button>
+              <span>{sequenceDurationSec}s</span>
+              <button
+                type="button"
+                aria-label="Increase shot duration"
+                onClick={() => setSequenceDurationSec((n) => Math.min(10, n + 1))}
+                disabled={sequenceDurationSec >= 10}
+              >
+                +
+              </button>
+            </span>
+            <label className="project-node-library__brief">
+              <span className="visually-hidden">Sequence brief / Ý tưởng chuỗi cảnh</span>
+              <input
+                aria-label="Sequence brief / Ý tưởng chuỗi cảnh"
+                value={sequenceBrief}
+                onChange={(event) => setSequenceBrief(event.target.value)}
+                placeholder="Brief / Ý tưởng"
+                maxLength={220}
+              />
+            </label>
+            <label
+              className={`project-node-library__toggle${
+                sequenceUseAi ? " project-node-library__toggle--active" : ""
+              }`}
+              title="Use AI shot plan / Dùng AI dựng cảnh"
+            >
+              <input
+                type="checkbox"
+                checked={sequenceUseAi}
+                onChange={(event) => setSequenceUseAi(event.target.checked)}
+                aria-label="Use AI shot plan / Dùng AI dựng cảnh"
+              />
+              <span>AI plan</span>
+            </label>
+            <div className="project-node-library__actions">
+              <button
+                type="button"
+                className="project-node-library__primary"
+                aria-label="Create storyboard sequence / Tạo chuỗi cảnh"
+                onClick={() => handleRecipe(STORYBOARD_RECIPE_ID)}
+              >
+                Create
+              </button>
+              <button
+                type="button"
+                className="project-node-library__secondary"
+                aria-label="Plan storyboard sequence / Lập cảnh chuỗi"
+                onClick={handlePreviewSequence}
+                disabled={shotPlanLoading}
+              >
+                {shotPlanLoading ? "Planning" : "Plan"}
+              </button>
+            </div>
+            {shotPlanError && (
+              <span className="project-node-library__error" role="alert">
+                {shotPlanError}
+              </span>
+            )}
+          </div>
+        )}
+      </section>
 
       {shotPlanPreview && (
         <div className="shot-plan-modal-backdrop">
