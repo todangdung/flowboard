@@ -1,4 +1,8 @@
-import type { RefRole, VideoRecipeId } from "../store/board";
+import type { RefRole, VideoRecipeId } from "../api/client";
+import {
+  VIDEO_RECIPE_LIBRARY,
+  type VideoSourceMode,
+} from "./videoRecipeLibrary";
 
 export type VideoRecipeKey = "auto" | VideoRecipeId;
 
@@ -7,18 +11,25 @@ export interface VideoRecipeOption {
   label: string;
   defaultCamera?: "static" | "dynamic";
   defaultAspectRatio?: "VIDEO_ASPECT_RATIO_LANDSCAPE" | "VIDEO_ASPECT_RATIO_PORTRAIT";
+  defaultSourceMode?: VideoSourceMode;
   scaffold?: boolean;
 }
 
 export const VIDEO_RECIPES: readonly VideoRecipeOption[] = [
   { key: "auto", label: "Auto" },
+  ...VIDEO_RECIPE_LIBRARY.map((recipe) => ({
+    key: recipe.id,
+    label: recipe.label,
+    defaultCamera: recipe.defaultCamera,
+    defaultAspectRatio: recipe.defaultAspectRatio,
+    defaultSourceMode: recipe.defaultSourceMode,
+    scaffold: recipe.id === "product_demo",
+  })),
   { key: "fashion_fit_check", label: "Fashion fit check", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
   { key: "mirror_selfie", label: "Mirror selfie", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
   { key: "unbox", label: "Unbox", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "product_demo", label: "Product demo", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
   { key: "ugc_review", label: "UGC review", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
   { key: "skincare_tvc", label: "Skincare TVC", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "before_after", label: "Before / after", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
   { key: "dance", label: "Dance", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
   { key: "storyboard_sequence", label: "Seq / Chuỗi cảnh", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
 ];

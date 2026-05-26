@@ -75,7 +75,7 @@ interface GenerationState {
 // One ref per edge means one Flow API call regardless of how many
 // variants the upstream has — the user picks which variant feeds
 // which downstream by clicking the variant tile (Stage 2 UX).
-const REF_SOURCE_TYPES = new Set(["character", "image", "visual_asset", "product", "location", "Storyboard"]);
+const REF_SOURCE_TYPES = new Set(["character", "image", "visual_asset", "product", "location", "brand", "Storyboard"]);
 
 function collectUpstreamRefMediaIds(targetRfId: string): string[] {
   const { nodes, edges } = useBoardStore.getState();
@@ -295,7 +295,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
             });
             set({
               error:
-                "Omni Flash needs at least one ingredient (connect an upstream Character / Image / Visual asset).",
+                "Omni Flash needs at least one ingredient (connect an upstream Character / Image / Product / Location / Brand asset).",
             });
             return;
           }

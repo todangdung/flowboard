@@ -176,9 +176,17 @@ export type VideoRecipeId =
   | "mirror_selfie"
   | "unbox"
   | "product_demo"
+  | "lifestyle_ad"
   | "ugc_review"
+  | "ugc_testimonial"
   | "skincare_tvc"
+  | "cinematic_reveal"
   | "before_after"
+  | "location_establishing"
+  | "brand_bumper"
+  | "audio_led"
+  | "transition_shot"
+  | "packshot_loop"
   | "dance"
   | "storyboard_sequence";
 
@@ -584,6 +592,12 @@ export interface VideoRecipeDTO {
   recommended_generation_path: string;
   default_camera: "static" | "dynamic";
   default_aspect_ratio: string;
+  required_node_kinds?: string[];
+  allowed_source_modes?: string[];
+  duration_range_sec?: number[];
+  default_duration_sec?: number;
+  export_preset?: string;
+  timeline_shots?: string[];
   action_hint: string;
   audio_hint: string;
   preserve_hint: string;

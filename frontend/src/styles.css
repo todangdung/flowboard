@@ -4371,6 +4371,55 @@ button:disabled {
   font-family: ui-monospace, monospace;
 }
 
+.source-video-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--panel-high);
+}
+
+.source-video-row__thumb {
+  width: 72px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--panel);
+}
+
+.source-video-row__meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.source-video-row__meta strong,
+.source-video-row__meta span,
+.source-video-row__meta code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-video-row__meta strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.source-video-row__meta span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.source-video-row__meta code {
+  color: #bae6fd;
+  font-size: 10px;
+}
+
 /* Multi-select source variants for i2v video gen. Each thumb is a toggle
    button; the checked state shows an accent ring + checkmark badge. */
 .source-thumb {
@@ -4667,6 +4716,109 @@ button:disabled {
   background: var(--panel-high);
 }
 
+.recipe-library-card,
+.recipe-preflight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.recipe-library-card__summary {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.recipe-library-card__meta,
+.recipe-preflight__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.recipe-library-card__meta span {
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recipe-preflight__header {
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+.recipe-preflight__items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.recipe-preflight__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.recipe-preflight__item span,
+.recipe-preflight__item strong,
+.recipe-preflight__item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recipe-preflight__item span {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.recipe-preflight__item strong {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.recipe-preflight__item small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.recipe-preflight__item--ok {
+  border-color: rgba(34, 197, 94, 0.34);
+}
+
+.recipe-preflight__item--ok strong {
+  color: #22c55e;
+}
+
+.recipe-preflight__item--bad {
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.recipe-preflight__item--bad strong {
+  color: #f59e0b;
+}
+
 .recipe-plan--ready {
   border-color: rgba(34, 197, 94, 0.36);
 }
@@ -4884,6 +5036,10 @@ button:disabled {
   }
 
   .recipe-plan__sections {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-preflight__items {
     grid-template-columns: 1fr;
   }
 }
@@ -6397,6 +6553,33 @@ button:disabled {
   color: var(--muted);
   font-size: 10px;
   cursor: pointer;
+}
+
+.timeline-preflight__recipe {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.timeline-preflight__recipe span,
+.timeline-preflight__recipe small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-preflight__recipe span {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .timeline-preflight__presets {

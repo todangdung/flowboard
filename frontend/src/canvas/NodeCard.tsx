@@ -28,6 +28,11 @@ import {
   nodeMediaIds,
   preferredMediaIds,
 } from "../lib/bestVariant";
+import {
+  findVideoRecipeDefinition,
+  labelForExportPreset,
+  type VideoExportPresetKey,
+} from "../lib/videoRecipeLibrary";
 
 const ICON: Record<string, string> = {
   character: "◎",
@@ -1655,7 +1660,7 @@ const REVIEW_LABEL_VI: Record<"good" | "redo" | "skip", string> = {
 };
 
 type TimelineExportUiState = "none" | "fresh" | "stale";
-type TimelineExportPresetKey = "portrait_1080" | "landscape_1080" | "square_1080";
+type TimelineExportPresetKey = VideoExportPresetKey;
 
 const TIMELINE_EXPORT_PRESETS: readonly {
   key: TimelineExportPresetKey;
@@ -1712,6 +1717,18 @@ function timelineHistoryDateLabel(iso?: string): string {
   });
 }
 
+function timelineDefaultExportPreset(data: FlowboardNodeData): TimelineExportPresetKey {
+  if (
+    data.exportPreset === "landscape_1080"
+    || data.exportPreset === "square_1080"
+    || data.exportPreset === "portrait_1080"
+  ) {
+    return data.exportPreset;
+  }
+  const recipe = findVideoRecipeDefinition(data.timelineRecipeId ?? data.videoRecipeId);
+  return recipe?.exportPreset ?? "portrait_1080";
+}
+
 function isNodeBusy(data: FlowboardNodeData): boolean {
   return data.status === "queued" || data.status === "running";
 }
@@ -1727,11 +1744,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportPreflightOpen, setExportPreflightOpen] = useState(false);
   const [exportPresetKey, setExportPresetKey] = useState<TimelineExportPresetKey>(
-    data.exportPreset === "landscape_1080"
-      ? "landscape_1080"
-      : data.exportPreset === "square_1080"
-        ? "square_1080"
-        : "portrait_1080",
+    timelineDefaultExportPreset(data),
   );
   const incoming = edges
     .filter((e) => e.target === rfId)
@@ -1800,6 +1813,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const exportPreset =
     TIMELINE_EXPORT_PRESETS.find((p) => p.key === exportPresetKey)
     ?? TIMELINE_EXPORT_PRESETS[0];
+  const exportRecipe = findVideoRecipeDefinition(data.timelineRecipeId ?? data.videoRecipeId);
   const shotIds = Array.isArray(data.timelineShotIds) ? data.timelineShotIds : [];
   const rows = incoming.length > 0
     ? incoming
@@ -1991,6 +2005,12 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               esc
             </button>
           </div>
+          {exportRecipe && (
+            <div className="timeline-preflight__recipe">
+              <span>{exportRecipe.label}</span>
+              <small>Default {labelForExportPreset(exportRecipe.exportPreset)}</small>
+            </div>
+          )}
           <div className="timeline-preflight__presets">
             {TIMELINE_EXPORT_PRESETS.map((preset) => (
               <button

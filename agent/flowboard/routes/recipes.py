@@ -17,7 +17,6 @@ from sqlmodel import select
 from flowboard.db import get_session
 from flowboard.db.models import Board, Edge, Node
 from flowboard.routes.edges import RefRole
-from flowboard.routes.nodes import NodeType
 from flowboard.services.llm import run_llm
 from flowboard.services.llm.base import LLMError
 from flowboard.services.video_recipes import normalize_video_recipe_id
@@ -278,6 +277,7 @@ _SHOT_WORKFLOWS: dict[str, ShotWorkflowSpec] = {
 _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("first_frame", ("first frame", "source frame", "opening frame", "start frame", "still")),
     ("last_frame", ("last frame", "final frame", "end frame")),
+    ("audio_ref", ("audio", "voice", "voiceover", "voice over", "music", "sound", "sfx")),
     ("package_ref", ("package", "packaging", "box", "carton", "unbox")),
     ("product_ref", ("product", "garment", "outfit", "shirt", "dress", "bottle", "serum", "cream", "shoe")),
     ("background_ref", ("background", "location", "room", "cafe", "street", "park", "interior", "exterior", "scene")),
@@ -321,6 +321,14 @@ def _heuristic_role(row: dict, target: Node, recipe_id: Optional[str]) -> tuple[
 
     if source_type == "character":
         return "character_ref", 0.95, "character node"
+    if source_type == "product":
+        return "product_ref", 0.95, "product node"
+    if source_type == "location":
+        return "background_ref", 0.95, "location node"
+    if source_type == "brand":
+        return "style_ref", 0.88, "brand node drives style and rules"
+    if source_type == "audio":
+        return "audio_ref", 0.95, "audio node"
     if source_type == "visual_asset":
         if any(word in text for word in ("package", "packaging", "box", "unbox")):
             return "package_ref", 0.85, "visual asset looks like packaging"
@@ -336,7 +344,17 @@ def _heuristic_role(row: dict, target: Node, recipe_id: Optional[str]) -> tuple[
         current = row.get("current_role")
         if current == "first_frame":
             return "first_frame", 0.99, "already labelled first frame"
-        if recipe_id in {"fashion_fit_check", "mirror_selfie", "product_demo"}:
+        if recipe_id in {
+            "fashion_fit_check",
+            "mirror_selfie",
+            "product_demo",
+            "lifestyle_ad",
+            "cinematic_reveal",
+            "location_establishing",
+            "brand_bumper",
+            "transition_shot",
+            "packshot_loop",
+        }:
             return "first_frame", 0.82, "image feeding single-shot video recipe"
 
     for role, keywords in _ROLE_KEYWORDS:

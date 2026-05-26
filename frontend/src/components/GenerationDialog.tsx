@@ -39,6 +39,16 @@ import {
   VIDEO_RECIPES,
 } from "../lib/videoRecipes";
 import {
+  buildVideoRecipePreflight,
+  buildVideoRecipePrompt,
+  findVideoRecipeDefinition,
+  labelForRecipeNodeKind,
+  labelForVideoSourceMode,
+  recipeNodeKindsForSource,
+  type VideoRecipePreflightItem,
+  type VideoSourceMode as RecipeVideoSourceMode,
+} from "../lib/videoRecipeLibrary";
+import {
   CHARACTER_GENDERS,
   CHARACTER_COUNTRIES,
   CHARACTER_VIBES,
@@ -53,6 +63,7 @@ const REF_SOURCE_TYPES = new Set([
   "visual_asset",
   "product",
   "location",
+  "brand",
   // Storyboard outputs are first-class refs — they're composite images
   // that can feed downstream image / Omni-video / character nodes.
   "Storyboard",
@@ -197,7 +208,7 @@ function cameraInstruction(key: CameraKey): string {
 type ImageAspectKey = (typeof IMAGE_ASPECT_RATIOS)[number]["key"];
 type VideoAspectKey = (typeof VIDEO_ASPECT_RATIOS)[number]["key"];
 type AspectKey = ImageAspectKey | VideoAspectKey;
-type VideoSourceMode = "auto" | "text" | "first_frame" | "first_last" | "ingredients";
+type VideoSourceMode = "auto" | RecipeVideoSourceMode;
 type VeoDurationSec = 4 | 6 | 8;
 
 const VIDEO_SOURCE_MODES: readonly {
@@ -210,6 +221,7 @@ const VIDEO_SOURCE_MODES: readonly {
   { key: "first_frame", label: "First frame", title: "Veo image-to-video from the selected first frame." },
   { key: "first_last", label: "First+last", title: "Veo transition/reveal from first frame to last frame." },
   { key: "ingredients", label: "Ingredients", title: "Omni Flash reference-images workflow." },
+  { key: "edit", label: "Edit", title: "Omni video edit from an upstream rendered video." },
 ];
 const VEO_DURATIONS: readonly VeoDurationSec[] = [4, 6, 8];
 const RECIPE_PLAN_SECTION_LABELS = {
@@ -382,19 +394,48 @@ export function GenerationDialog() {
   // captures the full set; `sourceMediaId` is the active variant for the
   // legacy single-source path.
   const incomingVideoEdges = isVideo ? edges.filter((e) => e.target === rfId) : [];
-  const sourceEdge = incomingVideoEdges.find((e) => e.data?.refRole === "first_frame")
-    ?? incomingVideoEdges.find((e) => {
-      if (e.data?.refRole === "last_frame") return false;
-      const n = nodes.find((node) => node.id === e.source);
-      return n?.data.type === "image" || n?.data.type === "Storyboard";
-    })
-    ?? incomingVideoEdges.find((e) => e.data?.refRole !== "last_frame")
-    ?? incomingVideoEdges[0];
+  const mediaBearingSourceTypes = new Set([
+    "character",
+    "image",
+    "visual_asset",
+    "product",
+    "location",
+    "brand",
+    "Storyboard",
+  ]);
+  const hasRenderedMedia = (n: typeof nodes[number] | undefined): boolean => {
+    if (!n) return false;
+    if (typeof n.data.mediaId === "string" && n.data.mediaId.length > 0) return true;
+    return Array.isArray(n.data.mediaIds)
+      && n.data.mediaIds.some((m) => typeof m === "string" && m.length > 0);
+  };
+  const imageSourceEdges = incomingVideoEdges.filter((e) => {
+    if (e.data?.refRole === "last_frame") return false;
+    const n = nodes.find((node) => node.id === e.source);
+    return !!n && mediaBearingSourceTypes.has(n.data.type) && hasRenderedMedia(n);
+  });
+  const sourceEdge = imageSourceEdges.find((e) => e.data?.refRole === "first_frame")
+    ?? imageSourceEdges[0];
   const sourceNode = sourceEdge ? nodes.find((n) => n.id === sourceEdge.source) : undefined;
   const lastFrameEdge = incomingVideoEdges.find((e) => e.data?.refRole === "last_frame");
   const lastFrameNode = lastFrameEdge
     ? nodes.find((n) => n.id === lastFrameEdge.source)
     : undefined;
+  const editSourceEdge = incomingVideoEdges.find((e) => {
+    const n = nodes.find((node) => node.id === e.source);
+    return n?.data.type === "video" && hasRenderedMedia(n);
+  });
+  const editSourceNode = editSourceEdge
+    ? nodes.find((n) => n.id === editSourceEdge.source)
+    : undefined;
+  const editSourceMediaIds: string[] = isVideo
+    ? (editSourceNode?.data.mediaIds ?? (editSourceNode?.data.mediaId ? [editSourceNode.data.mediaId] : []))
+        .filter((m): m is string => typeof m === "string" && m.length > 0)
+    : [];
+  const editSourceMediaId =
+    (typeof editSourceNode?.data.bestMediaId === "string" && editSourceNode.data.bestMediaId)
+      ? editSourceNode.data.bestMediaId
+      : editSourceMediaIds[0] ?? null;
 
   // Storyboard → video: when ANY upstream node is a Storyboard composite,
   // the motion prompt MUST follow a fixed template that asks Flow to
@@ -434,13 +475,15 @@ export function GenerationDialog() {
   const effectiveVideoSourceMode: VideoSourceMode = !isVideo
     ? "auto"
     : isOmniVideo
-      ? "ingredients"
+      ? selectedVideoSourceMode === "edit" ? "edit" : "ingredients"
       : selectedVideoSourceMode === "auto"
         ? sourceMediaIds.length > 0 && lastFrameMediaId
           ? "first_last"
           : sourceMediaIds.length > 0
             ? "first_frame"
-            : "text"
+            : editSourceMediaId
+              ? "edit"
+              : "text"
         : selectedVideoSourceMode;
 
   // Image nodes: list every upstream ref edge feeding this target. We
@@ -462,7 +505,8 @@ export function GenerationDialog() {
   // Both image targets AND Omni-video targets use the ingredient chip
   // list (multi-ref upstream → one chip per edge). Veo i2v video has
   // its own single-source-with-variant-batch picker below.
-  const promptSourceNodes = (!isVideo || isOmniVideo) && rfId
+  const showIngredientRefChips = !isVideo || isOmniVideo || effectiveVideoSourceMode === "edit";
+  const promptSourceNodes = showIngredientRefChips && rfId
     ? edges
         .filter((e) => e.target === rfId)
         .map((e) => {
@@ -479,7 +523,7 @@ export function GenerationDialog() {
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
     : [];
 
-  const refSourceNodes = (!isVideo || isOmniVideo) && rfId
+  const refSourceNodes = showIngredientRefChips && rfId
     ? edges
         .filter((e) => e.target === rfId)
         .map((e) => {
@@ -582,6 +626,7 @@ export function GenerationDialog() {
           || savedSourceMode === "first_frame"
           || savedSourceMode === "first_last"
           || savedSourceMode === "ingredients"
+          || savedSourceMode === "edit"
           ? savedSourceMode
           : "auto",
       );
@@ -817,6 +862,27 @@ export function GenerationDialog() {
     if (recipe?.defaultAspectRatio) {
       setAspectRatio(recipe.defaultAspectRatio);
     }
+    const libraryRecipe = findVideoRecipeDefinition(nextRecipe);
+    if (libraryRecipe) {
+      const defaultMode = libraryRecipe.defaultSourceMode;
+      if (defaultMode === "ingredients" && !isOmniVideo) {
+        const veoMode = libraryRecipe.allowedSourceModes.find((mode) => mode !== "ingredients");
+        setVideoSourceMode(veoMode ?? "auto");
+      } else {
+        setVideoSourceMode(defaultMode);
+      }
+      const recommended = libraryRecipe.durationRangeSec.recommended;
+      if (isOmniVideo && OMNI_FLASH_DURATIONS.includes(recommended as OmniFlashDuration)) {
+        setOmniFlashDuration(recommended as OmniFlashDuration);
+      } else if (recommended === 4 || recommended === 6 || recommended === 8) {
+        setVeoDurationSec(recommended);
+      } else {
+        const candidates = VEO_DURATIONS.filter(
+          (d) => d >= libraryRecipe.durationRangeSec.min && d <= libraryRecipe.durationRangeSec.max,
+        );
+        setVeoDurationSec(candidates[0] ?? 8);
+      }
+    }
   }
 
   async function handleSubmit() {
@@ -962,25 +1028,48 @@ export function GenerationDialog() {
       setAutoBuilding(false);
     }
     if (isVideo) {
-      const sourceMode = effectiveVideoSourceMode;
+      const sourceMode = effectiveRecipeSourceMode;
+      const blockingRecipeItem = recipePreflightItems.find(
+        (item) => item.blocking && !item.ok,
+      );
+      if (blockingRecipeItem) {
+        useGenerationStore.setState({
+          error: `${blockingRecipeItem.label}: ${blockingRecipeItem.detail}`,
+        });
+        return;
+      }
       if (sourceMode === "first_last" && !lastFrameMediaId) {
         useGenerationStore.setState({
           error: "First+last video needs an upstream node marked Last frame.",
         });
         return;
       }
-      // Append the camera-movement constraint to whatever motion prompt
-      // we have (manual or auto-synthesised). Putting it last makes it
-      // the dominant instruction the model resolves against — overrides
-      // any conflicting "slow dolly-in" the synthesizer might have output.
+      if (sourceMode === "edit" && !editSourceMediaId) {
+        useGenerationStore.setState({
+          error: "Video edit needs an upstream rendered video.",
+        });
+        return;
+      }
+      const recipeToPersist = hasStoryboardUpstream
+        ? "storyboard_sequence"
+        : videoRecipe;
+      const durationSec = isOmniVideo ? omniFlashDuration : veoDurationSec;
       const camInstruction = cameraInstruction(camera);
       const audio = audioInstruction(videoAudioMode);
-      const videoPrompt = [finalPrompt, camInstruction, audio]
-        .filter((part) => part.trim().length > 0)
-        .join(". ");
+      const videoPrompt = activeRecipeDefinition
+        ? buildVideoRecipePrompt(activeRecipeDefinition, {
+            basePrompt: finalPrompt,
+            sourceMode,
+            durationSec,
+            cameraInstruction: camInstruction,
+            audioInstruction: audio,
+          })
+        : [finalPrompt, camInstruction, audio]
+            .filter((part) => part.trim().length > 0)
+            .join(". ");
       // Filter the upstream variants to the user's selection — the dialog
       // shows one toggleable thumbnail per variant + an All/None action.
-      const picked = sourceMode === "text"
+      const picked = sourceMode === "text" || sourceMode === "edit"
         ? []
         : sourceMediaIds.filter((_, i) => selectedSourceIdx.has(i));
       if (
@@ -993,10 +1082,6 @@ export function GenerationDialog() {
         return;
       }
       const useMulti = picked.length > 1;
-      const recipeToPersist = hasStoryboardUpstream
-        ? "storyboard_sequence"
-        : videoRecipe;
-      const durationSec = isOmniVideo ? omniFlashDuration : veoDurationSec;
       useBoardStore.getState().updateNodeData(rfId, {
         videoRecipeId: recipeToPersist,
         videoAudioMode,
@@ -1022,12 +1107,13 @@ export function GenerationDialog() {
         sourceMediaId: sourceMode === "text" ? undefined : useMulti ? undefined : picked[0],
         sourceMediaIds: sourceMode === "text" ? undefined : useMulti ? picked : undefined,
         endMediaId: sourceMode === "first_last" ? lastFrameMediaId ?? undefined : undefined,
+        sourceVideoMediaId: sourceMode === "edit" ? editSourceMediaId ?? undefined : undefined,
         durationSec,
         audioMode: videoAudioMode,
         // Tell the node UI how many video tiles to reserve while pending —
         // otherwise it defaults to 1 placeholder even though we're
         // dispatching N i2v ops.
-        variantCount: sourceMode === "text" || isOmniVideo ? 1 : picked.length,
+        variantCount: sourceMode === "text" || sourceMode === "edit" || isOmniVideo ? 1 : picked.length,
       });
     } else {
       dispatchGeneration(rfId, {
@@ -1049,9 +1135,55 @@ export function GenerationDialog() {
     node?.data.autoPromptStatus === "pending"
     || node?.data.aiBriefStatus === "pending";
   const isWorking = autoBuilding || nodeLLMBusy;
+  const hasSelectedStartFrame = sourceMediaIds.some((_, i) => selectedSourceIdx.has(i));
+  const recipePresentNodeKinds = isVideo
+    ? Array.from(new Set(
+        incomingVideoEdges.flatMap((edge) => {
+          const src = nodes.find((n) => n.id === edge.source);
+          if (!src) return [];
+          return recipeNodeKindsForSource({
+            type: src.data.type,
+            refRole: (edge.data?.refRole ?? null) as RefRole | null,
+            hasMedia: hasRenderedMedia(src),
+          });
+        }),
+      ))
+    : [];
+  const ingredientRefCount = isVideo
+    ? incomingVideoEdges.filter((edge) => {
+        const src = nodes.find((n) => n.id === edge.source);
+        return !!src && REF_SOURCE_TYPES.has(src.data.type) && hasRenderedMedia(src);
+      }).length
+    : 0;
+  const effectiveRecipeSourceMode = (
+    effectiveVideoSourceMode === "auto" ? "text" : effectiveVideoSourceMode
+  ) as RecipeVideoSourceMode;
+  const activeRecipeId =
+    hasStoryboardUpstream
+      ? "storyboard_sequence"
+      : videoRecipe === "auto"
+        ? recipePlan?.recipe_id ?? null
+        : videoRecipe;
+  const activeRecipeDefinition = findVideoRecipeDefinition(activeRecipeId);
+  const recipePreflightItems: VideoRecipePreflightItem[] =
+    isVideo && activeRecipeDefinition
+      ? buildVideoRecipePreflight(activeRecipeDefinition, {
+          sourceMode: effectiveRecipeSourceMode,
+          durationSec: isOmniVideo ? omniFlashDuration : veoDurationSec,
+          presentNodeKinds: recipePresentNodeKinds,
+          hasFirstFrame: hasSelectedStartFrame,
+          hasLastFrame: !!lastFrameMediaId,
+          hasIngredientRefs: ingredientRefCount > 0,
+          hasEditSource: !!editSourceMediaId,
+        })
+      : [];
+  const recipeLibraryBlocked = recipePreflightItems.some(
+    (item) => item.blocking && !item.ok,
+  );
   const recipeValidationBlocked =
     isVideo
-    && (recipePlanLoading
+    && (recipeLibraryBlocked
+      || recipePlanLoading
       || !!(
         recipePlan
         && recipePlan.required_roles.length > 0
@@ -1062,14 +1194,15 @@ export function GenerationDialog() {
   // Veo i2v needs at least one selected source variant; Omni Flash
   // needs at least one ingredient (any upstream image-bearing node).
   // Other targets just need the LLM not be busy.
-  const hasSelectedStartFrame = sourceMediaIds.some((_, i) => selectedSourceIdx.has(i));
   const videoSourceReady =
     effectiveVideoSourceMode === "text"
       ? true
+      : effectiveVideoSourceMode === "edit"
+        ? !!editSourceMediaId
       : effectiveVideoSourceMode === "first_last"
         ? hasSelectedStartFrame && !!lastFrameMediaId
         : effectiveVideoSourceMode === "ingredients"
-          ? refSourceNodes.length > 0
+          ? ingredientRefCount > 0
           : hasSelectedStartFrame;
   const canGenerate = isCharacter
     ? charGender !== null || charCountry !== null || charExtras.trim().length > 0
@@ -1081,7 +1214,11 @@ export function GenerationDialog() {
   const recipePlanSections = recipePlan?.prompt_sections;
   const effectiveVideoSourceLabel =
     VIDEO_SOURCE_MODES.find((m) => m.key === effectiveVideoSourceMode)?.label ?? "Auto";
-  const videoSourceStatus = isOmniVideo
+  const videoSourceStatus = effectiveVideoSourceMode === "edit"
+    ? editSourceMediaId
+      ? `edit source ready (#${editSourceNode?.data.shortId ?? "?"})`
+      : "missing upstream video"
+    : isOmniVideo
     ? `${refSourceNodes.length} ingredient refs`
     : effectiveVideoSourceMode === "text"
       ? "text-to-video"
@@ -1209,6 +1346,24 @@ export function GenerationDialog() {
                 </option>
               ))}
             </select>
+            {activeRecipeDefinition && (
+              <div className="recipe-library-card">
+                <div className="recipe-library-card__summary">
+                  {activeRecipeDefinition.summary}
+                </div>
+                <div className="recipe-library-card__meta">
+                  <span>
+                    Needs {activeRecipeDefinition.requiredNodeKinds.map(labelForRecipeNodeKind).join(", ")}
+                  </span>
+                  <span>
+                    Modes {activeRecipeDefinition.allowedSourceModes.map(labelForVideoSourceMode).join(", ")}
+                  </span>
+                  <span>
+                    {activeRecipeDefinition.durationRangeSec.min}-{activeRecipeDefinition.durationRangeSec.max}s
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1223,10 +1378,10 @@ export function GenerationDialog() {
                 const disabled =
                   isWorking
                   || (mode.key === "ingredients" && !isOmniVideo)
-                  || (mode.key !== "ingredients" && isOmniVideo);
-                const active = videoSourceMode === mode.key || (
-                  mode.key === "ingredients" && isOmniVideo
-                );
+                  || (isOmniVideo && mode.key !== "ingredients" && mode.key !== "edit");
+                const active = videoSourceMode === "auto"
+                  ? mode.key === "auto"
+                  : mode.key === effectiveVideoSourceMode;
                 return (
                   <button
                     key={mode.key}
@@ -1244,6 +1399,30 @@ export function GenerationDialog() {
             <p className="gen-dialog__hint">
               Using <strong>{effectiveVideoSourceLabel}</strong> · {videoSourceStatus}
             </p>
+          </div>
+        )}
+
+        {isVideo && recipePreflightItems.length > 0 && (
+          <div className="recipe-preflight" aria-label="Recipe preflight">
+            <div className="recipe-preflight__header">
+              <span>Recipe preflight</span>
+              <span>{recipeLibraryBlocked ? "Blocked" : "Ready"}</span>
+            </div>
+            <div className="recipe-preflight__items">
+              {recipePreflightItems.map((item) => (
+                <div
+                  key={item.key}
+                  className={`recipe-preflight__item${
+                    item.ok ? " recipe-preflight__item--ok" : " recipe-preflight__item--bad"
+                  }`}
+                  title={item.detail}
+                >
+                  <span>{item.label}</span>
+                  <strong>{item.ok ? "OK" : "Fix"}</strong>
+                  <small>{item.detail}</small>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1434,7 +1613,10 @@ export function GenerationDialog() {
         {/* Source image — Veo i2v ONLY. Omni Flash uses the ingredient
             chip list (`refSourceNodes`) above, same shape as image
             targets. */}
-        {isVideo && !isOmniVideo && effectiveVideoSourceMode !== "text" && (
+        {isVideo
+          && !isOmniVideo
+          && (effectiveVideoSourceMode === "first_frame" || effectiveVideoSourceMode === "first_last")
+          && (
           <div className="gen-dialog__field">
             <div className="gen-dialog__label-row">
               <span className="gen-dialog__label">
@@ -1544,11 +1726,36 @@ export function GenerationDialog() {
           </div>
         )}
 
+        {isVideo && effectiveVideoSourceMode === "edit" && (
+          <div className="gen-dialog__field">
+            <span className="gen-dialog__label">Source video</span>
+            {editSourceMediaId && editSourceNode ? (
+              <div className="source-video-row">
+                <video
+                  className="source-video-row__thumb"
+                  src={mediaUrl(editSourceMediaId)}
+                  preload="metadata"
+                  muted
+                />
+                <div className="source-video-row__meta">
+                  <strong>#{editSourceNode.data.shortId}</strong>
+                  <span>{editSourceNode.data.title}</span>
+                  <code>{editSourceMediaId}</code>
+                </div>
+              </div>
+            ) : (
+              <div className="source-image-row source-image-row--empty">
+                Connect an upstream rendered video first
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Source references — image refs (character/image/visual_asset/
             Storyboard) AND prompt-text refs. Prompt nodes don't have
             media but their text feeds the auto-prompt synth, so we
             surface them as text chips next to the thumbnails. */}
-        {(!isVideo || isOmniVideo)
+        {showIngredientRefChips
           && (refSourceNodes.length > 0 || promptSourceNodes.length > 0)
           && (
           <div className="gen-dialog__field">

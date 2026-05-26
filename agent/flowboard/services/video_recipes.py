@@ -42,11 +42,21 @@ class VideoRecipe:
     avoid_hint: str
     prompt_contract: str
     safety_hint: str = CLAIM_SAFETY_HINT
+    required_node_kinds: tuple[str, ...] = ()
+    allowed_source_modes: tuple[str, ...] = ()
+    duration_range_sec: tuple[int, int] = (4, 8)
+    default_duration_sec: int = 8
+    export_preset: str = "portrait_1080"
+    timeline_shots: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         data = asdict(self)
         data["required_roles"] = list(self.required_roles)
         data["optional_roles"] = list(self.optional_roles)
+        data["required_node_kinds"] = list(self.required_node_kinds)
+        data["allowed_source_modes"] = list(self.allowed_source_modes)
+        data["duration_range_sec"] = list(self.duration_range_sec)
+        data["timeline_shots"] = list(self.timeline_shots)
         return data
 
 
@@ -153,6 +163,88 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
             "invented labels, no fake UI/text overlays, no extra variants of "
             "the product."
         ),
+        required_node_kinds=("product", "media"),
+        allowed_source_modes=("first_frame", "ingredients", "edit"),
+        duration_range_sec=(4, 8),
+        default_duration_sec=6,
+        export_preset="portrait_1080",
+        timeline_shots=("Hero setup", "Operation", "Result hold"),
+    ),
+    VideoRecipe(
+        id="lifestyle_ad",
+        label="Lifestyle ad",
+        required_roles=("product_ref", "background_ref"),
+        optional_roles=("character_ref", "style_ref", "audio_ref", "first_frame"),
+        recommended_generation_path="image_to_video",
+        default_camera="dynamic",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        action_hint="Show the product naturally used or approached inside a believable lifestyle setting.",
+        audio_hint="Soft lifestyle music or ambient location tone; speech only when scripted.",
+        preserve_hint="Preserve product identity, location logic, brand palette, and character continuity when present.",
+        avoid_hint="Avoid random location changes, floating product, fake captions, and unsupported claims.",
+        prompt_contract=(
+            "LIFESTYLE AD RECIPE — Product, place, and mood must support one "
+            "clear use case. Keep location geography believable and product "
+            "identity locked. The video_prompt should show one natural action "
+            "beat, not a montage of unrelated cuts."
+        ),
+        required_node_kinds=("product", "location"),
+        allowed_source_modes=("text", "first_frame", "ingredients"),
+        duration_range_sec=(6, 10),
+        default_duration_sec=8,
+        export_preset="portrait_1080",
+        timeline_shots=("Context", "Lifestyle action", "Brand hold"),
+    ),
+    VideoRecipe(
+        id="ugc_testimonial",
+        label="UGC testimonial",
+        required_roles=("product_ref", "character_ref"),
+        optional_roles=("first_frame", "background_ref", "style_ref", "audio_ref"),
+        recommended_generation_path="ingredients_to_video",
+        default_camera="static",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        action_hint="Casual creator footage: show product, point to one detail, react subtly, then hold.",
+        audio_hint="Casual room tone or supplied script only; no unscripted testimonial claims.",
+        preserve_hint="Preserve creator identity, product design, room mood, and handheld UGC framing.",
+        avoid_hint="Avoid lip-sync unless exact script is supplied, testimonial captions, fake labels, and exaggerated results.",
+        prompt_contract=(
+            "UGC TESTIMONIAL RECIPE — Casual creator-style proof without "
+            "invented claims. Keep the person and product naturally framed. "
+            "Use one believable gesture such as holding product near camera, "
+            "pointing to visible texture, or reacting silently. No lip-sync "
+            "unless the exact script is supplied."
+        ),
+        required_node_kinds=("product", "character"),
+        allowed_source_modes=("text", "first_frame", "ingredients", "edit"),
+        duration_range_sec=(6, 10),
+        default_duration_sec=8,
+        export_preset="portrait_1080",
+        timeline_shots=("Creator hook", "Detail proof", "Reaction"),
+    ),
+    VideoRecipe(
+        id="cinematic_reveal",
+        label="Cinematic reveal",
+        required_roles=("first_frame",),
+        optional_roles=("last_frame", "product_ref", "background_ref", "style_ref", "audio_ref", "character_ref"),
+        recommended_generation_path="image_to_video",
+        default_camera="dynamic",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_LANDSCAPE",
+        action_hint="Reveal the subject with one cinematic light, camera, occlusion, or parallax move.",
+        audio_hint="Atmospheric music bed or subtle reveal SFX, no speech by default.",
+        preserve_hint="Preserve subject identity, silhouette, material, lighting direction, and endpoint composition.",
+        avoid_hint="Avoid abrupt cuts, random new objects, excessive smoke, unreadable subject, and identity drift.",
+        prompt_contract=(
+            "CINEMATIC REVEAL RECIPE — The video_prompt must reveal the "
+            "subject through one controlled cinematic device: slow push, light "
+            "sweep, shadow-to-hero, door open, cloth lift, or parallax. Preserve "
+            "the source subject and endpoint; do not invent a new scene."
+        ),
+        required_node_kinds=("media",),
+        allowed_source_modes=("first_frame", "first_last", "ingredients"),
+        duration_range_sec=(4, 8),
+        default_duration_sec=6,
+        export_preset="landscape_1080",
+        timeline_shots=("Conceal", "Reveal", "Hero frame"),
     ),
     VideoRecipe(
         id="ugc_review",
@@ -214,6 +306,137 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
             "are generic; describe a clean comparison or reveal motion. No "
             "misleading medical/beauty claims, no fake UI labels."
         ),
+        required_node_kinds=("media",),
+        allowed_source_modes=("first_last", "edit"),
+        duration_range_sec=(4, 8),
+        default_duration_sec=6,
+        export_preset="portrait_1080",
+        timeline_shots=("Before", "Transition", "After"),
+    ),
+    VideoRecipe(
+        id="location_establishing",
+        label="Location establishing",
+        required_roles=("background_ref",),
+        optional_roles=("style_ref", "product_ref", "character_ref", "audio_ref", "first_frame"),
+        recommended_generation_path="text_to_video",
+        default_camera="dynamic",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_LANDSCAPE",
+        action_hint="Establish a real-feeling place with one motivated camera move and readable spatial geography.",
+        audio_hint="Natural ambient location tone or quiet music bed, no speech by default.",
+        preserve_hint="Preserve location architecture, lighting, weather, palette, and continuity for downstream shots.",
+        avoid_hint="Avoid random signage, warped architecture, unexplained time-of-day changes, and cluttered text.",
+        prompt_contract=(
+            "LOCATION ESTABLISHING RECIPE — Make place legible first: wide "
+            "geography, light direction, scale, and mood. Use one motivated "
+            "camera move into the story area. Do not change time of day or "
+            "invent text-heavy signage."
+        ),
+        required_node_kinds=("location",),
+        allowed_source_modes=("text", "first_frame", "ingredients"),
+        duration_range_sec=(4, 8),
+        default_duration_sec=6,
+        export_preset="landscape_1080",
+        timeline_shots=("Wide place", "Move inward"),
+    ),
+    VideoRecipe(
+        id="brand_bumper",
+        label="Brand bumper",
+        required_roles=("style_ref",),
+        optional_roles=("product_ref", "audio_ref", "first_frame", "background_ref"),
+        recommended_generation_path="text_to_video",
+        default_camera="static",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        action_hint="Create a concise branded opener or closer with one visual mark and one clean ending.",
+        audio_hint="Short sting, music hit, or subtle SFX; speech only when exact copy is supplied.",
+        preserve_hint="Preserve brand palette, typography area, logo proportions when supplied, CTA tone, and legal limits.",
+        avoid_hint="Avoid invented claims, random taglines, extra logos, unreadable typography, and crowded composition.",
+        prompt_contract=(
+            "BRAND BUMPER RECIPE — Short branded opener or closer. Use one "
+            "visual mark, one simple motion idea, and one clean final hold. "
+            "Keep brand palette, typography area, logo proportions, and legal "
+            "limits intact. No random taglines."
+        ),
+        required_node_kinds=("brand",),
+        allowed_source_modes=("text", "first_frame", "ingredients", "edit"),
+        duration_range_sec=(2, 6),
+        default_duration_sec=4,
+        export_preset="portrait_1080",
+        timeline_shots=("Brand mark", "End card motion"),
+    ),
+    VideoRecipe(
+        id="audio_led",
+        label="Voiceover / audio-led",
+        required_roles=("audio_ref",),
+        optional_roles=("product_ref", "character_ref", "background_ref", "style_ref", "first_frame"),
+        recommended_generation_path="text_to_video",
+        default_camera="dynamic",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        action_hint="Let voice, rhythm, or sound design define the visual beat timing.",
+        audio_hint="Follow the supplied voice/audio direction; use exact script only when provided.",
+        preserve_hint="Preserve voice direction, music energy, brand tone, and beat-to-image timing.",
+        avoid_hint="Avoid unscripted speech, accidental lip-sync, lyrics, garbled captions, and off-brand sound cues.",
+        prompt_contract=(
+            "VOICEOVER / AUDIO-LED RECIPE — Audio timing leads the visual "
+            "structure. Align motion and shot changes to voice, rhythm, or "
+            "sound-design beats. If speech is requested, use only supplied "
+            "script wording; no unscripted voice or accidental lip-sync."
+        ),
+        required_node_kinds=("audio",),
+        allowed_source_modes=("text", "ingredients", "edit"),
+        duration_range_sec=(6, 10),
+        default_duration_sec=8,
+        export_preset="portrait_1080",
+        timeline_shots=("Audio hook", "Rhythm cuts", "Final beat"),
+    ),
+    VideoRecipe(
+        id="transition_shot",
+        label="Transition shot",
+        required_roles=("first_frame", "last_frame"),
+        optional_roles=("product_ref", "background_ref", "style_ref", "audio_ref", "character_ref"),
+        recommended_generation_path="first_last_frame",
+        default_camera="dynamic",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        action_hint="Bridge two states with one motivated wipe, match cut, object pass, whip pan, or light move.",
+        audio_hint="Short whoosh, hit, or ambient bridge; no speech by default.",
+        preserve_hint="Preserve visual continuity, endpoint framing, subject identity, product identity, and motion direction.",
+        avoid_hint="Avoid random scene swaps, hard jump cuts, impossible morphs, fake overlays, and endpoint mismatch.",
+        prompt_contract=(
+            "TRANSITION SHOT RECIPE — Bridge from source state to target state "
+            "with one motivated transition: object pass, match cut, wipe, whip "
+            "pan, or light move. Land exactly on the target frame logic. No "
+            "random scene replacement."
+        ),
+        required_node_kinds=("media",),
+        allowed_source_modes=("first_last", "edit", "first_frame"),
+        duration_range_sec=(2, 6),
+        default_duration_sec=4,
+        export_preset="portrait_1080",
+        timeline_shots=("Start anchor", "Motivated bridge", "End anchor"),
+    ),
+    VideoRecipe(
+        id="packshot_loop",
+        label="Packshot / hero loop",
+        required_roles=("product_ref", "first_frame"),
+        optional_roles=("package_ref", "style_ref", "background_ref", "audio_ref"),
+        recommended_generation_path="image_to_video",
+        default_camera="static",
+        default_aspect_ratio="VIDEO_ASPECT_RATIO_PORTRAIT",
+        action_hint="Create loop-safe micro motion around a clean hero product shot.",
+        audio_hint="Subtle product shimmer, turntable, or light-sweep SFX; no speech by default.",
+        preserve_hint="Preserve product silhouette, packaging, label area, material, reflection, scale, and centered hero composition.",
+        avoid_hint="Avoid label drift, added products, cropped packaging, fast spin, fake typography, and non-looping endpoint jumps.",
+        prompt_contract=(
+            "PACKSHOT / HERO LOOP RECIPE — Loopable hero product shot for ads, "
+            "PDPs, or end cards. Use subtle product or lighting motion such as "
+            "micro rotation, light sweep, condensation, texture shimmer, or "
+            "platform turn. Return to a matching hero hold."
+        ),
+        required_node_kinds=("product", "media"),
+        allowed_source_modes=("first_frame", "ingredients", "edit"),
+        duration_range_sec=(4, 6),
+        default_duration_sec=4,
+        export_preset="portrait_1080",
+        timeline_shots=("Hero frame", "Micro motion", "Loop return"),
     ),
     VideoRecipe(
         id="dance",
@@ -259,7 +482,16 @@ VIDEO_RECIPES: tuple[VideoRecipe, ...] = (
 
 _BY_ID = {recipe.id: recipe for recipe in VIDEO_RECIPES}
 
-_REF_SOURCE_TYPES = {"character", "image", "visual_asset", "Storyboard"}
+_REF_SOURCE_TYPES = {
+    "character",
+    "image",
+    "visual_asset",
+    "product",
+    "location",
+    "brand",
+    "audio",
+    "Storyboard",
+}
 
 _ROLE_LABELS = {
     "first_frame": "First frame",
@@ -271,6 +503,7 @@ _ROLE_LABELS = {
     "style_ref": "Style",
     "storyboard_ref": "Storyboard",
     "storyboard_panel": "Storyboard panel",
+    "audio_ref": "Audio",
     "ingredient": "Ingredient",
 }
 
@@ -284,6 +517,7 @@ _ROLE_PRESERVE_HINTS = {
     "style_ref": "Apply style as visual language only; do not let it override identity/product locks.",
     "storyboard_ref": "Preserve panel order, narrative beats, and continuity locks.",
     "storyboard_panel": "Treat panel as one shot reference, not the whole sequence.",
+    "audio_ref": "Use audio direction as timing, voice, mood, and sound-design guidance.",
     "ingredient": "Use as a conditioning ingredient only when no stricter role is assigned.",
 }
 
@@ -322,14 +556,30 @@ def infer_video_recipe_id(records: list[dict], target_data: dict) -> Optional[st
 
     if "storyboard" in blob or "storyboard_ref" in roles or "storyboard_panel" in roles:
         return "storyboard_sequence"
+    if "audio_ref" in roles or "voiceover" in blob or "voice over" in blob or "audio-led" in blob:
+        return "audio_led"
+    if "brand bumper" in blob or "bumper" in blob or "logo" in blob or "brand kit" in blob:
+        return "brand_bumper"
+    if "establishing" in blob or "location" in blob or "background_ref" in roles:
+        return "location_establishing"
+    if "packshot" in blob or "hero loop" in blob or "hero product" in blob:
+        return "packshot_loop"
     if "unbox" in blob or "package_ref" in roles or "packaging" in blob:
         return "unbox"
     if "before" in blob and "after" in blob:
         return "before_after"
+    if "transition" in blob or "match cut" in blob or "whip pan" in blob:
+        return "transition_shot"
+    if "cinematic reveal" in blob or "reveal" in blob:
+        return "cinematic_reveal"
     if "dance" in blob or "dancing" in blob or "choreography" in blob:
         return "dance"
-    if "ugc" in blob or "review" in blob or "testimonial" in blob:
+    if "ugc" in blob or "testimonial" in blob:
+        return "ugc_testimonial"
+    if "review" in blob:
         return "ugc_review"
+    if "lifestyle" in blob or "ad" in blob or "campaign" in blob:
+        return "lifestyle_ad"
     if "skincare" in blob or "serum" in blob or "beauty" in blob or "tvc" in blob:
         return "skincare_tvc"
     if "mirror" in blob or "selfie" in blob:

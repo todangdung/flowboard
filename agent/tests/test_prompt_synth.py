@@ -1321,6 +1321,22 @@ def test_route_lists_video_recipe_catalog(client):
     assert "first_frame" in by_id["product_demo"]["required_roles"]
     assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
     assert "medical claims" in by_id["skincare_tvc"]["avoid_hint"]
+    for recipe_id in (
+        "lifestyle_ad",
+        "ugc_testimonial",
+        "cinematic_reveal",
+        "location_establishing",
+        "brand_bumper",
+        "audio_led",
+        "transition_shot",
+        "packshot_loop",
+    ):
+        assert recipe_id in by_id
+        assert by_id[recipe_id]["required_node_kinds"]
+        assert by_id[recipe_id]["allowed_source_modes"]
+        assert len(by_id[recipe_id]["duration_range_sec"]) == 2
+        assert by_id[recipe_id]["export_preset"].endswith("_1080")
+        assert by_id[recipe_id]["timeline_shots"]
 
 
 def test_route_product_demo_recipe_plan_ready(client):

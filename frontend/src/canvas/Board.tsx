@@ -28,6 +28,10 @@ const nodeTypes = {
   prompt: NodeCard,
   note: NodeCard,
   visual_asset: NodeCard,
+  product: NodeCard,
+  location: NodeCard,
+  brand: NodeCard,
+  audio: NodeCard,
   Storyboard: NodeCard,
 };
 
