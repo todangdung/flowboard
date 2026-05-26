@@ -147,27 +147,43 @@ the video-production workflow research.
 Already present:
 
 - Node graph with `image`, `video`, `character`, `prompt`, `note`,
-  `visual_asset`, and `Storyboard` nodes.
-- Upstream media references for image generation.
-- Video generation from an upstream source image.
-- Omni Flash ingredient-style collection of upstream refs.
+  `visual_asset`, `product`, `location`, `brand`, `audio`, and
+  `Storyboard` nodes.
+- Upstream media references plus per-edge production roles.
+- Video generation from text, first frame, first+last frame, Omni ingredients,
+  and edit-video source modes.
 - Prompt nodes as text guidance.
 - Storyboard node as composite image generation.
+- Storyboard sequence recipe as shot-frame/shot-clip/timeline workflow.
 - Auto-prompt synthesis from upstream context.
-- Static/dynamic camera option for video prompt synthesis.
+- Static/dynamic camera option, duration planning, audio mode, and recipe
+  contracts for video prompt synthesis.
 - Variant handling for image and video source variants.
 - Best-variant selection stored on node data for downstream generation/export.
+- Review/refine/export loop with stale exports and export history.
+- Recipe library/preflight/scaffold for the main commercial short-video types.
 
-Main limitation:
+Remaining limitations:
 
-- References are mostly generic media links, not typed production roles.
-- Storyboard is treated as a composite media asset, not as a production plan
-  with separate shots.
-- Prompt synthesis is intent-first but not recipe-routed.
+- Real Flow validation is partial because the current free account hit quota,
+  model access, reCAPTCHA, and edit-video/V2V gates.
+- Native video extend is not yet validated as a first-class Flow endpoint.
+- Campaign brief, script/voiceover asset pipeline, per-shot edit controls,
+  and auto-review scoring are still future work.
 
-## Gap Map
+## Original Gap Map (Historical)
 
-| Area | Current gap | Why it matters |
+Status note: the table below is the original gap map from the research pass.
+Most rows are now closed by the 2026-05-25/26 implementation checkpoint above.
+Use this status overlay for current planning:
+
+| Status | Areas |
+| --- | --- |
+| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline/export/review/refine, asset library profiles, accepted-output references. |
+| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, audio/voiceover pipeline, storyboard panel/source editing, native video extend. |
+| Open | Structured campaign brief node, per-shot trim/reorder/transition/caption/audio mix, auto-review scoring, multi-provider media abstraction beyond Flow. |
+
+| Area | Original gap | Why it mattered |
 | --- | --- | --- |
 | Data model | No `product` node or product role metadata | Product ads need logo, packaging, material, and claim constraints. |
 | Data model | No `location` / `background` node | Background refs should not compete with character/product refs. |
@@ -205,7 +221,10 @@ Main limitation:
 | Asset library | No accepted-output-as-reference flow | Good outputs should become stronger future references. |
 | Asset library | No prompt recipe catalog | The researched corpus is not yet operationalized. |
 
-## Recommended Development Direction
+## Recommended Development Direction (Historical)
+
+This sequence explains the original implementation order. Most phases below
+are now implemented; keep this section as rationale, not as current TODO.
 
 ### Phase 1: Document And Normalize Recipes
 

@@ -1,5 +1,13 @@
 # Recipe Flow Scaffold Implementation Plan
 
+Status: historical plan. Implemented and superseded by the 2026-05-26 video
+recipe library work. The original MVP recipes (`fashion_fit_check`,
+`mirror_selfie`, `product_demo`) shipped, then expanded to Product demo,
+Lifestyle ad, UGC testimonial, Cinematic reveal, Before/after, Location
+establishing, Brand bumper, Voiceover/audio-led, Transition shot, Packshot /
+hero loop, and Storyboard sequence. Recipe workflow shortcuts now live inside
+the Projects sidebar node library, not the top add-node palette.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a structured video recipe catalog and a one-click flow scaffold for the three MVP short-video recipes: fashion fit check, mirror selfie, and product demo.

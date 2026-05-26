@@ -1,9 +1,16 @@
 # Node types reference
 
-Cheat sheet cho 8 node types hiện có trong Flowboard. Mỗi node là 1 ô
+Last updated: 2026-05-26
+
+Cheat sheet cho node types hiện có trong Flowboard. Mỗi node là 1 ô
 trên canvas; edges nối chúng đại diện cho **data dependency** — node
 upstream feed vào node downstream qua các port handles trái (target) /
 phải (source).
+
+Top add-node palette chỉ giữ compact defaults: Character, Image,
+Storyboard, Video, Visual asset, Prompt, Note. Product / Location /
+Brand / Audio và recipe workflow shortcuts nằm trong Projects sidebar
+như folder group kiểu VS Code.
 
 ## Tổng quan
 
@@ -11,12 +18,15 @@ phải (source).
 |---|---|---|---|---|
 | **Character** | ◎ | ✅ portrait | ✅ via builder | Anchor identity 1 nhân vật cố định |
 | **Visual asset** | ◇ | ✅ asset | ✅ via prompt/upload | Anchor 1 sản phẩm / object vật lý |
+| **Product** | ▤ | ✅ optional | ❌ profile node | Product/package metadata + fidelity lock |
+| **Location** | ⌂ | ✅ optional | ❌ profile node | Background/place metadata + continuity lock |
+| **Brand** | ◈ | ✅ optional | ❌ profile node | Brand tone, CTA, palette, claim rules |
+| **Audio** | ♪ | ✅ optional | ❌ profile node | Voice/music/SFX direction and script hints |
 | **Image** | ▣ | ✅ image | ✅ via Flow | Compose ảnh từ ref + prompt |
-| **Storyboard** | ▦ | ✅ image composite | ✅ via Flow image | Multi-shot grid (2x2 / 2x3 / 2x4) trong 1 ảnh |
-| **Video** | ▶ | ✅ video | ✅ via Veo i2v / Omni | Image-to-video / reference-to-video |
+| **Storyboard** | ▦ | ✅ image composite | ✅ via Flow image | Contact sheet / visual planning grid |
+| **Video** | ▶ | ✅ video | ✅ via Veo / Omni / edit | Text, first-frame, first+last, ingredients, edit |
 | **Prompt** | ✦ | ❌ text only | ❌ chỉ save text | Style direction / vibe text feed |
-| **Note** | ✎ | ❌ | ❌ | UI label thuần, không affect dispatch |
-| **ChatGPT** | ✨ | ⚠ experimental | ⚠ Plus only | Bridge ra chatgpt.com (M1+M2 chỉ working trên Plus) |
+| **Note** | ✎ | ❌ | ❌ | UI label; timeline nodes also use this type with workflow metadata |
 
 ---
 
@@ -78,6 +88,62 @@ prompt hint khi auto-prompt synth chạy.
 
 ---
 
+## ▤ Product
+
+**Mục đích:** product/package profile dùng lại cho ads. Node này giữ
+metadata rõ hơn Visual asset: category, product details, material,
+packaging, exact fields to preserve, claims to avoid.
+
+**Cách tạo:** mở Projects sidebar → Node library → Domain nodes →
+Product. Có thể save output tốt thành reference kind `product` /
+`package`; khi kéo từ References library ra canvas, profile được
+restore vào Product node.
+
+**Wire downstream:** vào Image / Video / Storyboard / recipe workflow
+với role `product_ref` hoặc `package_ref`. Prompt synth thêm product
+fidelity contract: giữ shape, logo/label area, color, material, scale;
+không invent label/text/features.
+
+---
+
+## ⌂ Location
+
+**Mục đích:** background/place anchor. Dùng khi setting phải ổn định:
+cafe, bathroom, studio, street, kitchen, tabletop, store.
+
+**Profile fields:** place type, time of day, lighting, palette, props,
+usable camera zones, notes.
+
+**Wire downstream:** role `background_ref`. Prompt synth dùng node này
+làm scene/location context, không cho nó cạnh tranh với product hoặc
+character identity.
+
+---
+
+## ◈ Brand
+
+**Mục đích:** brand kit / campaign brief. Giữ tone, CTA, palette,
+tagline, legal/claim constraints, style direction.
+
+**Wire downstream:** thường role `style_ref`, đôi khi product/logo media
+đi kèm role `product_ref`. Recipe `brand_bumper`, `lifestyle_ad`,
+`product_demo` đọc Brand để chọn tone và avoid rules.
+
+---
+
+## ♪ Audio
+
+**Mục đích:** voiceover/music/SFX direction. Không phải timeline audio
+editor đầy đủ; hiện là prompt/profile guidance cho video generation.
+
+**Profile fields:** speech allowed/forbidden, language, voiceover text,
+music mood, SFX layer, risk notes.
+
+**Wire downstream:** role `audio_ref`. Video prompt nhận audio mode /
+audio direction; recipe `audio_led` dùng nó làm required node.
+
+---
+
 ## ▣ Image
 
 **Mục đích:** node tổng hợp — gen 1 ảnh mới từ N upstream refs +
@@ -131,6 +197,11 @@ composite** (2 rows × 2 cols = 4 tiles, hoặc 2×3, 2×4). Mỗi tile là
 "animate panels in order from frame 1 to frame N" — Flow Veo i2v sẽ
 animate qua từng tile theo thứ tự.
 
+**Production path mới:** recipe `storyboard_sequence` không phụ thuộc
+vào việc animate composite grid. Nó tạo shot frame nodes, shot clip
+nodes, và timeline note node (`workflowKind: "timeline"`). Timeline
+generate frames/clips theo shot, review, chọn active clip, rồi export.
+
 **Khi nào dùng:** narrative arc nhanh (4–8 beat), shot list cho
 e-commerce sequence (refer/try-on/wear), preview before committing
 production resources.
@@ -139,7 +210,16 @@ production resources.
 
 ## ▶ Video
 
-**Mục đích:** generate video 8s từ ảnh upstream.
+**Mục đích:** generate video từ prompt / refs / source clip.
+
+**Source modes:**
+- **Text-to-video**: không cần media source.
+- **First frame**: dùng `first_frame` / source image làm opening frame.
+- **First+last**: dùng `first_frame` + `last_frame` cho transition /
+  before-after / reveal.
+- **Ingredients**: Omni-style multi-reference conditioning; refs không
+  nhất thiết là frame 0.
+- **Edit**: refine/edit từ video media id đã render.
 
 **2 family models:**
 
@@ -149,6 +229,9 @@ production resources.
 - **Camera:** Static (locked-off, e-commerce default) hoặc Dynamic
   (synth pick dolly/pan)
 - **Quality:** Fast / Lite / Quality / Lite Low Priority (free)
+- **Duration:** 4/6/8s persisted for planning/export. Flow's current
+  Veo web endpoints reject/ignore explicit duration for some paths, so
+  duration is not blindly sent when Flow does not accept it.
 - **Output:** 1 video MP4 per source
 
 ### Omni Flash (r2v)
@@ -161,10 +244,15 @@ production resources.
 - Drop Video node → wire upstream Image
 - Pick model family ở Generation dialog
 - Generate
+- Or create workflow from Projects sidebar → Video workflows.
 
 **Auto-prompt synth** (motion-aware): đọc scene của source image →
 chọn motion vocab phù hợp (studio → editorial pose-shift; street →
 walk + glance; café → sip + lean; outdoor → hair flutter).
+
+**Review/export loop:** Result viewer hỗ trợ mark best / redo / skip,
+note-based refine, follow-up clone, save as reference, and timeline
+stale/export history updates.
 
 ---
 
@@ -229,7 +317,7 @@ auto-prompt synth ignore Note node trong upstream walk.
 
 ---
 
-## ✨ ChatGPT (experimental — Plus only)
+## ✨ ChatGPT (legacy experiment — Plus only)
 
 **Mục đích:** bridge ra chatgpt.com (Plus account) để gen text + ảnh
 qua ChatGPT thay vì Flow.
@@ -243,16 +331,15 @@ qua ChatGPT thay vì Flow.
 - Toàn bộ code lưu ở nhánh `chatgpt-experiment` trên fork (đã reset
   ra khỏi main vì chỉ dùng được trên Plus)
 
-**Khi nào dùng:** nếu bạn upgrade lên Plus, checkout
-`chatgpt-experiment` branch để dùng lại. ChatGPT (gpt-image-2) gen
-storyboard chất lượng tốt hơn Flow một vài case.
+**Khi nào dùng:** không có trong branch hiện tại. Nếu cần, xem branch
+`chatgpt-experiment`.
 
 ---
 
 ## Sync points để thêm node type mới
 
 Khi muốn thêm node type mới (vd `gemini`, `pollinations`), phải sync
-8 chỗ — quên chỗ nào là 422 silent error hoặc default render trắng:
+các chỗ dưới — quên chỗ nào là 422 silent error hoặc default render trắng:
 
 | File | Thay đổi |
 |---|---|
@@ -260,18 +347,25 @@ Khi muốn thêm node type mới (vd `gemini`, `pollinations`), phải sync
 | `agent/flowboard/worker/processor.py:_DEFAULT_HANDLERS` | Register `_handle_xxx` if dispatching |
 | `frontend/src/api/client.ts:113` | Add to `NodeType` union |
 | `frontend/src/canvas/Board.tsx:23` | Add to `nodeTypes` ReactFlow registry (**đã sync bug 1 lần**) |
-| `frontend/src/canvas/AddNodePalette.tsx:11` | Add CHIP entry |
+| `frontend/src/canvas/AddNodePalette.tsx` hoặc `frontend/src/components/ProjectNodeLibrary.tsx` | Add entry vào top palette hoặc Projects sidebar node library |
 | `frontend/src/canvas/NodeCard.tsx:13` (ICON), `1456-1472` (switch), `~1483` (isGenerable) | 3 chỗ |
 | `frontend/src/store/board.ts:137` (TYPE_TITLE), import | 2 chỗ |
 | `frontend/src/store/generation.ts:147` | Add new `kind` branch nếu cần dispatch riêng |
+| `frontend/e2e/project-node-library.spec.ts` | Nếu thêm vào sidebar library, update guardrail |
 
 ## Edge / connection semantics
 
 Mỗi edge từ upstream → downstream là 1 **data dependency**:
 - Image/Character/Visual_asset → ref input (mediaId thành
   `IMAGE_INPUT_TYPE_REFERENCE` vào Flow)
+- Product/Location/Brand/Audio → role/profile context; nếu có mediaId
+  thì cũng có thể làm ref input
 - Prompt → text feed (text vào auto-prompt synth)
 - Note → ignored
+
+**Ref roles:** `first_frame`, `last_frame`, `character_ref`,
+`product_ref`, `package_ref`, `background_ref`, `style_ref`,
+`storyboard_ref`, `storyboard_panel`, `audio_ref`, `ingredient`.
 
 **Per-edge variant pin (`sourceVariantIdx`):** upstream có 4 variants
 → edge nhớ user chọn variant nào → downstream dùng đúng variant đó
@@ -279,6 +373,8 @@ khi gen. Click variant tile trên upstream để pin.
 
 ## Reference / library
 
-Mọi mediaId từ Character / Visual asset / Image / Storyboard được lưu
-vào **References library** (sidebar phải) — drag drop ngược lại lên
-canvas để tạo 1 visual_asset node mới reuse asset đó (cross-board).
+Mọi mediaId từ Character / Visual asset / Product / Location / Brand /
+Audio / Image / Storyboard / Video có thể được lưu vào **References
+library** (sidebar phải). Reference rows lưu `profile` JSON cho
+product/location/brand/audio; drag/click restore lại đúng kind/profile
+thay vì luôn thành generic visual_asset.

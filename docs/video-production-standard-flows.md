@@ -1,10 +1,17 @@
 # Video Production Standard Flows
 
-Last updated: 2026-05-24
+Last updated: 2026-05-26
 
 This document answers the workflow question before implementation: what inputs
 are needed, which flow applies to each video type, and what prompt structure is
 needed at each AI step.
+
+Status note: this remains the workflow reference and prompt-template source.
+The first production implementation now covers the common scaffold plus a
+structured recipe library for Product demo, Lifestyle ad, UGC testimonial,
+Cinematic reveal, Before/after, Location establishing, Brand bumper,
+Voiceover/audio-led, Transition shot, Packshot / hero loop, and Storyboard
+sequence. Not every flow below has full first-class UI yet.
 
 It is based on:
 
@@ -1009,4 +1016,3 @@ Minimum useful implementation sequence:
   in body/limb/text precision.
 - Low confidence: asking the model to render exact UI text, long dialogue, or
   dense typography inside generated video. Use post-production overlays instead.
-

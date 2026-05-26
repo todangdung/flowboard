@@ -1,12 +1,19 @@
 # Video Production Workflow Map
 
-Last updated: 2026-05-24
+Last updated: 2026-05-26
 
 This document summarizes how short AI videos can be produced from different
 starting inputs, using the local prompt corpus in `prompt.txt` / `link.txt`
 plus public guidance from Google Flow/Veo and OpenAI Sora. The goal is not to
 define an implementation yet. The goal is to expose the full production shape
 so Flowboard can decide what is missing before adding features.
+
+Status note: this is now a research/concept map. Many `Missing`,
+`Flowboard gap`, and `Project gaps` bullets below were true on 2026-05-24 but
+have since been implemented: reference roles, product/location/brand/audio
+nodes, recipe library, source modes, storyboard sequence workflow,
+review/refine, timeline export, and asset profiles. Current implementation
+status lives in `docs/flowboard-video-gap-roadmap.md`.
 
 ## Source Observations
 

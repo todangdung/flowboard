@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Veo%203.1-i2v-FF6F00?logo=google&logoColor=white" alt="Veo 3.1"/>
   <img src="https://img.shields.io/badge/Flow-Free%20%C2%B7%20Pro%20%C2%B7%20Ultra-EA4335?logo=google&logoColor=white" alt="Flow Free / Pro / Ultra (free uses low-priority queue)"/>
   <img src="https://img.shields.io/badge/LLM-Claude%20%C2%B7%20Gemini%20%C2%B7%20Codex-D97757" alt="Claude / Gemini / OpenAI Codex"/>
-  <img src="https://img.shields.io/badge/Tests-333%20passing-success?logo=pytest&logoColor=white" alt="333 passing"/>
+  <img src="https://img.shields.io/badge/Tests-Backend%20438%20%2B%20E2E%207-success?logo=pytest&logoColor=white" alt="Backend 438 + E2E 7 passing"/>
   <img src="https://img.shields.io/badge/Status-personal%20local--only-orange" alt="Status"/>
 </p>
 
@@ -451,11 +451,13 @@ about 15 minutes of clicking.
 
 ```bash
 # Agent
-cd agent && .venv/bin/python -m pytest -q
-# 333 passed
+(cd agent && .venv/bin/python -m pytest -q)
+# 438 passed
 
 # Frontend
-cd frontend && npx tsc -p . --noEmit && npx vite build
+(cd frontend && npx tsc -p . --noEmit && npx vite build)
+(cd frontend && npm run test:e2e)
+# 7 passed
 ```
 
 ---
@@ -471,6 +473,11 @@ cd frontend && npx tsc -p . --noEmit && npx vite build
 - **Visual asset** — upload (file / URL) or generate. Refine in-place
   with a different prompt (Flow `edit_image`, BASE_IMAGE preserved,
   optional reference list).
+- **Product / Location / Brand / Audio** — profile nodes for commercial
+  video work. Save accepted outputs as reusable references with profile
+  JSON, then drag/click them back onto any board with metadata restored.
+  These nodes live in the Projects sidebar node library so the compact top
+  palette does not wrap over the canvas.
 
 ### Composition nodes
 
@@ -496,11 +503,41 @@ cd frontend && npx tsc -p . --noEmit && npx vite build
   upstream image dispatches a single batch with one item per variant →
   one video per source. Or pick a subset (toggleable thumbnails +
   All / None bulk action).
+  - Source modes = Text-to-video, First frame, First+last frame,
+    Omni Ingredients, and Edit/refine from source video.
   - Camera = `Static` (locked-off, e-commerce default) or `Dynamic`
     (synth picks dolly / pan / micro-shift to fit the scene).
+  - Duration = Veo 4/6/8s and Omni 4/6/8/10s as planning/export metadata;
+    Omni sends duration-specific model keys, while Veo duration is only sent
+    where Flow accepts it.
   - Motion synth uses time-coded beats so the model performs an
     editorial 2–3 pose-shift sequence inside the 8s clip — never a
     frozen statue.
+
+### Video recipe workflows
+
+Flowboard has a structured recipe library above raw source modes. Recipe
+preflight checks required node kinds, allowed source mode, source readiness,
+duration range, export preset, and suggested shot structure before dispatch.
+
+Implemented recipe workflow scaffolds:
+
+- Product demo
+- Lifestyle ad
+- UGC testimonial
+- Cinematic reveal
+- Before / after
+- Location establishing
+- Brand bumper
+- Voiceover / audio-led
+- Transition shot
+- Packshot / hero loop
+- Storyboard sequence
+
+Storyboard sequence creates shot-frame nodes, shot-clip nodes, and a timeline
+node. The timeline can generate all frames/clips, select active clips, skip
+blocked clips, rewire refined clips, and export a stitched short with preflight
+and export history.
 
 ### Auto-prompt synthesis
 
@@ -562,9 +599,14 @@ is open, 30 s while closed, and pauses when the tab is backgrounded.
 - **Clone variant** — `New variant +` in the result viewer creates a
   sibling node with identical upstream connections, prefills the
   prompt, opens the gen dialog.
+- **Review loop** — mark a rendered variant best/good, redo, or skip;
+  best feeds downstream/export, redo blocks export, skip is omitted.
+  Review notes can spawn a refined replacement clip and mark timeline export
+  stale.
 - **Project sidebar** — multiple boards on the same agent, each with
   its own Flow project mapping. Rename / delete with cascade (clears
-  all child rows: nodes, edges, requests, assets, plans, runs).
+  all child rows: nodes, edges, requests, assets, plans, runs). The same
+  sidebar holds collapsible domain-node and video-workflow folders.
 
 ---
 
@@ -583,7 +625,7 @@ agent/                  FastAPI service (Python 3.11)
     worker/             In-process queue (gen_image, gen_video,
                         edit_image, upload_image)
     db/                 SQLModel definitions
-  tests/                333+ pytest tests
+  tests/                438 pytest tests
 
 frontend/               Vite + React + ReactFlow
   src/
@@ -604,8 +646,9 @@ storage/                Local cache + SQLite (gitignored)
 
 ## Status
 
-Personal local-only tool. **377 / 377 tests passing** (agent), tsc
-clean (frontend). Caveats:
+Personal local-only tool. **438 / 438 backend tests passing**,
+frontend lint/build clean, and **7 / 7 Playwright E2E passing**.
+Caveats:
 
 - ⚠ **Google Flow plan: free / Pro / Ultra all supported.** Pro and
   Ultra users keep paid-queue defaults. Free / trial users must enable
@@ -622,6 +665,10 @@ clean (frontend). Caveats:
   loopback only, not multi-user.
 - ⚠ Google Flow rate limits still apply on every tier (paid quota for
   Pro / Ultra; low-priority queue depth for free).
+- ⚠ Real Flow video QA is partially blocked on the current free account:
+  T2V, first+last, and product-demo first-frame i2v have real pass media;
+  broader recipe video batch hit quota/reCAPTCHA, and edit-video appears
+  paid/V2V-gated.
 - ⚠ Veo / Imagen content filters
   (`PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED`,
   `PUBLIC_ERROR_AUDIO_FILTERED`) — surfaced verbatim in the activity
