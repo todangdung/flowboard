@@ -34,6 +34,10 @@ Completed vertical slices:
 - Video refine loop: reviewed clips can spawn a refined replacement from the
   review note while preserving shot metadata/upstream refs and marking the
   timeline export stale.
+- Project node library placement: the top add-node palette remains the default
+  compact set, while Product, Location, Brand, Audio, and recipe workflow
+  shortcuts live inside the existing Projects sidebar as collapsible folder
+  groups. This prevents the canvas palette from wrapping over the board.
 - Reusable tests: backend export/status/recipe tests and Playwright shot
   workflow coverage verify the full mocked sequence path.
 
