@@ -1779,6 +1779,71 @@ function timelineDefaultExportPreset(data: FlowboardNodeData): TimelineExportPre
   return recipe?.exportPreset ?? "portrait_1080";
 }
 
+function timelineShotId(data: FlowboardNodeData): string | null {
+  return typeof data.shotId === "string" && data.shotId ? data.shotId : null;
+}
+
+function timelineDuration(data: Partial<FlowboardNodeData>): number | null {
+  if (typeof data.shotDurationSec === "number" && data.shotDurationSec > 0) {
+    return data.shotDurationSec;
+  }
+  if (typeof data.videoDurationSec === "number" && data.videoDurationSec > 0) {
+    return data.videoDurationSec;
+  }
+  return null;
+}
+
+function timelineCaptionMap(data: FlowboardNodeData): Record<string, string> {
+  return data.timelineCaptions && typeof data.timelineCaptions === "object"
+    ? data.timelineCaptions
+    : {};
+}
+
+function timelineCaptionForClip(timelineData: FlowboardNodeData, clipData: FlowboardNodeData): string {
+  const shotId = timelineShotId(clipData);
+  const captions = timelineCaptionMap(timelineData);
+  if (shotId && typeof captions[shotId] === "string") {
+    return captions[shotId];
+  }
+  for (const key of ["captionText", "onScreenText"] as const) {
+    const value = clipData[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function scriptCaptionText(data: FlowboardNodeData): string {
+  for (const key of ["captionText", "onScreenText", "voiceoverText", "scriptHook", "prompt"] as const) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function orderClipsForTimeline(
+  timelineData: FlowboardNodeData,
+  clips: FlowNode[],
+): FlowNode[] {
+  const order = Array.isArray(timelineData.timelineShotIds)
+    ? timelineData.timelineShotIds.filter((shotId): shotId is string =>
+      typeof shotId === "string" && shotId.length > 0,
+    )
+    : [];
+  const orderIndex = new Map(order.map((shotId, index) => [shotId, index]));
+  return clips.slice().sort((a, b) => {
+    const aShot = timelineShotId(a.data);
+    const bShot = timelineShotId(b.data);
+    const aOrder = aShot && orderIndex.has(aShot) ? orderIndex.get(aShot)! : Number.MAX_SAFE_INTEGER;
+    const bOrder = bShot && orderIndex.has(bShot) ? orderIndex.get(bShot)! : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return (a.data.shotIndex ?? 0) - (b.data.shotIndex ?? 0);
+  });
+}
+
 function isNodeBusy(data: FlowboardNodeData): boolean {
   return data.status === "queued" || data.status === "running";
 }
@@ -1796,11 +1861,10 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const [exportPresetKey, setExportPresetKey] = useState<TimelineExportPresetKey>(
     timelineDefaultExportPreset(data),
   );
-  const incoming = edges
+  const incoming = orderClipsForTimeline(data, edges
     .filter((e) => e.target === rfId)
     .map((e) => nodes.find((n) => n.id === e.source))
-    .filter((n): n is FlowNode => !!n && n.data.workflowKind === "shot_clip")
-    .sort((a, b) => (a.data.shotIndex ?? 0) - (b.data.shotIndex ?? 0));
+    .filter((n): n is FlowNode => !!n && n.data.workflowKind === "shot_clip"));
   const shotPairs = incoming.map((clip) => {
     const frameEdge = edges.find(
       (e) => e.target === clip.id && e.data?.refRole === "first_frame",
@@ -1880,6 +1944,104 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       position: { x: 0, y: 0 },
       type: "video",
     } as FlowNode));
+  const orderedShotIds = rows
+    .map((row) => timelineShotId(row.data))
+    .filter((shotId): shotId is string => !!shotId);
+
+  function upstreamScriptCaption(clip: FlowNode): string {
+    const scriptTargets = new Set([clip.id, rfId]);
+    for (const edge of edges) {
+      if (!scriptTargets.has(edge.target)) continue;
+      if (edge.data?.refRole !== "script_ref") continue;
+      const source = nodes.find((node) => node.id === edge.source);
+      if (source?.data.type === "script") {
+        const text = scriptCaptionText(source.data);
+        if (text) return text;
+      }
+    }
+    return "";
+  }
+
+  function captionForTimelineRow(clip: FlowNode): string {
+    return timelineCaptionForClip(data, clip.data) || upstreamScriptCaption(clip);
+  }
+
+  function timelineDurationsForOrder(
+    order: string[],
+    durationOverride?: { shotId: string; duration: number },
+  ): number[] {
+    return order.map((shotId) => {
+      if (durationOverride && durationOverride.shotId === shotId) {
+        return durationOverride.duration;
+      }
+      const pair = shotPairs.find(({ clip }) => timelineShotId(clip.data) === shotId);
+      return timelineDuration(pair?.clip.data ?? {}) ?? timelineDuration(pair?.frame?.data ?? {}) ?? 0;
+    });
+  }
+
+  async function persistTimelineData(
+    patch: Partial<FlowboardNodeData>,
+    reason = "timeline_controls_changed",
+  ) {
+    useBoardStore.getState().updateNodeData(rfId, patch);
+    const dbId = parseInt(rfId, 10);
+    if (!isNaN(dbId)) {
+      await patchNode(dbId, { data: patch });
+    }
+    await useBoardStore.getState().markTimelineExportsStale([rfId], reason);
+  }
+
+  async function saveShotDuration(shotId: string, raw: string) {
+    if (raw.trim() === "") return;
+    const parsed = Math.round(Number(raw));
+    if (!Number.isFinite(parsed)) return;
+    const duration = Math.max(1, Math.min(60, parsed));
+    const pair = shotPairs.find(({ clip }) => timelineShotId(clip.data) === shotId);
+    if (!pair) return;
+    const nodePatches = [
+      { node: pair.frame, patch: { shotDurationSec: duration } },
+      { node: pair.clip, patch: { shotDurationSec: duration, videoDurationSec: duration } },
+    ];
+    await Promise.all(nodePatches.map(async ({ node, patch }) => {
+      if (!node) return;
+      useBoardStore.getState().updateNodeData(node.id, patch);
+      const dbId = parseInt(node.id, 10);
+      if (!isNaN(dbId)) {
+        await patchNode(dbId, { data: patch });
+      }
+    }));
+    const order = orderedShotIds.length > 0 ? orderedShotIds : [shotId];
+    await persistTimelineData(
+      { timelineDurationsSec: timelineDurationsForOrder(order, { shotId, duration }) },
+      "timeline_duration_changed",
+    );
+  }
+
+  async function saveShotCaption(shotId: string, raw: string) {
+    const caption = raw.trim();
+    const nextCaptions = { ...timelineCaptionMap(data) };
+    if (caption) {
+      nextCaptions[shotId] = caption;
+    } else {
+      delete nextCaptions[shotId];
+    }
+    await persistTimelineData({ timelineCaptions: nextCaptions }, "timeline_caption_changed");
+  }
+
+  async function moveShot(shotId: string, delta: -1 | 1) {
+    const order = orderedShotIds.slice();
+    const index = order.indexOf(shotId);
+    const nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+    [order[index], order[nextIndex]] = [order[nextIndex], order[index]];
+    await persistTimelineData(
+      {
+        timelineShotIds: order,
+        timelineDurationsSec: timelineDurationsForOrder(order),
+      },
+      "timeline_order_changed",
+    );
+  }
 
   async function runFrames() {
     if (!canRunFrames) return;
@@ -1944,6 +2106,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportStatus: result.export_status ?? "fresh",
         exportVersion: result.export_version,
         exportSourceMediaIds: result.source_media_ids,
+        exportShotIds: result.source_shot_ids,
+        exportDurationsSec: result.clip_durations_sec,
+        exportCaptions: result.clip_captions,
         exportHistory: result.export_history,
         exportStaleAt: undefined,
         exportStaleReason: undefined,
@@ -2086,13 +2251,16 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 const idx = clip.data.shotIndex ?? 0;
                 const bestIdx = bestVariantIndex(clip.data);
                 const sourceIds = preferredMediaIds(clip.data);
+                const duration = timelineDuration(clip.data);
+                const caption = captionForTimelineRow(clip);
                 return (
                   <div key={clip.id} className="timeline-preflight__clip">
                     <span>Shot {idx || "?"}</span>
                     <strong>
-                      {bestIdx !== null ? `v${bestIdx + 1}` : "active"} · {clip.data.reviewVerdict ?? "unreviewed"}
+                      {bestIdx !== null ? `v${bestIdx + 1}` : "active"} · {duration ?? "?"}s · {clip.data.reviewVerdict ?? "unreviewed"}
                     </strong>
                     <code>{sourceIds[0] ?? "no-media"}</code>
+                    {caption && <small>{caption}</small>}
                   </div>
                 );
               })}
@@ -2168,6 +2336,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const reviewVerdict = clip.data.reviewVerdict;
           const status = clip.data.status ?? "idle";
           const shotId = clip.data.shotId;
+          const duration = timelineDuration(clip.data);
+          const caption = captionForTimelineRow(clip);
+          const orderIndex = typeof shotId === "string" ? orderedShotIds.indexOf(shotId) : -1;
           const candidates = typeof shotId === "string" && shotId
             ? nodes
               .filter((candidate) =>
@@ -2233,6 +2404,59 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                       );
                     })}
                   </select>
+                )}
+                {shotId && (
+                  <div className="timeline-shot-row__controls nodrag">
+                    <button
+                      type="button"
+                      className="timeline-shot-row__move"
+                      aria-label={`Move shot ${index || "?"} up`}
+                      disabled={orderIndex <= 0}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void moveShot(shotId, -1);
+                      }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="timeline-shot-row__move"
+                      aria-label={`Move shot ${index || "?"} down`}
+                      disabled={orderIndex < 0 || orderIndex >= orderedShotIds.length - 1}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void moveShot(shotId, 1);
+                      }}
+                    >
+                      ↓
+                    </button>
+                    <label className="timeline-shot-row__duration">
+                      <span>sec</span>
+                      <input
+                        aria-label={`Shot ${index || "?"} duration seconds`}
+                        type="number"
+                        min={1}
+                        max={60}
+                        step={1}
+                        defaultValue={duration ?? ""}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          void saveShotDuration(shotId, event.target.value);
+                        }}
+                      />
+                    </label>
+                    <input
+                      className="timeline-shot-row__caption"
+                      aria-label={`Shot ${index || "?"} caption`}
+                      placeholder="Caption"
+                      defaultValue={caption}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={(event) => {
+                        void saveShotCaption(shotId, event.target.value);
+                      }}
+                    />
+                  </div>
                 )}
               </div>
               <span className="timeline-shot-row__status">

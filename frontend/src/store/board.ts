@@ -35,6 +35,9 @@ export interface ExportHistoryItem {
   clipCount?: number;
   size?: string;
   sourceMediaIds?: string[];
+  sourceShotIds?: string[];
+  durationsSec?: (number | null)[];
+  captions?: (string | null)[];
   staleAt?: string;
   staleReason?: string;
 }
@@ -163,6 +166,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   timelineRecipeId?: string;
   timelineShotIds?: string[];
   timelineDurationsSec?: number[];
+  timelineCaptions?: Record<string, string>;
   exportMediaId?: string;
   exportedAt?: string;
   exportClipCount?: number;
@@ -170,6 +174,9 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportStatus?: ExportStatus;
   exportVersion?: number;
   exportSourceMediaIds?: string[];
+  exportShotIds?: string[];
+  exportDurationsSec?: (number | null)[];
+  exportCaptions?: (string | null)[];
   exportStaleAt?: string;
   exportStaleReason?: string;
   exportHistory?: ExportHistoryItem[];
@@ -308,6 +315,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       timelineRecipeId: dto.data["timelineRecipeId"] as string | undefined,
       timelineShotIds: dto.data["timelineShotIds"] as string[] | undefined,
       timelineDurationsSec: dto.data["timelineDurationsSec"] as number[] | undefined,
+      timelineCaptions: dto.data["timelineCaptions"] as Record<string, string> | undefined,
       exportMediaId: dto.data["exportMediaId"] as string | undefined,
       exportedAt: dto.data["exportedAt"] as string | undefined,
       exportClipCount: dto.data["exportClipCount"] as number | undefined,
@@ -315,6 +323,9 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportStatus: dto.data["exportStatus"] as ExportStatus | undefined,
       exportVersion: dto.data["exportVersion"] as number | undefined,
       exportSourceMediaIds: dto.data["exportSourceMediaIds"] as string[] | undefined,
+      exportShotIds: dto.data["exportShotIds"] as string[] | undefined,
+      exportDurationsSec: dto.data["exportDurationsSec"] as (number | null)[] | undefined,
+      exportCaptions: dto.data["exportCaptions"] as (string | null)[] | undefined,
       exportStaleAt: dto.data["exportStaleAt"] as string | undefined,
       exportStaleReason: dto.data["exportStaleReason"] as string | undefined,
       exportHistory: dto.data["exportHistory"] as ExportHistoryItem[] | undefined,

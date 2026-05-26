@@ -198,6 +198,32 @@ test("builds storyboard sequence shot workflow from palette", async ({
     expect(detail.edges.filter((edge) => edge.ref_role === "first_frame")).toHaveLength(4);
     expect(detail.edges.filter((edge) => edge.ref_role === "storyboard_panel")).toHaveLength(4);
 
+    await page.getByRole("button", { name: "Move shot 2 up", exact: true }).click();
+    await page.getByLabel("Shot 2 duration seconds").fill("9");
+    await page.getByLabel("Shot 2 caption").fill("Second shot caption");
+    await page.locator(".timeline-header").click();
+    await expect.poll(async () => {
+      const updatedRes = await request.get(`/api/boards/${board.id}`);
+      const updated = await updatedRes.json() as {
+        nodes: Array<{ data: Record<string, unknown>; type: string }>;
+      };
+      const timeline = updated.nodes.find((node) => node.data.workflowKind === "timeline");
+      const clip = updated.nodes.find(
+        (node) => node.data.workflowKind === "shot_clip" && node.data.shotId === "shot_02",
+      );
+      return {
+        order: timeline?.data.timelineShotIds,
+        durations: timeline?.data.timelineDurationsSec,
+        captions: timeline?.data.timelineCaptions,
+        shot2Duration: clip?.data.shotDurationSec,
+      };
+    }).toEqual({
+      order: ["shot_02", "shot_01", "shot_03", "shot_04"],
+      durations: [9, 5, 5, 5],
+      captions: { shot_02: "Second shot caption" },
+      shot2Duration: 9,
+    });
+
     const frameRunner = page.getByRole("button", { name: "Generate frames / Tạo ảnh cảnh" });
     await expect(frameRunner).toBeEnabled();
     await frameRunner.click();
@@ -224,6 +250,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     expect(videoRequests.every((row) => row.params.project_id === "flow_e2e_project")).toBeTruthy();
     expect(videoRequests.every((row) => row.params.aspect_ratio === "VIDEO_ASPECT_RATIO_PORTRAIT")).toBeTruthy();
     expect(videoRequests.every((row) => String(row.params.start_media_id).startsWith("media-"))).toBeTruthy();
+    expect(videoRequests.some((row) => row.params.duration_s === 9)).toBeTruthy();
     await expect(
       page.getByText("4/4 frames / ảnh · 4/4 clips / video"),
     ).toBeVisible({ timeout: 7000 });
@@ -234,6 +261,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
     const preflight = page.getByRole("dialog", { name: "Export preflight" });
     await expect(preflight).toBeVisible();
     await expect(preflight.getByText("4 clips · 1080x1920")).toBeVisible();
+    await expect(preflight.locator(".timeline-preflight__clip").first()).toContainText("Shot 2");
+    await expect(preflight.getByText("Second shot caption")).toBeVisible();
+    await expect(preflight.getByText(/9s/)).toBeVisible();
     await preflight.getByRole("button", { name: "Confirm export / Xuất" }).dispatchEvent("click");
     await expect.poll(() => exportCount).toBe(1);
     await expect(page.getByRole("link", { name: "Open export / Mở file" })).toBeVisible();

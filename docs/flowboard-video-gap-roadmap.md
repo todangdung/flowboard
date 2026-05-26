@@ -50,6 +50,10 @@ Additional gap closure in this pass:
 - Timeline active-clip chooser: timeline rows now expose same-shot clip
   candidates and can switch the active storyboard-panel edge without deleting
   redo/refine history.
+- Timeline shot controls phase 1: timeline rows can reorder shots, edit
+  per-shot duration, and store per-shot captions; export/preflight follows
+  timeline order and carries shot id, duration, and caption metadata without
+  burning subtitles into the video.
 - Video source modes: Generate Video supports Auto, Text-to-video,
   First frame, First+last frame, and Omni Ingredients paths.
 - First+last frame dispatch: `last_frame` edge role now drives Flow's
@@ -182,7 +186,8 @@ Remaining limitations:
 - Real Flow validation is partial because the current free account hit quota,
   model access, reCAPTCHA, and edit-video/V2V gates.
 - Native video extend is not yet validated as a first-class Flow endpoint.
-- Per-shot edit controls and auto-review scoring are still future work.
+- Per-shot trim/transition/audio-mix controls and auto-review scoring are
+  still future work.
 
 ## Original Gap Map (Historical)
 
@@ -192,9 +197,9 @@ Use this status overlay for current planning:
 
 | Status | Areas |
 | --- | --- |
-| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline/export/review/refine, asset library profiles, accepted-output references. |
-| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend. |
-| Open | Per-shot trim/reorder/transition/caption/audio mix, auto-review scoring, multi-provider media abstraction beyond Flow. |
+| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata, timeline/export/review/refine, asset library profiles, accepted-output references. |
+| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, per-shot trim/transition/audio mix. |
+| Open | Auto-review scoring, multi-provider media abstraction beyond Flow. |
 
 | Area | Original gap | Why it mattered |
 | --- | --- | --- |

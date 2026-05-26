@@ -726,9 +726,15 @@ export interface TimelineExportResponse {
     clipCount?: number;
     size?: string;
     sourceMediaIds?: string[];
+    sourceShotIds?: string[];
+    durationsSec?: Array<number | null>;
+    captions?: Array<string | null>;
     staleAt?: string;
     staleReason?: string;
   }>;
+  source_shot_ids?: string[];
+  clip_durations_sec?: Array<number | null>;
+  clip_captions?: Array<string | null>;
 }
 
 export async function exportTimeline(

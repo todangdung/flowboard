@@ -97,6 +97,30 @@ async def _resolve_media_path(media_id: str) -> Path:
     return path
 
 
+def _timeline_order(data: dict) -> list[str]:
+    raw = data.get("timelineShotIds")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str) and item]
+
+
+def _sort_timeline_clips(timeline: Node, clips: list[Node]) -> list[Node]:
+    order = _timeline_order(timeline.data or {})
+    order_index = {shot_id: index for index, shot_id in enumerate(order)}
+
+    def key(node: Node) -> tuple[int, int, int]:
+        data = node.data or {}
+        shot_id = data.get("shotId")
+        if isinstance(shot_id, str) and shot_id in order_index:
+            return (0, order_index[shot_id], node.id or 0)
+        shot_index = data.get("shotIndex")
+        if isinstance(shot_index, int):
+            return (1, shot_index, node.id or 0)
+        return (2, node.id or 0, node.id or 0)
+
+    return sorted(clips, key=key)
+
+
 def _timeline_clips(timeline_node_id: int) -> tuple[Node, list[Node]]:
     with get_session() as s:
         timeline = s.get(Node, timeline_node_id)
@@ -115,8 +139,7 @@ def _timeline_clips(timeline_node_id: int) -> tuple[Node, list[Node]]:
             node = s.get(Node, edge.source_id)
             if node is not None and (node.data or {}).get("workflowKind") == "shot_clip":
                 clips.append(node)
-        clips.sort(key=lambda node: int((node.data or {}).get("shotIndex") or 0))
-        return timeline, clips
+        return timeline, _sort_timeline_clips(timeline, clips)
 
 
 def _first_clip_media_id(node: Node) -> str:
@@ -146,6 +169,44 @@ def _exportable_clips(clips: list[Node]) -> list[Node]:
     if not out:
         raise VideoExportError("timeline_has_no_exportable_clips")
     return out
+
+
+def _clip_shot_id(node: Node) -> str:
+    data = node.data or {}
+    shot_id = data.get("shotId")
+    if isinstance(shot_id, str) and shot_id:
+        return shot_id
+    shot_index = data.get("shotIndex")
+    if isinstance(shot_index, int):
+        return f"shot_{shot_index:02d}"
+    return str(node.id)
+
+
+def _clip_duration(node: Node) -> int | None:
+    data = node.data or {}
+    for key in ("shotDurationSec", "videoDurationSec"):
+        value = data.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+        if isinstance(value, float) and value > 0:
+            return int(round(value))
+    return None
+
+
+def _clip_caption(timeline: Node, node: Node) -> str | None:
+    timeline_data = timeline.data or {}
+    shot_id = _clip_shot_id(node)
+    captions = timeline_data.get("timelineCaptions")
+    if isinstance(captions, dict):
+        value = captions.get(shot_id)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    data = node.data or {}
+    for key in ("captionText", "onScreenText"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _normalise_clip(
@@ -241,6 +302,9 @@ def _export_snapshot(data: dict) -> dict | None:
         "clipCount": data.get("exportClipCount"),
         "size": data.get("exportSize"),
         "sourceMediaIds": data.get("exportSourceMediaIds"),
+        "sourceShotIds": data.get("exportShotIds"),
+        "durationsSec": data.get("exportDurationsSec"),
+        "captions": data.get("exportCaptions"),
         "staleAt": data.get("exportStaleAt"),
         "staleReason": data.get("exportStaleReason"),
     }
@@ -283,6 +347,9 @@ def _stamp_timeline(
     width: int,
     height: int,
     source_media_ids: list[str],
+    source_shot_ids: list[str],
+    clip_durations_sec: list[int | None],
+    clip_captions: list[str | None],
 ) -> dict:
     with get_session() as s:
         node = s.get(Node, timeline_node_id)
@@ -301,6 +368,9 @@ def _stamp_timeline(
                 "exportStatus": "fresh",
                 "exportVersion": export_version,
                 "exportSourceMediaIds": source_media_ids,
+                "exportShotIds": source_shot_ids,
+                "exportDurationsSec": clip_durations_sec,
+                "exportCaptions": clip_captions,
                 "exportHistory": export_history,
             }
         )
@@ -337,10 +407,16 @@ async def export_timeline(
     work_dir.mkdir(parents=True, exist_ok=True)
     normalised: list[Path] = []
     media_ids: list[str] = []
+    shot_ids: list[str] = []
+    durations: list[int | None] = []
+    captions: list[str | None] = []
     try:
         for index, clip in enumerate(export_clips, start=1):
             media_id = _first_clip_media_id(clip)
             media_ids.append(media_id)
+            shot_ids.append(_clip_shot_id(clip))
+            durations.append(_clip_duration(clip))
+            captions.append(_clip_caption(timeline, clip))
             source = await _resolve_media_path(media_id)
             target = work_dir / f"{index:03d}.mp4"
             _normalise_clip(source, target, width=width, height=height)
@@ -376,6 +452,9 @@ async def export_timeline(
             width=width,
             height=height,
             source_media_ids=media_ids,
+            source_shot_ids=shot_ids,
+            clip_durations_sec=durations,
+            clip_captions=captions,
         )
         return {
             "timeline_node_id": timeline_node_id,
@@ -383,6 +462,9 @@ async def export_timeline(
             "url": f"/media/{export_media_id}",
             "clip_count": len(export_clips),
             "source_media_ids": media_ids,
+            "source_shot_ids": shot_ids,
+            "clip_durations_sec": durations,
+            "clip_captions": captions,
             "width": width,
             "height": height,
             **stamp,
