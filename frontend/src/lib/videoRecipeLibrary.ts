@@ -3,6 +3,14 @@ import type { NodeType, RefRole, VideoRecipeId } from "../api/client";
 export type VideoSourceMode = "text" | "first_frame" | "first_last" | "ingredients" | "edit";
 export type VideoRecipeNodeKind = "product" | "location" | "brand" | "audio" | "character" | "media";
 export type VideoExportPresetKey = "portrait_1080" | "landscape_1080" | "square_1080";
+export type VideoRecipeQaStatus =
+  | "untested"
+  | "mocked"
+  | "real_pass"
+  | "blocked_quota"
+  | "blocked_access"
+  | "blocked_v2v";
+export type VideoRecipeUiPlacement = "generation_dialog" | "project_sidebar";
 
 export interface VideoRecipeShot {
   title: string;
@@ -24,6 +32,9 @@ export interface VideoRecipeDefinition {
   defaultCamera: "static" | "dynamic";
   defaultAspectRatio: "VIDEO_ASPECT_RATIO_LANDSCAPE" | "VIDEO_ASPECT_RATIO_PORTRAIT";
   exportPreset: VideoExportPresetKey;
+  scaffold: boolean;
+  uiPlacement: VideoRecipeUiPlacement;
+  qaStatus: VideoRecipeQaStatus;
   promptContract: string;
   preserve: string;
   avoid: string;
@@ -56,11 +67,18 @@ export interface VideoRecipePreflightItem {
   detail: string;
 }
 
+const PROJECT_SIDEBAR_SCAFFOLD = {
+  scaffold: true,
+  uiPlacement: "project_sidebar",
+} as const;
+
 export const VIDEO_RECIPE_LIBRARY = [
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "product_demo",
     label: "Product demo",
     summary: "One visible product operation with product fidelity locked.",
+    qaStatus: "real_pass",
     requiredNodeKinds: ["product", "media"],
     optionalNodeKinds: ["brand", "location", "audio", "character"],
     requiredRoles: ["product_ref", "first_frame"],
@@ -81,9 +99,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "lifestyle_ad",
     label: "Lifestyle ad",
     summary: "Product in a believable location with brand mood and human context.",
+    qaStatus: "blocked_quota",
     requiredNodeKinds: ["product", "location"],
     optionalNodeKinds: ["brand", "character", "audio", "media"],
     requiredRoles: ["product_ref", "background_ref"],
@@ -104,9 +124,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "ugc_testimonial",
     label: "UGC testimonial",
     summary: "Creator-style product proof without forced captions or unsafe claims.",
+    qaStatus: "blocked_quota",
     requiredNodeKinds: ["product", "character"],
     optionalNodeKinds: ["brand", "location", "audio", "media"],
     requiredRoles: ["product_ref", "character_ref"],
@@ -127,9 +149,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "cinematic_reveal",
     label: "Cinematic reveal",
     summary: "Mood-first reveal with controlled camera and identity locks.",
+    qaStatus: "blocked_quota",
     requiredNodeKinds: ["media"],
     optionalNodeKinds: ["product", "brand", "location", "audio", "character"],
     requiredRoles: ["first_frame"],
@@ -150,9 +174,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "before_after",
     label: "Before / after",
     summary: "Readable transformation from a first frame to a final frame.",
+    qaStatus: "blocked_quota",
     requiredNodeKinds: ["media"],
     optionalNodeKinds: ["product", "brand", "character", "audio"],
     requiredRoles: ["first_frame", "last_frame"],
@@ -173,9 +199,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "location_establishing",
     label: "Location establishing",
     summary: "Set the place, mood, and movement before a story beat.",
+    qaStatus: "untested",
     requiredNodeKinds: ["location"],
     optionalNodeKinds: ["brand", "product", "character", "audio", "media"],
     requiredRoles: ["background_ref"],
@@ -195,9 +223,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "brand_bumper",
     label: "Brand bumper",
     summary: "Short branded opener or closer with strict logo and tone control.",
+    qaStatus: "blocked_quota",
     requiredNodeKinds: ["brand"],
     optionalNodeKinds: ["product", "audio", "media", "location"],
     requiredRoles: ["style_ref"],
@@ -217,9 +247,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "audio_led",
     label: "Voiceover / audio-led",
     summary: "Video structured around voice, rhythm, or sound design.",
+    qaStatus: "untested",
     requiredNodeKinds: ["audio"],
     optionalNodeKinds: ["brand", "product", "character", "location", "media"],
     requiredRoles: ["audio_ref"],
@@ -240,9 +272,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "transition_shot",
     label: "Transition shot",
     summary: "Bridge two scenes or assets with one motivated transition.",
+    qaStatus: "untested",
     requiredNodeKinds: ["media"],
     optionalNodeKinds: ["product", "location", "brand", "audio", "character"],
     requiredRoles: ["first_frame", "last_frame"],
@@ -263,9 +297,11 @@ export const VIDEO_RECIPE_LIBRARY = [
     ],
   },
   {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
     id: "packshot_loop",
     label: "Packshot / hero loop",
     summary: "Loopable hero product shot for ads, PDPs, and end cards.",
+    qaStatus: "blocked_quota",
     requiredNodeKinds: ["product", "media"],
     optionalNodeKinds: ["brand", "location", "audio"],
     requiredRoles: ["product_ref", "first_frame"],
@@ -283,6 +319,82 @@ export const VIDEO_RECIPE_LIBRARY = [
       { title: "Hero frame", action: "Open on clean centered product.", durationSec: 1 },
       { title: "Micro motion", action: "Use subtle loop-safe product or lighting motion.", durationSec: 2 },
       { title: "Loop return", action: "Return to a matching hero hold.", durationSec: 1 },
+    ],
+  },
+  {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
+    id: "fashion_fit_check",
+    label: "Fashion fit check",
+    summary: "Outfit-focused one-shot with character identity and full fit readable.",
+    qaStatus: "mocked",
+    requiredNodeKinds: ["character", "product", "media"],
+    optionalNodeKinds: ["location", "brand", "audio"],
+    requiredRoles: ["character_ref", "first_frame"],
+    optionalRoles: ["product_ref", "background_ref", "style_ref", "audio_ref"],
+    allowedSourceModes: ["first_frame", "ingredients", "edit"],
+    defaultSourceMode: "first_frame",
+    durationRangeSec: { min: 4, max: 8, recommended: 6 },
+    defaultCamera: "static",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    exportPreset: "portrait_1080",
+    promptContract: "Keep the full outfit readable while the character performs one natural try-on motion.",
+    preserve: "Preserve character identity, outfit silhouette, fabric drape, source framing, and visible accessories.",
+    avoid: "No hard runway pose sequence, fast crop, hidden outfit details, warped hands, or identity drift.",
+    timelineShots: [
+      { title: "Full-body setup", action: "Show the outfit clearly before motion.", durationSec: 2 },
+      { title: "Fit motion", action: "Use one subtle turn, weight shift, or garment adjustment.", durationSec: 3 },
+      { title: "Outfit hold", action: "End on readable full-fit pose.", durationSec: 1 },
+    ],
+  },
+  {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
+    id: "mirror_selfie",
+    label: "Mirror selfie",
+    summary: "Casual mirror/phone clip with stable reflection geometry.",
+    qaStatus: "mocked",
+    requiredNodeKinds: ["character", "media"],
+    optionalNodeKinds: ["product", "location", "brand", "audio"],
+    requiredRoles: ["character_ref", "first_frame"],
+    optionalRoles: ["product_ref", "background_ref", "style_ref", "audio_ref"],
+    allowedSourceModes: ["first_frame", "ingredients", "edit"],
+    defaultSourceMode: "first_frame",
+    durationRangeSec: { min: 4, max: 8, recommended: 6 },
+    defaultCamera: "static",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    exportPreset: "portrait_1080",
+    promptContract: "Treat the phone and mirror as fixed source-frame geometry; use only small natural selfie motion.",
+    preserve: "Preserve character identity, phone/mirror geometry, outfit, room mood, and handheld framing.",
+    avoid: "No duplicate phones, warped reflections, extra hands, sudden cuts, captions, or text overlays.",
+    timelineShots: [
+      { title: "Mirror setup", action: "Hold readable mirror composition.", durationSec: 2 },
+      { title: "Phone tilt", action: "Use small phone tilt or weight shift.", durationSec: 3 },
+      { title: "Outfit hold", action: "End with stable outfit readability.", durationSec: 1 },
+    ],
+  },
+  {
+    ...PROJECT_SIDEBAR_SCAFFOLD,
+    id: "storyboard_sequence",
+    label: "Storyboard sequence",
+    summary: "Build shot-frame nodes, shot-clip nodes, and a timeline from a sequence brief.",
+    qaStatus: "mocked",
+    requiredNodeKinds: ["media"],
+    optionalNodeKinds: ["product", "location", "brand", "audio", "character"],
+    requiredRoles: ["storyboard_ref"],
+    optionalRoles: ["character_ref", "product_ref", "background_ref", "audio_ref"],
+    allowedSourceModes: ["first_frame"],
+    defaultSourceMode: "first_frame",
+    durationRangeSec: { min: 2, max: 10, recommended: 4 },
+    defaultCamera: "dynamic",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    exportPreset: "portrait_1080",
+    promptContract: "Convert a sequence brief or storyboard context into per-shot first frames, clips, and timeline assembly.",
+    preserve: "Preserve panel order, subject/product/location continuity, lighting, palette, and shot intent.",
+    avoid: "No panel order confusion, random cuts, caption drift, changed identity, or product drift.",
+    timelineShots: [
+      { title: "Plan", action: "Define ordered shot beats.", durationSec: 1 },
+      { title: "Frames", action: "Generate first frame per shot.", durationSec: 1 },
+      { title: "Clips", action: "Generate one clip per shot.", durationSec: 1 },
+      { title: "Timeline", action: "Review and export final sequence.", durationSec: 1 },
     ],
   },
 ] satisfies readonly VideoRecipeDefinition[];
@@ -314,6 +426,15 @@ const EXPORT_PRESET_LABELS: Record<VideoExportPresetKey, string> = {
   square_1080: "1:1 1080p",
 };
 
+const QA_STATUS_LABELS: Record<VideoRecipeQaStatus, string> = {
+  untested: "Untested real Flow",
+  mocked: "Mocked QA",
+  real_pass: "Real Flow pass",
+  blocked_quota: "Blocked by quota",
+  blocked_access: "Blocked by access",
+  blocked_v2v: "Blocked by V2V gate",
+};
+
 export function findVideoRecipeDefinition(id: unknown): VideoRecipeDefinition | undefined {
   return typeof id === "string" ? RECIPE_BY_ID.get(id as VideoRecipeId) : undefined;
 }
@@ -328,6 +449,10 @@ export function labelForVideoSourceMode(mode: VideoSourceMode): string {
 
 export function labelForExportPreset(preset: VideoExportPresetKey): string {
   return EXPORT_PRESET_LABELS[preset] ?? preset;
+}
+
+export function labelForRecipeQaStatus(status: VideoRecipeQaStatus): string {
+  return QA_STATUS_LABELS[status] ?? status;
 }
 
 export function sourceModeFromRecommendedPath(path: string | undefined): VideoSourceMode | null {

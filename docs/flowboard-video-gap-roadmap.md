@@ -38,6 +38,10 @@ Completed vertical slices:
   compact set, while Product, Location, Brand, Audio, and recipe workflow
   shortcuts live inside the existing Projects sidebar as collapsible folder
   groups. This prevents the canvas palette from wrapping over the board.
+- Recipe catalog sync: backend and frontend recipe entries now expose scaffold,
+  sidebar/dialog placement, source-mode defaults, and QA status so prompt-only
+  recipes stay out of the Projects sidebar while scaffold-ready workflows stay
+  discoverable.
 - Reusable tests: backend export/status/recipe tests and Playwright shot
   workflow coverage verify the full mocked sequence path.
 

@@ -592,12 +592,16 @@ export interface VideoRecipeDTO {
   recommended_generation_path: string;
   default_camera: "static" | "dynamic";
   default_aspect_ratio: string;
+  default_source_mode?: string;
   required_node_kinds?: string[];
   allowed_source_modes?: string[];
   duration_range_sec?: number[];
   default_duration_sec?: number;
   export_preset?: string;
   timeline_shots?: string[];
+  scaffold?: boolean;
+  ui_placement?: "generation_dialog" | "project_sidebar" | string;
+  qa_status?: string;
   action_hint: string;
   audio_hint: string;
   preserve_hint: string;

@@ -84,6 +84,30 @@ test("keeps extra node recipes inside collapsible project sidebar folders", asyn
     await expect(
       nodeLibrary.getByRole("button", { name: /Create .* flow/ }).first(),
     ).toBeVisible();
+    for (const label of [
+      "Storyboard sequence",
+      "Product demo",
+      "Lifestyle ad",
+      "UGC testimonial",
+      "Cinematic reveal",
+      "Before / after",
+      "Location establishing",
+      "Brand bumper",
+      "Voiceover / audio-led",
+      "Transition shot",
+      "Packshot / hero loop",
+      "Fashion fit check",
+      "Mirror selfie",
+    ]) {
+      await expect(
+        nodeLibrary.getByRole("button", { name: `Create ${label} flow` }),
+      ).toBeVisible();
+    }
+    for (const label of ["Unbox", "UGC review", "Skincare TVC", "Dance"]) {
+      await expect(
+        nodeLibrary.getByRole("button", { name: `Create ${label} flow` }),
+      ).toHaveCount(0);
+    }
 
     const sequenceFolder = nodeLibrary.getByRole("button", {
       name: "Storyboard sequence",

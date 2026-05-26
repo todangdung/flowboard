@@ -1321,6 +1321,40 @@ def test_route_lists_video_recipe_catalog(client):
     assert "first_frame" in by_id["product_demo"]["required_roles"]
     assert "character_ref" in by_id["fashion_fit_check"]["required_roles"]
     assert "medical claims" in by_id["skincare_tvc"]["avoid_hint"]
+    scaffold_ids = {
+        "fashion_fit_check",
+        "mirror_selfie",
+        "product_demo",
+        "lifestyle_ad",
+        "ugc_testimonial",
+        "cinematic_reveal",
+        "before_after",
+        "location_establishing",
+        "brand_bumper",
+        "audio_led",
+        "transition_shot",
+        "packshot_loop",
+        "storyboard_sequence",
+    }
+    assert {recipe["id"] for recipe in recipes if recipe["scaffold"]} == scaffold_ids
+    for recipe in recipes:
+        assert recipe["ui_placement"] in {"generation_dialog", "project_sidebar"}
+        assert recipe["qa_status"] in {
+            "untested",
+            "mocked",
+            "real_pass",
+            "blocked_quota",
+            "blocked_access",
+            "blocked_v2v",
+        }
+        assert recipe["default_source_mode"] in recipe["allowed_source_modes"]
+        if recipe["id"] in scaffold_ids:
+            assert recipe["ui_placement"] == "project_sidebar"
+            assert recipe["required_node_kinds"]
+        else:
+            assert recipe["ui_placement"] == "generation_dialog"
+    assert by_id["product_demo"]["qa_status"] == "real_pass"
+    assert by_id["brand_bumper"]["qa_status"] == "blocked_quota"
     for recipe_id in (
         "lifestyle_ad",
         "ugc_testimonial",

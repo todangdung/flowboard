@@ -43,6 +43,7 @@ import {
   buildVideoRecipePrompt,
   findVideoRecipeDefinition,
   labelForRecipeNodeKind,
+  labelForRecipeQaStatus,
   labelForVideoSourceMode,
   recipeNodeKindsForSource,
   type VideoRecipePreflightItem,
@@ -863,14 +864,18 @@ export function GenerationDialog() {
       setAspectRatio(recipe.defaultAspectRatio);
     }
     const libraryRecipe = findVideoRecipeDefinition(nextRecipe);
-    if (libraryRecipe) {
-      const defaultMode = libraryRecipe.defaultSourceMode;
+    const defaultSourceMode = libraryRecipe?.defaultSourceMode ?? recipe?.defaultSourceMode;
+    const allowedSourceModes = libraryRecipe?.allowedSourceModes ?? recipe?.allowedSourceModes;
+    if (defaultSourceMode) {
+      const defaultMode = defaultSourceMode;
       if (defaultMode === "ingredients" && !isOmniVideo) {
-        const veoMode = libraryRecipe.allowedSourceModes.find((mode) => mode !== "ingredients");
+        const veoMode = allowedSourceModes?.find((mode) => mode !== "ingredients");
         setVideoSourceMode(veoMode ?? "auto");
       } else {
         setVideoSourceMode(defaultMode);
       }
+    }
+    if (libraryRecipe) {
       const recommended = libraryRecipe.durationRangeSec.recommended;
       if (isOmniVideo && OMNI_FLASH_DURATIONS.includes(recommended as OmniFlashDuration)) {
         setOmniFlashDuration(recommended as OmniFlashDuration);
@@ -1361,6 +1366,7 @@ export function GenerationDialog() {
                   <span>
                     {activeRecipeDefinition.durationRangeSec.min}-{activeRecipeDefinition.durationRangeSec.max}s
                   </span>
+                  <span>{labelForRecipeQaStatus(activeRecipeDefinition.qaStatus)}</span>
                 </div>
               </div>
             )}

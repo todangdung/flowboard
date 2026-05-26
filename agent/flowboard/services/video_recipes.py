@@ -26,6 +26,78 @@ CLAIM_SAFETY_HINT = (
     "ritual', and 'visual reveal'."
 )
 
+SCAFFOLD_RECIPE_IDS = frozenset(
+    {
+        "fashion_fit_check",
+        "mirror_selfie",
+        "product_demo",
+        "lifestyle_ad",
+        "ugc_testimonial",
+        "cinematic_reveal",
+        "before_after",
+        "location_establishing",
+        "brand_bumper",
+        "audio_led",
+        "transition_shot",
+        "packshot_loop",
+        "storyboard_sequence",
+    }
+)
+
+PROJECT_SIDEBAR_RECIPE_IDS = SCAFFOLD_RECIPE_IDS
+
+RECIPE_QA_STATUS = {
+    "fashion_fit_check": "mocked",
+    "mirror_selfie": "mocked",
+    "unbox": "untested",
+    "product_demo": "real_pass",
+    "lifestyle_ad": "blocked_quota",
+    "ugc_review": "untested",
+    "ugc_testimonial": "blocked_quota",
+    "skincare_tvc": "untested",
+    "cinematic_reveal": "blocked_quota",
+    "before_after": "blocked_quota",
+    "location_establishing": "untested",
+    "brand_bumper": "blocked_quota",
+    "audio_led": "untested",
+    "transition_shot": "untested",
+    "packshot_loop": "blocked_quota",
+    "dance": "untested",
+    "storyboard_sequence": "mocked",
+}
+
+RECIPE_NODE_KIND_DEFAULTS = {
+    "fashion_fit_check": ("character", "product", "media"),
+    "mirror_selfie": ("character", "media"),
+    "unbox": ("product", "media"),
+    "ugc_review": ("product", "character"),
+    "skincare_tvc": ("product", "media"),
+    "dance": ("character", "media"),
+    "storyboard_sequence": ("media",),
+}
+
+RECIPE_TIMELINE_SHOT_DEFAULTS = {
+    "fashion_fit_check": ("Full-body setup", "Fit motion", "Outfit hold"),
+    "mirror_selfie": ("Mirror setup", "Phone tilt", "Outfit hold"),
+    "unbox": ("Closed package", "Reveal", "Hero hold"),
+    "ugc_review": ("Creator hook", "Detail proof", "Reaction"),
+    "skincare_tvc": ("Product macro", "Application", "Beauty hold"),
+    "dance": ("Beat catch", "Simple move", "Final pose"),
+    "storyboard_sequence": ("Plan", "Frames", "Clips", "Timeline"),
+}
+
+
+def _source_mode_from_path(path: str) -> str:
+    if path == "first_last_frame":
+        return "first_last"
+    if path == "ingredients_to_video":
+        return "ingredients"
+    if path == "text_to_video":
+        return "text"
+    if path == "video_edit":
+        return "edit"
+    return "first_frame"
+
 
 @dataclass(frozen=True)
 class VideoRecipe:
@@ -53,10 +125,27 @@ class VideoRecipe:
         data = asdict(self)
         data["required_roles"] = list(self.required_roles)
         data["optional_roles"] = list(self.optional_roles)
-        data["required_node_kinds"] = list(self.required_node_kinds)
-        data["allowed_source_modes"] = list(self.allowed_source_modes)
+        required_node_kinds = self.required_node_kinds or RECIPE_NODE_KIND_DEFAULTS.get(self.id, ())
+        allowed_source_modes = self.allowed_source_modes or (
+            _source_mode_from_path(self.recommended_generation_path),
+        )
+        timeline_shots = self.timeline_shots or RECIPE_TIMELINE_SHOT_DEFAULTS.get(self.id, ())
+        data["required_node_kinds"] = list(required_node_kinds)
+        data["allowed_source_modes"] = list(allowed_source_modes)
+        data["default_source_mode"] = (
+            allowed_source_modes[0]
+            if allowed_source_modes
+            else _source_mode_from_path(self.recommended_generation_path)
+        )
         data["duration_range_sec"] = list(self.duration_range_sec)
-        data["timeline_shots"] = list(self.timeline_shots)
+        data["timeline_shots"] = list(timeline_shots)
+        data["scaffold"] = self.id in SCAFFOLD_RECIPE_IDS
+        data["ui_placement"] = (
+            "project_sidebar"
+            if self.id in PROJECT_SIDEBAR_RECIPE_IDS
+            else "generation_dialog"
+        )
+        data["qa_status"] = RECIPE_QA_STATUS.get(self.id, "untested")
         return data
 
 

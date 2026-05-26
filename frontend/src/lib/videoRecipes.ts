@@ -1,6 +1,8 @@
 import type { RefRole, VideoRecipeId } from "../api/client";
 import {
   VIDEO_RECIPE_LIBRARY,
+  type VideoRecipeQaStatus,
+  type VideoRecipeUiPlacement,
   type VideoSourceMode,
 } from "./videoRecipeLibrary";
 
@@ -12,7 +14,10 @@ export interface VideoRecipeOption {
   defaultCamera?: "static" | "dynamic";
   defaultAspectRatio?: "VIDEO_ASPECT_RATIO_LANDSCAPE" | "VIDEO_ASPECT_RATIO_PORTRAIT";
   defaultSourceMode?: VideoSourceMode;
+  allowedSourceModes?: readonly VideoSourceMode[];
   scaffold?: boolean;
+  uiPlacement?: VideoRecipeUiPlacement;
+  qaStatus?: VideoRecipeQaStatus;
 }
 
 export const VIDEO_RECIPES: readonly VideoRecipeOption[] = [
@@ -23,20 +28,60 @@ export const VIDEO_RECIPES: readonly VideoRecipeOption[] = [
     defaultCamera: recipe.defaultCamera,
     defaultAspectRatio: recipe.defaultAspectRatio,
     defaultSourceMode: recipe.defaultSourceMode,
-    scaffold: true,
+    allowedSourceModes: recipe.allowedSourceModes,
+    scaffold: recipe.scaffold,
+    uiPlacement: recipe.uiPlacement,
+    qaStatus: recipe.qaStatus,
   })),
-  { key: "fashion_fit_check", label: "Fashion fit check", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
-  { key: "mirror_selfie", label: "Mirror selfie", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
-  { key: "unbox", label: "Unbox", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "ugc_review", label: "UGC review", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "skincare_tvc", label: "Skincare TVC", defaultCamera: "static", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "dance", label: "Dance", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT" },
-  { key: "storyboard_sequence", label: "Seq / Chuỗi cảnh", defaultCamera: "dynamic", defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT", scaffold: true },
+  {
+    key: "unbox",
+    label: "Unbox",
+    defaultCamera: "static",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    defaultSourceMode: "first_last",
+    allowedSourceModes: ["first_last"],
+    scaffold: false,
+    uiPlacement: "generation_dialog",
+    qaStatus: "untested",
+  },
+  {
+    key: "ugc_review",
+    label: "UGC review",
+    defaultCamera: "static",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    defaultSourceMode: "ingredients",
+    allowedSourceModes: ["ingredients", "first_frame"],
+    scaffold: false,
+    uiPlacement: "generation_dialog",
+    qaStatus: "untested",
+  },
+  {
+    key: "skincare_tvc",
+    label: "Skincare TVC",
+    defaultCamera: "static",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    defaultSourceMode: "first_frame",
+    allowedSourceModes: ["first_frame"],
+    scaffold: false,
+    uiPlacement: "generation_dialog",
+    qaStatus: "untested",
+  },
+  {
+    key: "dance",
+    label: "Dance",
+    defaultCamera: "dynamic",
+    defaultAspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+    defaultSourceMode: "first_frame",
+    allowedSourceModes: ["first_frame"],
+    scaffold: false,
+    uiPlacement: "generation_dialog",
+    qaStatus: "untested",
+  },
 ];
 
 export const FLOW_SCAFFOLD_RECIPES = VIDEO_RECIPES.filter(
   (recipe): recipe is VideoRecipeOption & { key: VideoRecipeId } =>
-    recipe.scaffold === true && recipe.key !== "auto",
+    recipe.scaffold === true && recipe.uiPlacement === "project_sidebar" && recipe.key !== "auto",
 );
 
 export const REF_ROLE_OPTIONS: readonly { key: "" | RefRole; label: string }[] = [
