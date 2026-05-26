@@ -1713,6 +1713,7 @@ type TimelineExportUiState = "none" | "fresh" | "stale";
 type TimelineExportPresetKey = VideoExportPresetKey;
 type TimelineCaptionMode = "none" | "burn_in";
 type TimelineAudioMode = "none" | "mix";
+type TimelineClipEditMap = Record<string, { trimStartSec?: number; trimEndSec?: number }>;
 
 const TIMELINE_EXPORT_PRESETS: readonly {
   key: TimelineExportPresetKey;
@@ -1799,6 +1800,44 @@ function timelineCaptionMap(data: FlowboardNodeData): Record<string, string> {
   return data.timelineCaptions && typeof data.timelineCaptions === "object"
     ? data.timelineCaptions
     : {};
+}
+
+function timelineClipEditMap(data: FlowboardNodeData): TimelineClipEditMap {
+  const raw = data.timelineClipEdits;
+  if (!raw || typeof raw !== "object") return {};
+  const out: TimelineClipEditMap = {};
+  for (const [shotId, edit] of Object.entries(raw)) {
+    if (!shotId || !edit || typeof edit !== "object") continue;
+    const trimStartSec = Number((edit as { trimStartSec?: unknown }).trimStartSec ?? 0);
+    const trimEndSec = Number((edit as { trimEndSec?: unknown }).trimEndSec ?? 0);
+    const cleaned = {
+      trimStartSec: Number.isFinite(trimStartSec) && trimStartSec > 0 ? trimStartSec : undefined,
+      trimEndSec: Number.isFinite(trimEndSec) && trimEndSec > 0 ? trimEndSec : undefined,
+    };
+    if (cleaned.trimStartSec !== undefined || cleaned.trimEndSec !== undefined) {
+      out[shotId] = cleaned;
+    }
+  }
+  return out;
+}
+
+function timelineClipEditForShot(
+  data: FlowboardNodeData,
+  shotId?: string,
+): { trimStartSec: number; trimEndSec: number } {
+  const edit = shotId ? timelineClipEditMap(data)[shotId] : undefined;
+  return {
+    trimStartSec: edit?.trimStartSec ?? 0,
+    trimEndSec: edit?.trimEndSec ?? 0,
+  };
+}
+
+function timelineEffectiveDuration(
+  duration: number | null,
+  edit: { trimStartSec: number; trimEndSec: number },
+): number | null {
+  if (duration === null) return null;
+  return Math.max(0.1, Number((duration - edit.trimStartSec - edit.trimEndSec).toFixed(2)));
 }
 
 function timelineCaptionForClip(timelineData: FlowboardNodeData, clipData: FlowboardNodeData): string {
@@ -1998,6 +2037,29 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     setter(Math.max(0, Math.min(2, parsed)));
   }
 
+  function exportClipEditPayload() {
+    const currentData =
+      useBoardStore.getState().nodes.find((node) => node.id === rfId)?.data ?? data;
+    const edits = timelineClipEditMap(currentData);
+    return shotPairs
+      .filter(({ clip }) =>
+        nodeMediaIds(clip.data).length > 0
+        && clip.data.reviewVerdict !== "skip",
+      )
+      .map(({ clip }) => {
+        const shotId = timelineShotId(clip.data);
+        if (!shotId) return null;
+        const edit = edits[shotId];
+        if (!edit) return null;
+        return {
+          shot_id: shotId,
+          trim_start_sec: edit.trimStartSec ?? 0,
+          trim_end_sec: edit.trimEndSec ?? 0,
+        };
+      })
+      .filter((item): item is { shot_id: string; trim_start_sec: number; trim_end_sec: number } => !!item);
+  }
+
   function upstreamScriptCaption(clip: FlowNode): string {
     const scriptTargets = new Set([clip.id, rfId]);
     for (const edge of edges) {
@@ -2076,6 +2138,35 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       delete nextCaptions[shotId];
     }
     await persistTimelineData({ timelineCaptions: nextCaptions }, "timeline_caption_changed");
+  }
+
+  async function saveShotTrim(
+    shotId: string,
+    key: "trimStartSec" | "trimEndSec",
+    raw: string,
+  ) {
+    const currentData =
+      useBoardStore.getState().nodes.find((node) => node.id === rfId)?.data ?? data;
+    const nextEdits = { ...timelineClipEditMap(currentData) };
+    const nextEdit = { ...(nextEdits[shotId] ?? {}) };
+    if (raw.trim() === "") {
+      delete nextEdit[key];
+    } else {
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) return;
+      const seconds = Number(Math.max(0, Math.min(600, parsed)).toFixed(2));
+      if (seconds <= 0) {
+        delete nextEdit[key];
+      } else {
+        nextEdit[key] = seconds;
+      }
+    }
+    if ((nextEdit.trimStartSec ?? 0) <= 0 && (nextEdit.trimEndSec ?? 0) <= 0) {
+      delete nextEdits[shotId];
+    } else {
+      nextEdits[shotId] = nextEdit;
+    }
+    await persistTimelineData({ timelineClipEdits: nextEdits }, "timeline_trim_changed");
   }
 
   async function moveShot(shotId: string, delta: -1 | 1) {
@@ -2166,6 +2257,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
             musicVolume: musicMediaId ? exportMusicVolume : 0,
           }
           : { clipVolume: 1 };
+      const clipEdits = exportClipEditPayload();
       const result = await exportTimeline(dbId, {
         width: exportPreset.width,
         height: exportPreset.height,
@@ -2175,6 +2267,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         ...(musicMediaId ? { music_media_id: musicMediaId } : {}),
         voiceover_volume: exportVoiceoverVolume,
         music_volume: exportMusicVolume,
+        clip_edits: clipEdits,
       });
       const storedAudioMode = result.export_audio_mode ?? exportAudioMode;
       const storedAudioMediaIds = result.export_audio_media_ids ?? exportAudioMediaIds;
@@ -2190,6 +2283,8 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportSourceMediaIds: result.source_media_ids,
         exportShotIds: result.source_shot_ids,
         exportDurationsSec: result.clip_durations_sec,
+        exportEffectiveDurationsSec: result.clip_effective_durations_sec,
+        exportClipEdits: result.export_clip_edits,
         exportCaptions: result.clip_captions,
         exportCaptionMode: result.export_caption_mode ?? exportCaptionMode,
         exportAudioMode: storedAudioMode,
@@ -2410,14 +2505,22 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 const bestIdx = bestVariantIndex(clip.data);
                 const sourceIds = preferredMediaIds(clip.data);
                 const duration = timelineDuration(clip.data);
+                const edit = timelineClipEditForShot(data, timelineShotId(clip.data) ?? undefined);
+                const effectiveDuration = timelineEffectiveDuration(duration, edit);
                 const caption = captionForTimelineRow(clip);
                 return (
                   <div key={clip.id} className="timeline-preflight__clip">
                     <span>Shot {idx || "?"}</span>
                     <strong>
-                      {bestIdx !== null ? `v${bestIdx + 1}` : "active"} · {duration ?? "?"}s · {clip.data.reviewVerdict ?? "unreviewed"}
+                      {bestIdx !== null ? `v${bestIdx + 1}` : "active"} · {effectiveDuration ?? duration ?? "?"}s · {clip.data.reviewVerdict ?? "unreviewed"}
                     </strong>
                     <code>{sourceIds[0] ?? "no-media"}</code>
+                    {(edit.trimStartSec > 0 || edit.trimEndSec > 0) && (
+                      <small>
+                        Trim / Cắt: in {edit.trimStartSec}s · end {edit.trimEndSec}s
+                        {duration !== null && effectiveDuration !== null ? ` · ${duration}s -> ${effectiveDuration}s` : ""}
+                      </small>
+                    )}
                     {caption && <small>{caption}</small>}
                   </div>
                 );
@@ -2495,6 +2598,8 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const status = clip.data.status ?? "idle";
           const shotId = clip.data.shotId;
           const duration = timelineDuration(clip.data);
+          const trimEdit = timelineClipEditForShot(data, typeof shotId === "string" ? shotId : undefined);
+          const effectiveDuration = timelineEffectiveDuration(duration, trimEdit);
           const caption = captionForTimelineRow(clip);
           const orderIndex = typeof shotId === "string" ? orderedShotIds.indexOf(shotId) : -1;
           const candidates = typeof shotId === "string" && shotId
@@ -2604,6 +2709,36 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                         }}
                       />
                     </label>
+                    <label className="timeline-shot-row__duration">
+                      <span>in</span>
+                      <input
+                        aria-label={`Shot ${index || "?"} trim start seconds`}
+                        type="number"
+                        min={0}
+                        max={600}
+                        step={0.1}
+                        defaultValue={trimEdit.trimStartSec > 0 ? trimEdit.trimStartSec : ""}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          void saveShotTrim(shotId, "trimStartSec", event.target.value);
+                        }}
+                      />
+                    </label>
+                    <label className="timeline-shot-row__duration">
+                      <span>end</span>
+                      <input
+                        aria-label={`Shot ${index || "?"} trim end seconds`}
+                        type="number"
+                        min={0}
+                        max={600}
+                        step={0.1}
+                        defaultValue={trimEdit.trimEndSec > 0 ? trimEdit.trimEndSec : ""}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          void saveShotTrim(shotId, "trimEndSec", event.target.value);
+                        }}
+                      />
+                    </label>
                     <input
                       className="timeline-shot-row__caption"
                       aria-label={`Shot ${index || "?"} caption`}
@@ -2627,6 +2762,11 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 {reviewVerdict && (
                   <span className="timeline-shot-row__review">
                     {REVIEW_LABEL_VI[reviewVerdict]}
+                  </span>
+                )}
+                {(trimEdit.trimStartSec > 0 || trimEdit.trimEndSec > 0) && (
+                  <span className="timeline-shot-row__review">
+                    trim {effectiveDuration ?? "?"}s
                   </span>
                 )}
               </span>

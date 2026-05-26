@@ -59,6 +59,9 @@ Additional gap closure in this pass:
 - Timeline audio mix: timeline export can mux the stitched clip audio with
   voiceover and BGM media via local ffmpeg, using simple volume controls and
   stamping `exportAudioMode`, `exportAudioMediaIds`, and `exportAudioMix`.
+- Timeline clip trim: timeline rows can store per-shot start/end trims, export
+  applies those trims locally with ffmpeg, and export metadata stamps
+  `exportClipEdits` plus effective durations.
 - Video source modes: Generate Video supports Auto, Text-to-video,
   First frame, First+last frame, and Omni Ingredients paths.
 - First+last frame dispatch: `last_frame` edge role now drives Flow's
@@ -191,7 +194,7 @@ Remaining limitations:
 - Real Flow validation is partial because the current free account hit quota,
   model access, reCAPTCHA, and edit-video/V2V gates.
 - Native video extend is not yet validated as a first-class Flow endpoint.
-- Per-shot trim/transition/audio-mix controls and auto-review scoring are
+- Per-shot transition controls and auto-review scoring are
   still future work.
 
 ## Original Gap Map (Historical)
@@ -203,7 +206,7 @@ Use this status overlay for current planning:
 | Status | Areas |
 | --- | --- |
 | Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata/export burn-in, timeline/export/review/refine, asset library profiles, accepted-output references. |
-| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, per-shot trim/transition/audio mix. |
+| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, per-shot transition controls. |
 | Open | Auto-review scoring, multi-provider media abstraction beyond Flow. |
 
 | Area | Original gap | Why it mattered |

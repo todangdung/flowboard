@@ -7060,7 +7060,7 @@ button:disabled {
 
 .timeline-shot-row__controls {
   display: grid;
-  grid-template-columns: 24px 24px minmax(58px, 70px) minmax(0, 1fr);
+  grid-template-columns: 24px 24px repeat(3, minmax(48px, 64px)) minmax(0, 1fr);
   gap: 4px;
   align-items: center;
   width: 100%;
@@ -7083,7 +7083,7 @@ button:disabled {
 
 .timeline-shot-row__duration {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: 3px;
   align-items: center;
   min-width: 0;

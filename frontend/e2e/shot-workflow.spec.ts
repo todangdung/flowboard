@@ -128,6 +128,12 @@ test("builds storyboard sequence shot workflow from palette", async ({
           export_status: "fresh",
           export_version: 1,
           export_caption_mode: payload.caption_mode ?? "none",
+          export_clip_edits: ((payload.clip_edits as Array<Record<string, unknown>> | undefined) ?? [])
+            .map((edit) => ({
+              shotId: edit.shot_id,
+              trimStartSec: edit.trim_start_sec,
+              trimEndSec: edit.trim_end_sec,
+            })),
           export_audio_mode: payload.audio_mode ?? "none",
           export_audio_media_ids: {
             ...(payload.voiceover_media_id ? { voiceover: payload.voiceover_media_id } : {}),
@@ -214,6 +220,8 @@ test("builds storyboard sequence shot workflow from palette", async ({
 
     await page.getByRole("button", { name: "Move shot 2 up", exact: true }).click();
     await page.getByLabel("Shot 2 duration seconds").fill("9");
+    await page.getByLabel("Shot 2 trim start seconds").fill("0.5");
+    await page.getByLabel("Shot 2 trim end seconds").fill("0.25");
     await page.getByLabel("Shot 2 caption").fill("Second shot caption");
     await page.locator(".timeline-header").click();
     await expect.poll(async () => {
@@ -229,12 +237,14 @@ test("builds storyboard sequence shot workflow from palette", async ({
         order: timeline?.data.timelineShotIds,
         durations: timeline?.data.timelineDurationsSec,
         captions: timeline?.data.timelineCaptions,
+        clipEdits: timeline?.data.timelineClipEdits,
         shot2Duration: clip?.data.shotDurationSec,
       };
     }).toEqual({
       order: ["shot_02", "shot_01", "shot_03", "shot_04"],
       durations: [9, 5, 5, 5],
       captions: { shot_02: "Second shot caption" },
+      clipEdits: { shot_02: { trimStartSec: 0.5, trimEndSec: 0.25 } },
       shot2Duration: 9,
     });
 
@@ -277,6 +287,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await expect(preflight.getByText("4 clips · 1080x1920")).toBeVisible();
     await expect(preflight.locator(".timeline-preflight__clip").first()).toContainText("Shot 2");
     await expect(preflight.getByText("Second shot caption")).toBeVisible();
+    await expect(preflight.getByText(/Trim \/ Cắt: in 0\.5s/)).toBeVisible();
     await expect(preflight.getByText(/9s/)).toBeVisible();
     await preflight.getByLabel("Burn captions / Gắn caption").check();
     await preflight.getByLabel("Mix audio / Ghép âm thanh").check();
@@ -291,6 +302,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await preflight.getByRole("button", { name: "Confirm export / Xuất" }).dispatchEvent("click");
     await expect.poll(() => exportCount).toBe(1);
     expect(exportPayloads[0]?.caption_mode).toBe("burn_in");
+    expect(exportPayloads[0]?.clip_edits).toEqual([
+      { shot_id: "shot_02", trim_start_sec: 0.5, trim_end_sec: 0.25 },
+    ]);
     expect(exportPayloads[0]?.audio_mode).toBe("mix");
     expect(exportPayloads[0]?.voiceover_media_id).toBe("cccccccc-0000-4000-8000-00000000e2e1");
     expect(exportPayloads[0]?.music_media_id).toBe("dddddddd-0000-4000-8000-00000000e2e2");

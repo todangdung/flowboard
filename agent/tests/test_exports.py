@@ -8,7 +8,7 @@ from flowboard.db.models import Board, Edge, Node
 from flowboard.services import media as media_service
 
 
-def _write_clip(media_id: str, color: str) -> None:
+def _write_clip(media_id: str, color: str, *, duration: float = 0.25) -> None:
     path = media_service.MEDIA_CACHE_DIR / f"{media_id}.mp4"
     result = subprocess.run(
         [
@@ -19,7 +19,7 @@ def _write_clip(media_id: str, color: str) -> None:
             "-i",
             f"color=c={color}:s=160x284:r=15",
             "-t",
-            "0.25",
+            f"{duration}",
             "-pix_fmt",
             "yuv420p",
             str(path),
@@ -29,6 +29,26 @@ def _write_clip(media_id: str, color: str) -> None:
         timeout=30,
     )
     assert result.returncode == 0, result.stderr[-500:]
+
+
+def _probe_duration(path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr[-500:]
+    return float(result.stdout.strip())
 
 
 def _write_audio(media_id: str, frequency: int) -> None:
@@ -361,6 +381,95 @@ def test_export_timeline_mixes_audio_refs_and_stamps_metadata(client):
             "voiceoverVolume": 0.8,
             "musicVolume": 0.3,
         }
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_export_timeline_applies_clip_trim_and_stamps_metadata(client):
+    media_a = "aaaaaaaa-0000-4000-8000-000000000121"
+    _write_clip(media_a, "red", duration=2.0)
+
+    with get_session() as s:
+        board = Board(name="export-trim")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="trim",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotId": "shot-1",
+                "shotIndex": 1,
+                "shotDurationSec": 2,
+                "mediaId": media_a,
+                "mediaIds": [media_a],
+            },
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={
+                "title": "Timeline",
+                "workflowKind": "timeline",
+                "timelineClipEdits": {
+                    "shot-1": {"trimStartSec": 0.5, "trimEndSec": 0.75}
+                },
+            },
+            status="idle",
+        )
+        s.add_all([clip, timeline])
+        s.commit()
+        s.refresh(clip)
+        s.refresh(timeline)
+        s.add(
+            Edge(
+                board_id=board.id,
+                source_id=clip.id,
+                target_id=timeline.id,
+                ref_role="storyboard_panel",
+            )
+        )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}",
+        json={
+            "width": 180,
+            "height": 320,
+            "clip_edits": [
+                {
+                    "shot_id": "shot-1",
+                    "trim_start_sec": 0.5,
+                    "trim_end_sec": 0.75,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["clip_count"] == 1
+    assert body["source_shot_ids"] == ["shot-1"]
+    assert body["clip_durations_sec"] == [2]
+    assert body["export_clip_edits"] == [
+        {"shotId": "shot-1", "trimStartSec": 0.5, "trimEndSec": 0.75}
+    ]
+    assert body["clip_effective_durations_sec"] == pytest.approx([0.75], abs=0.08)
+    exported = media_service.cached_path(body["media_id"])
+    assert exported is not None
+    assert 0.55 <= _probe_duration(exported) <= 1.05
+
+    with get_session() as s:
+        timeline = s.get(Node, timeline_id)
+        assert timeline is not None
+        assert timeline.data["exportClipEdits"] == [
+            {"shotId": "shot-1", "trimStartSec": 0.5, "trimEndSec": 0.75}
+        ]
+        assert timeline.data["exportEffectiveDurationsSec"] == pytest.approx([0.75], abs=0.08)
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")

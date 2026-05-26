@@ -728,6 +728,8 @@ export interface TimelineExportResponse {
     sourceMediaIds?: string[];
     sourceShotIds?: string[];
     durationsSec?: Array<number | null>;
+    effectiveDurationsSec?: number[];
+    clipEdits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
     captions?: Array<string | null>;
     captionMode?: "none" | "burn_in";
     audioMode?: "none" | "mix";
@@ -742,6 +744,8 @@ export interface TimelineExportResponse {
   }>;
   source_shot_ids?: string[];
   clip_durations_sec?: Array<number | null>;
+  clip_effective_durations_sec?: number[];
+  export_clip_edits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
   clip_captions?: Array<string | null>;
   export_caption_mode?: "none" | "burn_in";
   export_audio_mode?: "none" | "mix";
@@ -764,6 +768,7 @@ export async function exportTimeline(
     music_media_id?: string;
     voiceover_volume?: number;
     music_volume?: number;
+    clip_edits?: Array<{ shot_id: string; trim_start_sec: number; trim_end_sec: number }>;
   },
 ): Promise<TimelineExportResponse> {
   const res = await fetch(`/api/exports/timelines/${timelineNodeId}`, {

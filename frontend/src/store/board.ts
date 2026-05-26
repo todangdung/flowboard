@@ -37,6 +37,8 @@ export interface ExportHistoryItem {
   sourceMediaIds?: string[];
   sourceShotIds?: string[];
   durationsSec?: (number | null)[];
+  effectiveDurationsSec?: number[];
+  clipEdits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
   captions?: (string | null)[];
   captionMode?: "none" | "burn_in";
   audioMode?: "none" | "mix";
@@ -175,6 +177,7 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   timelineShotIds?: string[];
   timelineDurationsSec?: number[];
   timelineCaptions?: Record<string, string>;
+  timelineClipEdits?: Record<string, { trimStartSec?: number; trimEndSec?: number }>;
   exportMediaId?: string;
   exportedAt?: string;
   exportClipCount?: number;
@@ -184,6 +187,8 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportSourceMediaIds?: string[];
   exportShotIds?: string[];
   exportDurationsSec?: (number | null)[];
+  exportEffectiveDurationsSec?: number[];
+  exportClipEdits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
   exportCaptions?: (string | null)[];
   exportCaptionMode?: "none" | "burn_in";
   exportAudioMode?: "none" | "mix";
@@ -332,6 +337,7 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       timelineShotIds: dto.data["timelineShotIds"] as string[] | undefined,
       timelineDurationsSec: dto.data["timelineDurationsSec"] as number[] | undefined,
       timelineCaptions: dto.data["timelineCaptions"] as Record<string, string> | undefined,
+      timelineClipEdits: dto.data["timelineClipEdits"] as Record<string, { trimStartSec?: number; trimEndSec?: number }> | undefined,
       exportMediaId: dto.data["exportMediaId"] as string | undefined,
       exportedAt: dto.data["exportedAt"] as string | undefined,
       exportClipCount: dto.data["exportClipCount"] as number | undefined,
@@ -341,6 +347,8 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportSourceMediaIds: dto.data["exportSourceMediaIds"] as string[] | undefined,
       exportShotIds: dto.data["exportShotIds"] as string[] | undefined,
       exportDurationsSec: dto.data["exportDurationsSec"] as (number | null)[] | undefined,
+      exportEffectiveDurationsSec: dto.data["exportEffectiveDurationsSec"] as number[] | undefined,
+      exportClipEdits: dto.data["exportClipEdits"] as Array<{ shotId: string; trimStartSec: number; trimEndSec: number }> | undefined,
       exportCaptions: dto.data["exportCaptions"] as (string | null)[] | undefined,
       exportCaptionMode: dto.data["exportCaptionMode"] as "none" | "burn_in" | undefined,
       exportAudioMode: dto.data["exportAudioMode"] as "none" | "mix" | undefined,

@@ -42,6 +42,13 @@ class TimelineAudioPaths:
     music: Path | None = None
 
 
+@dataclass(frozen=True)
+class TimelineClipEdit:
+    shot_id: str
+    trim_start_sec: float = 0.0
+    trim_end_sec: float = 0.0
+
+
 def _run_ffmpeg(cmd: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         cmd,
@@ -212,6 +219,97 @@ def _clip_duration(node: Node) -> int | None:
         if isinstance(value, float) and value > 0:
             return int(round(value))
     return None
+
+
+def _clean_trim_seconds(value: object, field: str, shot_id: str) -> float:
+    if value is None:
+        return 0.0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise VideoExportError(f"invalid_{field}:{shot_id}") from exc
+    if seconds < 0 or seconds > 600:
+        raise VideoExportError(f"invalid_{field}:{shot_id}")
+    return round(seconds, 3)
+
+
+def _clip_edit_entry(raw: object) -> TimelineClipEdit | None:
+    if not isinstance(raw, dict):
+        return None
+    shot_id = raw.get("shot_id") or raw.get("shotId")
+    if not isinstance(shot_id, str) or not shot_id.strip():
+        return None
+    shot_id = shot_id.strip()
+    trim_start = _clean_trim_seconds(
+        raw.get("trim_start_sec", raw.get("trimStartSec")),
+        "trim_start_sec",
+        shot_id,
+    )
+    trim_end = _clean_trim_seconds(
+        raw.get("trim_end_sec", raw.get("trimEndSec")),
+        "trim_end_sec",
+        shot_id,
+    )
+    if trim_start <= 0 and trim_end <= 0:
+        return None
+    return TimelineClipEdit(
+        shot_id=shot_id,
+        trim_start_sec=trim_start,
+        trim_end_sec=trim_end,
+    )
+
+
+def _timeline_stored_clip_edits(data: dict) -> list[dict]:
+    raw = data.get("timelineClipEdits")
+    if not isinstance(raw, dict):
+        return []
+    out: list[dict] = []
+    for shot_id, edit in raw.items():
+        if not isinstance(shot_id, str) or not isinstance(edit, dict):
+            continue
+        out.append({"shot_id": shot_id, **edit})
+    return out
+
+
+def _resolve_clip_edits(
+    timeline: Node,
+    raw_clip_edits: list[dict] | None,
+) -> dict[str, TimelineClipEdit]:
+    raw_entries = raw_clip_edits if raw_clip_edits else _timeline_stored_clip_edits(timeline.data or {})
+    out: dict[str, TimelineClipEdit] = {}
+    for raw in raw_entries:
+        entry = _clip_edit_entry(raw)
+        if entry is not None:
+            out[entry.shot_id] = entry
+    return out
+
+
+def _clip_edit_dict(edit: TimelineClipEdit) -> dict[str, float | str]:
+    return {
+        "shotId": edit.shot_id,
+        "trimStartSec": edit.trim_start_sec,
+        "trimEndSec": edit.trim_end_sec,
+    }
+
+
+def _clip_edit_export_list(
+    edits: dict[str, TimelineClipEdit],
+    shot_ids: list[str],
+) -> list[dict[str, float | str]]:
+    return [_clip_edit_dict(edits[shot_id]) for shot_id in shot_ids if shot_id in edits]
+
+
+def _effective_clip_duration(
+    path: Path,
+    edit: TimelineClipEdit | None,
+) -> float:
+    duration = _duration_sec(path)
+    if edit is None:
+        return duration
+    effective = duration - edit.trim_start_sec - edit.trim_end_sec
+    if effective < 0.1:
+        raise VideoExportError(f"invalid_clip_trim:{edit.shot_id}")
+    return effective
 
 
 def _clip_caption(timeline: Node, node: Node) -> str | None:
@@ -476,6 +574,7 @@ def _normalise_clip(
     width: int,
     height: int,
     caption: str | None = None,
+    edit: TimelineClipEdit | None = None,
 ) -> None:
     caption_file: Path | None = None
     caption_text = _caption_file_text(caption or "")
@@ -483,12 +582,16 @@ def _normalise_clip(
         caption_file = target.with_suffix(".caption.txt")
         caption_file.write_text(caption_text, encoding="utf-8")
     vf = _video_filter(width=width, height=height, caption_file=caption_file)
+    effective_duration = _effective_clip_duration(source, edit)
     base = [
         "ffmpeg",
         "-y",
-        "-i",
-        str(source),
     ]
+    if edit is not None and edit.trim_start_sec > 0:
+        base.extend(["-ss", f"{edit.trim_start_sec:.3f}"])
+    if edit is not None:
+        base.extend(["-t", f"{effective_duration:.3f}"])
+    base.extend(["-i", str(source)])
     if _has_audio(source):
         cmd = [
             *base,
@@ -505,7 +608,7 @@ def _normalise_clip(
             "-f",
             "lavfi",
             "-t",
-            f"{_duration_sec(source):.3f}",
+            f"{effective_duration:.3f}",
             "-i",
             "anullsrc=channel_layout=stereo:sample_rate=48000",
             "-filter_complex",
@@ -570,6 +673,8 @@ def _export_snapshot(data: dict) -> dict | None:
         "sourceMediaIds": data.get("exportSourceMediaIds"),
         "sourceShotIds": data.get("exportShotIds"),
         "durationsSec": data.get("exportDurationsSec"),
+        "effectiveDurationsSec": data.get("exportEffectiveDurationsSec"),
+        "clipEdits": data.get("exportClipEdits"),
         "captions": data.get("exportCaptions"),
         "captionMode": data.get("exportCaptionMode"),
         "audioMode": data.get("exportAudioMode"),
@@ -619,6 +724,8 @@ def _stamp_timeline(
     source_media_ids: list[str],
     source_shot_ids: list[str],
     clip_durations_sec: list[int | None],
+    effective_durations_sec: list[float],
+    clip_edits: list[dict[str, float | str]],
     clip_captions: list[str | None],
     caption_mode: str,
     audio_mode: str,
@@ -644,6 +751,8 @@ def _stamp_timeline(
                 "exportSourceMediaIds": source_media_ids,
                 "exportShotIds": source_shot_ids,
                 "exportDurationsSec": clip_durations_sec,
+                "exportEffectiveDurationsSec": effective_durations_sec,
+                "exportClipEdits": clip_edits,
                 "exportCaptions": clip_captions,
                 "exportCaptionMode": caption_mode,
                 "exportAudioMode": audio_mode,
@@ -677,6 +786,7 @@ async def export_timeline(
     music_media_id: str | None = None,
     voiceover_volume: float = 1.0,
     music_volume: float = 0.25,
+    clip_edits: list[dict] | None = None,
 ) -> dict:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         raise VideoExportError("ffmpeg_not_found")
@@ -688,6 +798,7 @@ async def export_timeline(
     if not clips:
         raise VideoExportError("timeline_has_no_clips")
     export_clips = _exportable_clips(clips)
+    trim_edits = _resolve_clip_edits(timeline, clip_edits)
     audio = _resolve_audio_options(
         timeline_node_id,
         export_clips,
@@ -708,15 +819,18 @@ async def export_timeline(
     media_ids: list[str] = []
     shot_ids: list[str] = []
     durations: list[int | None] = []
+    effective_durations: list[float] = []
     captions: list[str | None] = []
     try:
         for index, clip in enumerate(export_clips, start=1):
             media_id = _first_clip_media_id(clip)
+            shot_id = _clip_shot_id(clip)
             media_ids.append(media_id)
-            shot_ids.append(_clip_shot_id(clip))
+            shot_ids.append(shot_id)
             durations.append(_clip_duration(clip))
             captions.append(_clip_caption(timeline, clip))
             source = await _resolve_media_path(media_id)
+            effective_durations.append(round(_effective_clip_duration(source, trim_edits.get(shot_id)), 3))
             target = work_dir / f"{index:03d}.mp4"
             _normalise_clip(
                 source,
@@ -724,6 +838,7 @@ async def export_timeline(
                 width=width,
                 height=height,
                 caption=captions[-1] if caption_mode == "burn_in" else None,
+                edit=trim_edits.get(shot_id),
             )
             normalised.append(target)
 
@@ -770,6 +885,8 @@ async def export_timeline(
             source_media_ids=media_ids,
             source_shot_ids=shot_ids,
             clip_durations_sec=durations,
+            effective_durations_sec=effective_durations,
+            clip_edits=_clip_edit_export_list(trim_edits, shot_ids),
             clip_captions=captions,
             caption_mode=caption_mode,
             audio_mode=audio.mode,
@@ -784,6 +901,8 @@ async def export_timeline(
             "source_media_ids": media_ids,
             "source_shot_ids": shot_ids,
             "clip_durations_sec": durations,
+            "clip_effective_durations_sec": effective_durations,
+            "export_clip_edits": _clip_edit_export_list(trim_edits, shot_ids),
             "clip_captions": captions,
             "export_caption_mode": caption_mode,
             "export_audio_mode": audio.mode,
