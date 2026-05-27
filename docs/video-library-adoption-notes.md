@@ -15,6 +15,7 @@ Frontend dependencies are intentionally small:
 - `@xyflow/react`
 - `react`
 - `react-dom`
+- `zod`
 - `zustand`
 
 Backend dependencies are also small:
@@ -51,9 +52,9 @@ Do not use a library when:
 
 ## Recommended Additions
 
-### 1. `zod` - Adopt Soon
+### 1. `zod` - Adopted
 
-Status: **recommended next install**
+Status: **adopted for first frontend API-validation slice**
 
 Source: https://zod.dev/
 
@@ -65,12 +66,19 @@ Why:
 - `zod` is TypeScript-first, supports static type inference, works in browsers,
   and has no external dependencies.
 
-Good first slice:
+First slice shipped:
 
-- Add schemas for timeline export payload/response in `frontend/src/api/client.ts`.
+- Added timeline export request/response schemas.
+- Added timeline QA request/response schemas.
+- Validated export history, clip edit, transition, caption, and audio metadata
+  returned by timeline export.
+- Timeline export/QA now surface labeled errors for malformed JSON or missing
+  required fields instead of accepting unchecked payloads.
+
+Next useful slices:
+
 - Add schemas for node `profile` and key `FlowboardNodeData` slices.
-- Use `safeParse` at API boundaries and show clear errors instead of accepting
-  malformed JSON.
+- Validate recipe catalog/shot-plan responses at the API boundary.
 
 Do not use it for:
 
@@ -87,7 +95,7 @@ Expected tests:
 
 - `rtk npm run lint`
 - `rtk npm run build`
-- affected E2E/API tests
+- `rtk npm run test:e2e`
 
 ### 2. `pysubs2` - Adopt For Caption Phase 2
 
@@ -327,7 +335,7 @@ wholesale:
 
 ## Suggested Order
 
-1. `zod` for API/runtime validation.
+1. `zod` for API/runtime validation. First slice adopted.
 2. `pysubs2` for caption phase 2.
 3. `wavesurfer.js` for audio trim/waveform UX.
 4. `scenedetect` for Timeline QA phase 2.
@@ -344,7 +352,7 @@ Keep:
 
 Add:
 
-- `zod` soon.
+- `zod` for frontend API/runtime validation.
 - `pysubs2`, `wavesurfer.js`, and `scenedetect` when their roadmap slices
   begin.
 

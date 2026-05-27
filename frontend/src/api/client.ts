@@ -1,3 +1,26 @@
+import type { z } from "zod";
+import {
+  timelineExportRequestSchema,
+  timelineExportResponseSchema,
+  timelineQaRequestSchema,
+  timelineQaResponseSchema,
+} from "./schemas";
+import type {
+  TimelineExportRequest,
+  TimelineExportResponse,
+  TimelineQaRequest,
+  TimelineQaResponse,
+} from "./schemas";
+
+export type {
+  TimelineExportRequest,
+  TimelineExportResponse,
+  TimelineQaIssue,
+  TimelineQaItem,
+  TimelineQaResponse,
+  TimelineQaStatus,
+} from "./schemas";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -10,6 +33,49 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
+}
+
+function formatZodPath(path: Array<string | number | symbol>): string {
+  return path.length > 0 ? path.map(String).join(".") : "payload";
+}
+
+function parseApiPayload<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  label: string,
+  kind: "request" | "response",
+): T {
+  const parsed = schema.safeParse(payload);
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0];
+  const detail = issue
+    ? `${formatZodPath(issue.path)}: ${issue.message}`
+    : "schema mismatch";
+  throw new Error(`${label}: invalid ${kind} (${detail})`);
+}
+
+function parseApiRequest<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  label: string,
+): T {
+  return parseApiPayload(schema, payload, label, "request");
+}
+
+function parseApiResponse<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  label: string,
+): T {
+  return parseApiPayload(schema, payload, label, "response");
+}
+
+async function readJsonResponse(res: Response, label: string): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    throw new Error(`${label}: invalid JSON response`);
+  }
 }
 
 // Map cryptic Flow / pipeline error tokens to a sentence the user can act on.
@@ -707,125 +773,52 @@ export async function buildRecipeWorkflow(input: {
   return res.json() as Promise<RecipeWorkflowBuildResponse>;
 }
 
-export interface TimelineExportResponse {
-  timeline_node_id: number;
-  media_id: string;
-  url: string;
-  clip_count: number;
-  source_media_ids: string[];
-  width: number;
-  height: number;
-  exported_at?: string;
-  export_status?: "fresh";
-  export_version?: number;
-  export_history?: Array<{
-    mediaId: string;
-    status?: "fresh" | "stale";
-    version?: number;
-    exportedAt?: string;
-    clipCount?: number;
-    size?: string;
-    sourceMediaIds?: string[];
-    sourceShotIds?: string[];
-    durationsSec?: Array<number | null>;
-    effectiveDurationsSec?: number[];
-    clipEdits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
-    transitions?: Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }>;
-    captions?: Array<string | null>;
-    captionMode?: "none" | "burn_in";
-    audioMode?: "none" | "mix";
-    audioMediaIds?: { voiceover?: string; music?: string };
-    audioMix?: {
-      clipVolume?: number;
-      voiceoverVolume?: number;
-      musicVolume?: number;
-    };
-    staleAt?: string;
-    staleReason?: string;
-  }>;
-  source_shot_ids?: string[];
-  clip_durations_sec?: Array<number | null>;
-  clip_effective_durations_sec?: number[];
-  export_clip_edits?: Array<{ shotId: string; trimStartSec: number; trimEndSec: number }>;
-  export_transitions?: Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }>;
-  clip_captions?: Array<string | null>;
-  export_caption_mode?: "none" | "burn_in";
-  export_audio_mode?: "none" | "mix";
-  export_audio_media_ids?: { voiceover?: string; music?: string };
-  export_audio_mix?: {
-    clipVolume?: number;
-    voiceoverVolume?: number;
-    musicVolume?: number;
-  };
-}
-
-export type TimelineQaStatus = "ok" | "warning" | "blocked";
-
-export interface TimelineQaIssue {
-  severity: TimelineQaStatus;
-  code: string;
-  message: string;
-}
-
-export interface TimelineQaItem {
-  shotId: string;
-  nodeId?: number | null;
-  mediaId?: string | null;
-  status: TimelineQaStatus;
-  issues: TimelineQaIssue[];
-  metrics?: Record<string, number | boolean | null>;
-}
-
-export interface TimelineQaResponse {
-  timeline_node_id: number;
-  status: TimelineQaStatus;
-  checked_at: string;
-  summary: { ok: number; warning: number; blocked: number };
-  items: TimelineQaItem[];
-}
-
 export async function exportTimeline(
   timelineNodeId: number,
-  input?: {
-    width?: number;
-    height?: number;
-    caption_mode?: "none" | "burn_in";
-    audio_mode?: "none" | "mix";
-    voiceover_media_id?: string;
-    music_media_id?: string;
-    voiceover_volume?: number;
-    music_volume?: number;
-    clip_edits?: Array<{ shot_id: string; trim_start_sec: number; trim_end_sec: number }>;
-    transitions?: Array<{ from_shot_id: string; to_shot_id: string; type: "cut" | "fade"; duration_sec: number }>;
-  },
+  input?: TimelineExportRequest,
 ): Promise<TimelineExportResponse> {
+  const body = parseApiRequest(
+    timelineExportRequestSchema,
+    input ?? {},
+    "exportTimeline",
+  );
   const res = await fetch(`/api/exports/timelines/${timelineNodeId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input ?? {}),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<TimelineExportResponse>;
+  return parseApiResponse(
+    timelineExportResponseSchema,
+    await readJsonResponse(res, "exportTimeline"),
+    "exportTimeline",
+  );
 }
 
 export async function analyzeTimelineQa(
   timelineNodeId: number,
-  input?: {
-    width?: number;
-    height?: number;
-  },
+  input?: TimelineQaRequest,
 ): Promise<TimelineQaResponse> {
+  const body = parseApiRequest(
+    timelineQaRequestSchema,
+    input ?? {},
+    "analyzeTimelineQa",
+  );
   const res = await fetch(`/api/exports/timelines/${timelineNodeId}/qa`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input ?? {}),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<TimelineQaResponse>;
+  return parseApiResponse(
+    timelineQaResponseSchema,
+    await readJsonResponse(res, "analyzeTimelineQa"),
+    "analyzeTimelineQa",
+  );
 }
 
 export async function buildShotPlan(input: {
