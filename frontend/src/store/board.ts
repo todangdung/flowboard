@@ -1091,6 +1091,20 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           edgeFromDto(created),
         ],
       }));
+      get().updateNodeData(timelineRfId, {
+        timelineQaStatus: undefined,
+        timelineQaCheckedAt: undefined,
+        timelineQaSummary: undefined,
+        timelineQaItems: undefined,
+      });
+      await patchNode(timelineId, {
+        data: {
+          timelineQaStatus: null,
+          timelineQaCheckedAt: null,
+          timelineQaSummary: null,
+          timelineQaItems: null,
+        },
+      });
       await get().markTimelineExportsStale([timelineRfId], "timeline_active_clip_changed");
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });

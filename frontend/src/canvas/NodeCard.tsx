@@ -1955,6 +1955,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const [qaBusy, setQaBusy] = useState(false);
   const [qaError, setQaError] = useState<string | null>(null);
   const [qaOpenShotId, setQaOpenShotId] = useState<string | null>(null);
+  const [inspectorShotId, setInspectorShotId] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportPreflightOpen, setExportPreflightOpen] = useState(false);
@@ -2170,6 +2171,51 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     return timelineCaptionForClip(data, clip.data) || upstreamScriptCaption(clip);
   }
 
+  function activeFrameForClip(clip: FlowNode): FlowNode | undefined {
+    const frameEdge = edges.find((e) => e.target === clip.id && e.data?.refRole === "first_frame");
+    return frameEdge
+      ? nodes.find((node) => node.id === frameEdge.source && node.data.workflowKind === "shot_frame")
+      : undefined;
+  }
+
+  function frameCandidatesForShot(shotId: string, activeFrame?: FlowNode): FlowNode[] {
+    const base = nodes
+      .filter((candidate) =>
+        candidate.data.workflowKind === "shot_frame"
+        && candidate.data.shotId === shotId,
+      )
+      .sort((a, b) => {
+        const at = a.data.renderedAt ?? "";
+        const bt = b.data.renderedAt ?? "";
+        return at.localeCompare(bt) || a.id.localeCompare(b.id);
+      });
+    return activeFrame && !base.some((candidate) => candidate.id === activeFrame.id)
+      ? [activeFrame, ...base]
+      : base;
+  }
+
+  function clipCandidatesForShot(shotId: string): FlowNode[] {
+    return nodes
+      .filter((candidate) =>
+        candidate.data.workflowKind === "shot_clip"
+        && candidate.data.shotId === shotId,
+      )
+      .sort((a, b) => {
+        const at = a.data.renderedAt ?? "";
+        const bt = b.data.renderedAt ?? "";
+        return at.localeCompare(bt) || a.id.localeCompare(b.id);
+      });
+  }
+
+  function openTimelineNode(node: FlowNode) {
+    const bestIdx = bestVariantIndex(node.data);
+    if (nodeMediaIds(node.data).length > 0) {
+      useGenerationStore.getState().openResultViewer(node.id, bestIdx ?? 0);
+    } else if (/^\d+$/.test(node.id)) {
+      useGenerationStore.getState().openGenerationDialog(node.id, node.data.prompt ?? "");
+    }
+  }
+
   function timelineDurationsForOrder(
     order: string[],
     durationOverride?: { shotId: string; duration: number },
@@ -2230,6 +2276,16 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
       delete nextCaptions[shotId];
     }
     await persistTimelineData({ timelineCaptions: nextCaptions }, "timeline_caption_changed");
+  }
+
+  async function saveShotPrompt(node: FlowNode | undefined, raw: string) {
+    if (!node) return;
+    const prompt = raw.trim();
+    useBoardStore.getState().updateNodeData(node.id, { prompt });
+    const dbId = parseInt(node.id, 10);
+    if (!isNaN(dbId)) {
+      await patchNode(dbId, { data: { prompt } });
+    }
   }
 
   async function saveShotTrim(
@@ -2314,6 +2370,21 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     }
   }
 
+  async function runSingleFrame(frame: FlowNode | undefined) {
+    if (!frame || runnerBusy !== null || runnerBlocked || isNodeBusy(frame.data)) return;
+    setRunnerBusy("frames");
+    try {
+      await dispatchGeneration(frame.id, {
+        kind: "image",
+        prompt: frame.data.prompt ?? "",
+        aspectRatio: "IMAGE_ASPECT_RATIO_PORTRAIT",
+        variantCount: 1,
+      });
+    } finally {
+      setRunnerBusy(null);
+    }
+  }
+
   async function runClips() {
     if (!canRunClips) return;
     setRunnerBusy("clips");
@@ -2335,6 +2406,31 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                 : 8,
         });
       }
+    } finally {
+      setRunnerBusy(null);
+    }
+  }
+
+  async function runSingleClip(clip: FlowNode | undefined, frame: FlowNode | undefined) {
+    if (!clip || !frame || runnerBusy !== null || runnerBlocked || isNodeBusy(clip.data)) return;
+    const sourceMediaIds = preferredMediaIds(frame.data);
+    if (sourceMediaIds.length === 0) return;
+    setRunnerBusy("clips");
+    try {
+      await dispatchGeneration(clip.id, {
+        kind: "video",
+        prompt: clip.data.prompt ?? "",
+        aspectRatio: "VIDEO_ASPECT_RATIO_PORTRAIT",
+        sourceMode: "first_frame",
+        sourceMediaId: sourceMediaIds[0],
+        sourceMediaIds: sourceMediaIds.length > 1 ? sourceMediaIds : undefined,
+        durationSec:
+          typeof clip.data.shotDurationSec === "number"
+            ? clip.data.shotDurationSec
+            : typeof clip.data.videoDurationSec === "number"
+              ? clip.data.videoDurationSec
+              : 8,
+      });
     } finally {
       setRunnerBusy(null);
     }
@@ -2472,6 +2568,15 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const selectedQaItem = qaOpenShotId
     ? timelineQaItems(data).find((item) => item.shotId === qaOpenShotId) ?? null
     : null;
+  const inspectorClip = inspectorShotId
+    ? rows.find((clip) => timelineShotId(clip.data) === inspectorShotId) ?? null
+    : null;
+  const inspectorShotIndex = inspectorClip?.data.shotIndex ?? null;
+  const inspectorFrame = inspectorClip ? activeFrameForClip(inspectorClip) : undefined;
+  const inspectorFrameCandidates = inspectorShotId
+    ? frameCandidatesForShot(inspectorShotId, inspectorFrame)
+    : [];
+  const inspectorClipCandidates = inspectorShotId ? clipCandidatesForShot(inspectorShotId) : [];
 
   return (
     <div className="node-body node-body--timeline">
@@ -2759,6 +2864,152 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           )}
         </div>
       )}
+      {inspectorShotId && inspectorClip && (
+        <div
+          className="timeline-shot-inspector nodrag"
+          role="dialog"
+          aria-label={`Shot ${inspectorShotIndex || "?"} inspector`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="timeline-shot-inspector__header">
+            <span>Shot {inspectorShotIndex || "?"} inspector / Sửa cảnh</span>
+            <button
+              type="button"
+              className="timeline-preflight__close"
+              aria-label={`Close shot ${inspectorShotIndex || "?"} inspector`}
+              onClick={() => setInspectorShotId(null)}
+            >
+              esc
+            </button>
+          </div>
+          <div className="timeline-shot-inspector__grid">
+            <section className="timeline-shot-inspector__section">
+              <div className="timeline-shot-inspector__section-head">
+                <span>Frame source / Ảnh nguồn</span>
+                <button
+                  type="button"
+                  className="timeline-shot-inspector__action"
+                  aria-label={`Generate shot ${inspectorShotIndex || "?"} frame`}
+                  disabled={!inspectorFrame || runnerBusy !== null || runnerBlocked || isNodeBusy(inspectorFrame.data)}
+                  onClick={() => void runSingleFrame(inspectorFrame)}
+                >
+                  gen
+                </button>
+                <button
+                  type="button"
+                  className="timeline-shot-inspector__action"
+                  aria-label={`Open shot ${inspectorShotIndex || "?"} frame`}
+                  disabled={!inspectorFrame}
+                  onClick={() => inspectorFrame && openTimelineNode(inspectorFrame)}
+                >
+                  open
+                </button>
+              </div>
+              <textarea
+                key={inspectorFrame?.id ?? "no-frame"}
+                className="timeline-shot-inspector__prompt"
+                aria-label={`Shot ${inspectorShotIndex || "?"} frame prompt`}
+                defaultValue={inspectorFrame?.data.prompt ?? ""}
+                placeholder="Frame prompt"
+                onBlur={(event) => void saveShotPrompt(inspectorFrame, event.target.value)}
+              />
+              <div className="timeline-shot-inspector__thumbs">
+                {inspectorFrameCandidates.length > 0 ? inspectorFrameCandidates.map((candidate) => {
+                  const mediaId = preferredMediaIds(candidate.data)[0];
+                  const candidateBest = bestVariantIndex(candidate.data);
+                  const isActive = candidate.id === inspectorFrame?.id;
+                  return (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className={`timeline-shot-inspector__thumb${isActive ? " timeline-shot-inspector__thumb--active" : ""}`}
+                      aria-label={`Use frame ${candidate.data.title ?? candidate.data.shortId ?? candidate.id}`}
+                      disabled={isActive}
+                      onClick={() => void setShotSourceFrame(rfId, inspectorShotId, inspectorClip.id, candidate.id)}
+                    >
+                      {mediaId ? (
+                        <img src={mediaUrl(mediaId)} alt="" />
+                      ) : (
+                        <span className="timeline-shot-inspector__placeholder">no media</span>
+                      )}
+                      <span>
+                        #{candidate.data.shortId} {candidateBest !== null ? `v${candidateBest + 1}` : candidate.data.status ?? "idle"}
+                      </span>
+                    </button>
+                  );
+                }) : (
+                  <span className="timeline-shot-inspector__empty">No frame candidates / Chưa có ảnh</span>
+                )}
+              </div>
+            </section>
+            <section className="timeline-shot-inspector__section">
+              <div className="timeline-shot-inspector__section-head">
+                <span>Active clip / Video đang dùng</span>
+                <button
+                  type="button"
+                  className="timeline-shot-inspector__action"
+                  aria-label={`Generate shot ${inspectorShotIndex || "?"} clip`}
+                  disabled={
+                    !inspectorFrame
+                    || preferredMediaIds(inspectorFrame.data).length === 0
+                    || runnerBusy !== null
+                    || runnerBlocked
+                    || isNodeBusy(inspectorClip.data)
+                  }
+                  onClick={() => void runSingleClip(inspectorClip, inspectorFrame)}
+                >
+                  gen
+                </button>
+                <button
+                  type="button"
+                  className="timeline-shot-inspector__action"
+                  aria-label={`Open shot ${inspectorShotIndex || "?"} clip`}
+                  onClick={() => openTimelineNode(inspectorClip)}
+                >
+                  open
+                </button>
+              </div>
+              <textarea
+                key={inspectorClip.id}
+                className="timeline-shot-inspector__prompt"
+                aria-label={`Shot ${inspectorShotIndex || "?"} clip prompt`}
+                defaultValue={inspectorClip.data.prompt ?? ""}
+                placeholder="Clip prompt"
+                onBlur={(event) => void saveShotPrompt(inspectorClip, event.target.value)}
+              />
+              <div className="timeline-shot-inspector__thumbs">
+                {inspectorClipCandidates.length > 0 ? inspectorClipCandidates.map((candidate) => {
+                  const mediaId = preferredMediaIds(candidate.data)[0];
+                  const candidateBest = bestVariantIndex(candidate.data);
+                  const isActive = candidate.id === inspectorClip.id;
+                  const candidateStatus = candidate.data.reviewVerdict ?? candidate.data.status ?? "idle";
+                  return (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className={`timeline-shot-inspector__thumb${isActive ? " timeline-shot-inspector__thumb--active" : ""}`}
+                      aria-label={`Use clip ${candidate.data.title ?? candidate.data.shortId ?? candidate.id}`}
+                      disabled={isActive}
+                      onClick={() => void setTimelineActiveClip(rfId, inspectorShotId, candidate.id)}
+                    >
+                      {mediaId ? (
+                        <video src={mediaUrl(mediaId)} muted playsInline preload="metadata" />
+                      ) : (
+                        <span className="timeline-shot-inspector__placeholder">no media</span>
+                      )}
+                      <span>
+                        #{candidate.data.shortId} {candidateBest !== null ? `v${candidateBest + 1}` : candidateStatus}
+                      </span>
+                    </button>
+                  );
+                }) : (
+                  <span className="timeline-shot-inspector__empty">No clip candidates / Chưa có clip</span>
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
       {exportHistory.length > 0 && (
         <details className="timeline-export-history">
           <summary>History / Lịch sử ({exportHistory.length})</summary>
@@ -2806,57 +3057,16 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const caption = captionForTimelineRow(clip);
           const orderIndex = typeof shotId === "string" ? orderedShotIds.indexOf(shotId) : -1;
           const hasNextTransition = orderIndex >= 0 && orderIndex < orderedShotIds.length - 1;
-          const frameEdge = edges.find((e) => e.target === clip.id && e.data?.refRole === "first_frame");
-          const activeFrame = frameEdge
-            ? nodes.find((node) => node.id === frameEdge.source && node.data.workflowKind === "shot_frame")
-            : undefined;
+          const activeFrame = activeFrameForClip(clip);
           const frameCandidatesBase = typeof shotId === "string" && shotId
-            ? nodes
-              .filter((candidate) =>
-                candidate.data.workflowKind === "shot_frame"
-                && candidate.data.shotId === shotId,
-              )
-              .sort((a, b) => {
-                const at = a.data.renderedAt ?? "";
-                const bt = b.data.renderedAt ?? "";
-                return at.localeCompare(bt) || a.id.localeCompare(b.id);
-              })
+            ? frameCandidatesForShot(shotId, activeFrame)
             : [];
-          const frameCandidates = activeFrame && !frameCandidatesBase.some((candidate) => candidate.id === activeFrame.id)
-            ? [activeFrame, ...frameCandidatesBase]
-            : frameCandidatesBase;
+          const frameCandidates = frameCandidatesBase;
           const candidates = typeof shotId === "string" && shotId
-            ? nodes
-              .filter((candidate) =>
-                candidate.data.workflowKind === "shot_clip"
-                && candidate.data.shotId === shotId,
-              )
-              .sort((a, b) => {
-                const at = a.data.renderedAt ?? "";
-                const bt = b.data.renderedAt ?? "";
-                return at.localeCompare(bt) || a.id.localeCompare(b.id);
-              })
+            ? clipCandidatesForShot(shotId)
             : [];
-          const openClip = () => {
-            if (hasMedia) {
-              useGenerationStore.getState().openResultViewer(clip.id, bestIdx ?? 0);
-            } else if (/^\d+$/.test(clip.id)) {
-              useGenerationStore
-                .getState()
-                .openGenerationDialog(clip.id, clip.data.prompt ?? "");
-            }
-          };
-          const openFrame = () => {
-            if (!activeFrame) return;
-            const frameBestIdx = bestVariantIndex(activeFrame.data);
-            if (nodeMediaIds(activeFrame.data).length > 0) {
-              useGenerationStore.getState().openResultViewer(activeFrame.id, frameBestIdx ?? 0);
-            } else if (/^\d+$/.test(activeFrame.id)) {
-              useGenerationStore
-                .getState()
-                .openGenerationDialog(activeFrame.id, activeFrame.data.prompt ?? "");
-            }
-          };
+          const openClip = () => openTimelineNode(clip);
+          const openFrame = () => activeFrame && openTimelineNode(activeFrame);
           return (
             <div
               key={clip.id}
@@ -3024,6 +3234,17 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                         })}
                       </select>
                     </label>
+                    <button
+                      type="button"
+                      className="timeline-shot-row__source-open"
+                      aria-label={`Inspect shot ${index || "?"}`}
+                      aria-expanded={inspectorShotId === shotId}
+                      onClick={() => {
+                        setInspectorShotId(inspectorShotId === shotId ? null : shotId);
+                      }}
+                    >
+                      edit
+                    </button>
                   </div>
                 )}
                 {shotId && hasNextTransition && (
@@ -3196,6 +3417,7 @@ function downloadExt(type: string): string {
 export function NodeCard(props: NodeProps<FlowNode>) {
   const data = props.data;
   const isNote = data.type === "note";
+  const isTimeline = data.workflowKind === "timeline";
   const isGenerable = [
     "image",
     "prompt",
@@ -3254,7 +3476,9 @@ export function NodeCard(props: NodeProps<FlowNode>) {
     <div
       className={`node-card${isNote ? " node-card--note" : ""}${
         props.selected ? " node-card--selected" : ""
-      }${llmBusy ? " node-card--llm-busy" : ""}`}
+      }${llmBusy ? " node-card--llm-busy" : ""}${
+        isTimeline ? " node-card--timeline" : ""
+      }`}
     >
       <StatusStrip status={data.status} />
       <Handle type="target" position={Position.Left} className="node-handle" />
