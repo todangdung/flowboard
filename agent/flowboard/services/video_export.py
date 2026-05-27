@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import textwrap
@@ -55,6 +56,10 @@ class TimelineTransition:
     to_shot_id: str
     type: str = "cut"
     duration_sec: float = 0.0
+
+
+_BLACK_DURATION_RE = re.compile(r"black_duration:(?P<duration>[0-9.]+)")
+_FREEZE_DURATION_RE = re.compile(r"freeze_duration:\s*(?P<duration>[0-9.]+)")
 
 
 def _run_ffmpeg(cmd: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -111,6 +116,62 @@ def _has_audio(path: Path) -> bool:
         ]
     )
     return bool(out)
+
+
+def _video_dimensions(path: Path) -> tuple[int, int] | None:
+    out = _ffprobe_text(
+        [
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+            str(path),
+        ]
+    )
+    first = out.splitlines()[0] if out else ""
+    parts = first.split("x")
+    if len(parts) != 2:
+        return None
+    try:
+        width = int(parts[0])
+        height = int(parts[1])
+    except ValueError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _ffmpeg_diagnostic_stderr(args: list[str]) -> str:
+    result = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-v", "info", *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return result.stderr or result.stdout or ""
+
+
+def _black_duration(path: Path) -> float:
+    try:
+        stderr = _ffmpeg_diagnostic_stderr(
+            ["-i", str(path), "-vf", "blackdetect=d=0.2:pix_th=0.98", "-an", "-f", "null", "-"]
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return 0.0
+    return sum(float(match.group("duration")) for match in _BLACK_DURATION_RE.finditer(stderr))
+
+
+def _freeze_duration(path: Path) -> float:
+    try:
+        stderr = _ffmpeg_diagnostic_stderr(
+            ["-i", str(path), "-vf", "freezedetect=n=-60dB:d=0.5", "-an", "-f", "null", "-"]
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return 0.0
+    return sum(float(match.group("duration")) for match in _FREEZE_DURATION_RE.finditer(stderr))
 
 
 def _concat_line(path: Path) -> str:
@@ -227,6 +288,184 @@ def _clip_duration(node: Node) -> int | None:
         if isinstance(value, float) and value > 0:
             return int(round(value))
     return None
+
+
+def _node_id(node: Node) -> int | None:
+    return node.id if isinstance(node.id, int) else None
+
+
+def _qa_issue(severity: str, code: str, message: str) -> dict[str, str]:
+    return {"severity": severity, "code": code, "message": message}
+
+
+def _qa_status(issues: list[dict[str, str]]) -> str:
+    if any(issue.get("severity") == "blocked" for issue in issues):
+        return "blocked"
+    if any(issue.get("severity") == "warning" for issue in issues):
+        return "warning"
+    return "ok"
+
+
+def _timeline_qa_summary(items: list[dict]) -> dict[str, int]:
+    return {
+        "ok": sum(1 for item in items if item.get("status") == "ok"),
+        "warning": sum(1 for item in items if item.get("status") == "warning"),
+        "blocked": sum(1 for item in items if item.get("status") == "blocked"),
+    }
+
+
+def _expected_ratio(
+    timeline_data: dict,
+    clip_data: dict,
+    *,
+    expected_width: int | None,
+    expected_height: int | None,
+) -> float | None:
+    if expected_width and expected_height and expected_width > 0 and expected_height > 0:
+        return expected_width / expected_height
+    export_width = timeline_data.get("exportWidth")
+    export_height = timeline_data.get("exportHeight")
+    if isinstance(export_width, (int, float)) and isinstance(export_height, (int, float)) and export_height > 0:
+        return float(export_width) / float(export_height)
+    aspect = clip_data.get("aspectRatio")
+    if isinstance(aspect, str):
+        if "SQUARE" in aspect:
+            return 1.0
+        if "LANDSCAPE" in aspect:
+            return 16 / 9
+        if "PORTRAIT" in aspect:
+            return 9 / 16
+    return None
+
+
+def _clip_audio_expected(clip_data: dict) -> bool:
+    return clip_data.get("videoAudioMode") in {"music", "sfx", "ambient", "speech"}
+
+
+def _qa_clip_item(
+    timeline: Node,
+    clip: Node,
+    *,
+    expected_width: int | None,
+    expected_height: int | None,
+) -> dict:
+    data = clip.data or {}
+    timeline_data = timeline.data or {}
+    shot_id = _clip_shot_id(clip)
+    planned_duration = _clip_duration(clip)
+    issues: list[dict[str, str]] = []
+    metrics: dict[str, float | int | bool | None] = {
+        "plannedDurationSec": planned_duration,
+    }
+
+    if data.get("reviewVerdict") == "redo":
+        issues.append(_qa_issue("blocked", "needs_redo", "Clip marked redo blocks export."))
+
+    try:
+        media_id = _first_clip_media_id(clip)
+    except VideoExportError:
+        media_id = None
+        issues.append(_qa_issue("blocked", "no_media", "Shot has no rendered media."))
+
+    path: Path | None = None
+    if media_id:
+        cached = media_service.cached_path(media_id)
+        if cached is not None and cached.is_file():
+            path = cached
+        else:
+            issues.append(_qa_issue("blocked", "media_not_available", "Media file is not cached locally."))
+
+    if path is not None:
+        duration = _duration_sec(path)
+        dimensions = _video_dimensions(path)
+        has_audio = _has_audio(path)
+        metrics.update(
+            {
+                "durationSec": round(duration, 3),
+                "hasAudio": has_audio,
+            }
+        )
+        if dimensions is None:
+            issues.append(_qa_issue("blocked", "invalid_video", "No readable video stream found."))
+        else:
+            width, height = dimensions
+            metrics.update({"width": width, "height": height})
+            expected = _expected_ratio(
+                timeline_data,
+                data,
+                expected_width=expected_width,
+                expected_height=expected_height,
+            )
+            if expected is not None:
+                actual = width / height
+                metrics["aspectRatio"] = round(actual, 4)
+                metrics["expectedAspectRatio"] = round(expected, 4)
+                if abs(actual - expected) > 0.08:
+                    issues.append(
+                        _qa_issue(
+                            "warning",
+                            "aspect_mismatch",
+                            f"Clip aspect {actual:.2f} differs from target {expected:.2f}.",
+                        )
+                    )
+        if duration < 0.4:
+            issues.append(_qa_issue("blocked", "too_short", "Clip is shorter than 0.4s."))
+        elif planned_duration is not None:
+            tolerance = max(0.75, planned_duration * 0.25)
+            if abs(duration - planned_duration) > tolerance:
+                issues.append(
+                    _qa_issue(
+                        "warning",
+                        "duration_mismatch",
+                        f"Clip duration {duration:.2f}s differs from planned {planned_duration}s.",
+                    )
+                )
+        if _clip_audio_expected(data) and not has_audio:
+            issues.append(_qa_issue("warning", "missing_expected_audio", "Clip requested audio but has no audio stream."))
+        black = _black_duration(path)
+        metrics["blackDurationSec"] = round(black, 3)
+        if black >= max(0.4, duration * 0.8):
+            issues.append(_qa_issue("warning", "black_frames", "Most frames are black."))
+        frozen = _freeze_duration(path)
+        metrics["frozenDurationSec"] = round(frozen, 3)
+        if duration >= 1.5 and frozen >= duration * 0.8:
+            issues.append(_qa_issue("warning", "frozen_frames", "Most frames appear frozen."))
+
+    status = _qa_status(issues)
+    return {
+        "shotId": shot_id,
+        "nodeId": _node_id(clip),
+        "mediaId": media_id,
+        "status": status,
+        "issues": issues,
+        "metrics": metrics,
+    }
+
+
+def _stamp_timeline_qa(
+    timeline_node_id: int,
+    *,
+    checked_at: str,
+    status: str,
+    summary: dict[str, int],
+    items: list[dict],
+) -> None:
+    with get_session() as s:
+        node = s.get(Node, timeline_node_id)
+        if node is None:
+            return
+        data = dict(node.data or {})
+        data.update(
+            {
+                "timelineQaCheckedAt": checked_at,
+                "timelineQaStatus": status,
+                "timelineQaSummary": summary,
+                "timelineQaItems": items,
+            }
+        )
+        node.data = data
+        s.add(node)
+        s.commit()
 
 
 def _clean_trim_seconds(value: object, field: str, shot_id: str) -> float:
@@ -1029,6 +1268,49 @@ def _stamp_timeline(
             "export_version": export_version,
             "export_history": export_history,
         }
+
+
+async def analyze_timeline_qa(
+    timeline_node_id: int,
+    *,
+    expected_width: int | None = None,
+    expected_height: int | None = None,
+) -> dict:
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        raise VideoExportError("ffmpeg_not_found")
+    if expected_width is not None and (expected_width < 64 or expected_width > 4096):
+        raise VideoExportError("invalid_qa_width")
+    if expected_height is not None and (expected_height < 64 or expected_height > 4096):
+        raise VideoExportError("invalid_qa_height")
+    timeline, clips = _timeline_clips(timeline_node_id)
+    if not clips:
+        raise VideoExportError("timeline_has_no_clips")
+    items = [
+        _qa_clip_item(
+            timeline,
+            clip,
+            expected_width=expected_width,
+            expected_height=expected_height,
+        )
+        for clip in clips
+    ]
+    summary = _timeline_qa_summary(items)
+    status = "blocked" if summary["blocked"] else "warning" if summary["warning"] else "ok"
+    checked_at = datetime.now(timezone.utc).isoformat()
+    _stamp_timeline_qa(
+        timeline.id,  # type: ignore[arg-type]
+        checked_at=checked_at,
+        status=status,
+        summary=summary,
+        items=items,
+    )
+    return {
+        "timeline_node_id": timeline_node_id,
+        "status": status,
+        "checked_at": checked_at,
+        "summary": summary,
+        "items": items,
+    }
 
 
 async def export_timeline(

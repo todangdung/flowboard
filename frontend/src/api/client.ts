@@ -759,6 +759,31 @@ export interface TimelineExportResponse {
   };
 }
 
+export type TimelineQaStatus = "ok" | "warning" | "blocked";
+
+export interface TimelineQaIssue {
+  severity: TimelineQaStatus;
+  code: string;
+  message: string;
+}
+
+export interface TimelineQaItem {
+  shotId: string;
+  nodeId?: number | null;
+  mediaId?: string | null;
+  status: TimelineQaStatus;
+  issues: TimelineQaIssue[];
+  metrics?: Record<string, number | boolean | null>;
+}
+
+export interface TimelineQaResponse {
+  timeline_node_id: number;
+  status: TimelineQaStatus;
+  checked_at: string;
+  summary: { ok: number; warning: number; blocked: number };
+  items: TimelineQaItem[];
+}
+
 export async function exportTimeline(
   timelineNodeId: number,
   input?: {
@@ -783,6 +808,24 @@ export async function exportTimeline(
     throw new Error(await extractErrorMessage(res));
   }
   return res.json() as Promise<TimelineExportResponse>;
+}
+
+export async function analyzeTimelineQa(
+  timelineNodeId: number,
+  input?: {
+    width?: number;
+    height?: number;
+  },
+): Promise<TimelineQaResponse> {
+  const res = await fetch(`/api/exports/timelines/${timelineNodeId}/qa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input ?? {}),
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  return res.json() as Promise<TimelineQaResponse>;
 }
 
 export async function buildShotPlan(input: {

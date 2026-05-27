@@ -9,6 +9,7 @@ import {
 } from "../store/board";
 import { useGenerationStore } from "../store/generation";
 import {
+  analyzeTimelineQa,
   exportTimeline,
   mediaUrl,
   patchEdge,
@@ -16,6 +17,8 @@ import {
   uploadImage,
   uploadImageFromUrl,
   type ReferenceKind,
+  type TimelineQaItem,
+  type TimelineQaStatus,
 } from "../api/client";
 import { requestAutoBrief } from "../api/autoBrief";
 import { useReferencesStore } from "../store/references";
@@ -1717,6 +1720,12 @@ type TimelineTransitionType = "cut" | "fade";
 type TimelineClipEditMap = Record<string, { trimStartSec?: number; trimEndSec?: number }>;
 type TimelineTransitionMap = Record<string, { type: TimelineTransitionType; durationSec: number }>;
 
+const TIMELINE_QA_LABELS: Record<TimelineQaStatus, string> = {
+  ok: "QA ok",
+  warning: "QA warn",
+  blocked: "QA block",
+};
+
 const TIMELINE_EXPORT_PRESETS: readonly {
   key: TimelineExportPresetKey;
   label: string;
@@ -1862,6 +1871,22 @@ function timelineTransitionForShot(
   };
 }
 
+function timelineQaItems(data: FlowboardNodeData): TimelineQaItem[] {
+  return Array.isArray(data.timelineQaItems) ? data.timelineQaItems : [];
+}
+
+function timelineQaForShot(data: FlowboardNodeData, shotId?: string): TimelineQaItem | null {
+  if (!shotId) return null;
+  return timelineQaItems(data).find((item) => item.shotId === shotId) ?? null;
+}
+
+function timelineQaSummaryLabel(data: FlowboardNodeData): string | null {
+  if (!data.timelineQaStatus) return null;
+  const summary = data.timelineQaSummary;
+  if (!summary) return TIMELINE_QA_LABELS[data.timelineQaStatus];
+  return `${TIMELINE_QA_LABELS[data.timelineQaStatus]} ${summary.ok}/${summary.warning}/${summary.blocked}`;
+}
+
 function timelineEffectiveDuration(
   duration: number | null,
   edit: { trimStartSec: number; trimEndSec: number },
@@ -1926,6 +1951,9 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const dispatchGeneration = useGenerationStore((s) => s.dispatchGeneration);
   const setTimelineActiveClip = useBoardStore((s) => s.setTimelineActiveClip);
   const [runnerBusy, setRunnerBusy] = useState<"frames" | "clips" | null>(null);
+  const [qaBusy, setQaBusy] = useState(false);
+  const [qaError, setQaError] = useState<string | null>(null);
+  const [qaOpenShotId, setQaOpenShotId] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportPreflightOpen, setExportPreflightOpen] = useState(false);
@@ -2013,6 +2041,8 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const exportLinkLabel = exportState === "stale"
     ? "Open stale export / Mở bản cũ"
     : "Open export / Mở file";
+  const qaSummaryLabel = timelineQaSummaryLabel(data);
+  const qaBlocksExport = data.timelineQaStatus === "blocked";
   const exportStateTitle = data.exportStaleReason
     ? `Export status: ${exportState}. Reason: ${data.exportStaleReason}`
     : `Export status: ${exportState}`;
@@ -2309,6 +2339,33 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
     }
   }
 
+  async function runTimelineQa() {
+    setQaBusy(true);
+    setQaError(null);
+    try {
+      const dbId = parseInt(rfId, 10);
+      if (isNaN(dbId)) return;
+      const result = await analyzeTimelineQa(dbId, {
+        width: exportPreset.width,
+        height: exportPreset.height,
+      });
+      useBoardStore.getState().updateNodeData(rfId, {
+        timelineQaStatus: result.status,
+        timelineQaCheckedAt: result.checked_at,
+        timelineQaSummary: result.summary,
+        timelineQaItems: result.items,
+      });
+      const firstIssue = result.items.find((item) => item.status !== "ok");
+      if (firstIssue) {
+        setQaOpenShotId(firstIssue.shotId);
+      }
+    } catch (err) {
+      setQaError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setQaBusy(false);
+    }
+  }
+
   async function runExport() {
     if (!canExport) return;
     setExportBusy(true);
@@ -2408,6 +2465,12 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const preflightTransitionMap = new Map(
     preflightTransitions.map((transition) => [transition.from_shot_id, transition]),
   );
+  const preflightQaItems = timelineQaItems(data).filter((item) =>
+    item.status !== "ok" && orderedShotIds.includes(item.shotId),
+  );
+  const selectedQaItem = qaOpenShotId
+    ? timelineQaItems(data).find((item) => item.shotId === qaOpenShotId) ?? null
+    : null;
 
   return (
     <div className="node-body node-body--timeline">
@@ -2445,6 +2508,17 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           }
         >
           {runnerBusy === "clips" ? "Queueing clips / Đang xếp video" : "Generate clips / Tạo video"}
+        </button>
+        <button
+          type="button"
+          className="timeline-run-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            void runTimelineQa();
+          }}
+          disabled={qaBusy || shotPairs.length === 0}
+        >
+          {qaBusy ? "Checking QA / Đang kiểm" : "Run QA / Kiểm QA"}
         </button>
         <button
           type="button"
@@ -2584,6 +2658,16 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               </div>
             </div>
           )}
+          {preflightQaItems.length > 0 && (
+            <div className={`timeline-preflight__qa timeline-preflight__qa--${data.timelineQaStatus ?? "warning"}`}>
+              <strong>QA / Kiểm tra: {TIMELINE_QA_LABELS[data.timelineQaStatus ?? "warning"]}</strong>
+              {preflightQaItems.map((item) => (
+                <small key={item.shotId}>
+                  {item.shotId}: {item.issues.map((issue) => issue.message).join(" ")}
+                </small>
+              ))}
+            </div>
+          )}
           <div className="timeline-preflight__clips">
             {shotPairs
               .filter(({ clip }) =>
@@ -2631,7 +2715,8 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               type="button"
               className="timeline-run-btn"
               onClick={() => void runExport()}
-              disabled={exportBusy}
+              disabled={exportBusy || qaBlocksExport}
+              title={qaBlocksExport ? "Run QA and fix blocked clips first / Sửa lỗi QA trước" : undefined}
             >
               {exportBusy ? "Exporting / Đang xuất" : "Confirm export / Xuất"}
             </button>
@@ -2653,8 +2738,26 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         {exportableClipCount !== clipsReady ? ` · ${exportableClipCount} exportable / xuất` : ""}
         {skippedCount > 0 ? ` · ${skippedCount} skip / bỏ` : ""}
         {redoCount > 0 ? ` · ${redoCount} redo blocks export` : ""}
+        {qaSummaryLabel ? ` · ${qaSummaryLabel}` : ""}
         {data.exportMediaId ? ` · ${exportState} export ${data.exportClipCount ?? clipsReady} clips` : ""}
       </div>
+      {qaError && (
+        <div className="timeline-run-summary timeline-run-summary--error" role="alert">
+          {qaError}
+        </div>
+      )}
+      {selectedQaItem && (
+        <div className={`timeline-qa-inspector timeline-qa-inspector--${selectedQaItem.status}`}>
+          <strong>{selectedQaItem.shotId}: {TIMELINE_QA_LABELS[selectedQaItem.status]}</strong>
+          {selectedQaItem.issues.length > 0 ? selectedQaItem.issues.map((issue) => (
+            <small key={`${issue.code}-${issue.message}`}>
+              {issue.code}: {issue.message}
+            </small>
+          )) : (
+            <small>No QA issues / Không có lỗi QA</small>
+          )}
+        </div>
+      )}
       {exportHistory.length > 0 && (
         <details className="timeline-export-history">
           <summary>History / Lịch sử ({exportHistory.length})</summary>
@@ -2698,6 +2801,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const trimEdit = timelineClipEditForShot(data, typeof shotId === "string" ? shotId : undefined);
           const effectiveDuration = timelineEffectiveDuration(duration, trimEdit);
           const transition = timelineTransitionForShot(data, typeof shotId === "string" ? shotId : undefined);
+          const qaItem = timelineQaForShot(data, typeof shotId === "string" ? shotId : undefined);
           const caption = captionForTimelineRow(clip);
           const orderIndex = typeof shotId === "string" ? orderedShotIds.indexOf(shotId) : -1;
           const hasNextTransition = orderIndex >= 0 && orderIndex < orderedShotIds.length - 1;
@@ -2913,6 +3017,20 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                   <span className="timeline-shot-row__review">
                     fade {transition.durationSec}s
                   </span>
+                )}
+                {qaItem && (
+                  <button
+                    type="button"
+                    className={`timeline-shot-row__qa timeline-shot-row__qa--${qaItem.status} nodrag`}
+                    aria-label={`Shot ${index || "?"} QA ${qaItem.status}`}
+                    aria-expanded={qaOpenShotId === shotId}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setQaOpenShotId(qaOpenShotId === shotId ? null : typeof shotId === "string" ? shotId : null);
+                    }}
+                  >
+                    {TIMELINE_QA_LABELS[qaItem.status]}
+                  </button>
                 )}
               </span>
             </div>

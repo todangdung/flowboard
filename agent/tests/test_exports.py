@@ -579,6 +579,136 @@ def test_export_timeline_applies_fade_transition_and_stamps_metadata(client):
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_analyze_timeline_qa_flags_local_clip_warnings_and_stamps_metadata(client):
+    media_a = "aaaaaaaa-0000-4000-8000-000000000141"
+    _write_clip(media_a, "black", duration=1.2)
+
+    with get_session() as s:
+        board = Board(name="timeline-qa")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="qa01",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotId": "shot-1",
+                "shotIndex": 1,
+                "shotDurationSec": 4,
+                "videoAudioMode": "music",
+                "mediaId": media_a,
+                "mediaIds": [media_a],
+            },
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={"title": "Timeline", "workflowKind": "timeline"},
+            status="idle",
+        )
+        s.add_all([clip, timeline])
+        s.commit()
+        s.refresh(clip)
+        s.refresh(timeline)
+        s.add(
+            Edge(
+                board_id=board.id,
+                source_id=clip.id,
+                target_id=timeline.id,
+                ref_role="storyboard_panel",
+            )
+        )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}/qa",
+        json={"width": 320, "height": 180},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "warning"
+    assert body["summary"] == {"ok": 0, "warning": 1, "blocked": 0}
+    item = body["items"][0]
+    assert item["shotId"] == "shot-1"
+    assert item["status"] == "warning"
+    codes = {issue["code"] for issue in item["issues"]}
+    assert {
+        "aspect_mismatch",
+        "duration_mismatch",
+        "missing_expected_audio",
+        "black_frames",
+    }.issubset(codes)
+    assert item["metrics"]["width"] == 160
+    assert item["metrics"]["height"] == 284
+    assert item["metrics"]["hasAudio"] is False
+
+    with get_session() as s:
+        timeline = s.get(Node, timeline_id)
+        assert timeline is not None
+        assert timeline.data["timelineQaStatus"] == "warning"
+        assert timeline.data["timelineQaSummary"] == {"ok": 0, "warning": 1, "blocked": 0}
+        assert timeline.data["timelineQaItems"][0]["shotId"] == "shot-1"
+        assert isinstance(timeline.data["timelineQaCheckedAt"], str)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_analyze_timeline_qa_blocks_missing_media(client):
+    with get_session() as s:
+        board = Board(name="timeline-qa-block")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="qa00",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotId": "shot-1",
+                "shotIndex": 1,
+            },
+            status="idle",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={"title": "Timeline", "workflowKind": "timeline"},
+            status="idle",
+        )
+        s.add_all([clip, timeline])
+        s.commit()
+        s.refresh(clip)
+        s.refresh(timeline)
+        s.add(
+            Edge(
+                board_id=board.id,
+                source_id=clip.id,
+                target_id=timeline.id,
+                ref_role="storyboard_panel",
+            )
+        )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(f"/api/exports/timelines/{timeline_id}/qa", json={})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert body["summary"] == {"ok": 0, "warning": 0, "blocked": 1}
+    assert body["items"][0]["issues"] == [
+        {"severity": "blocked", "code": "no_media", "message": "Shot has no rendered media."}
+    ]
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
 def test_export_timeline_prefers_active_best_variant(client):
     media_a = "aaaaaaaa-0000-4000-8000-000000000101"
     media_b = "bbbbbbbb-0000-4000-8000-000000000102"

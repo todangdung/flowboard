@@ -18,6 +18,8 @@ import {
   type NodeType,
   type RefRole,
   type ShotPlanItem,
+  type TimelineQaItem,
+  type TimelineQaStatus,
   type VideoRecipeId,
 } from "../api/client";
 import { isVideoRecipeId } from "../lib/videoRecipes";
@@ -180,6 +182,10 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   timelineCaptions?: Record<string, string>;
   timelineClipEdits?: Record<string, { trimStartSec?: number; trimEndSec?: number }>;
   timelineTransitions?: Record<string, { type?: "cut" | "fade"; durationSec?: number }>;
+  timelineQaStatus?: TimelineQaStatus;
+  timelineQaCheckedAt?: string;
+  timelineQaSummary?: { ok: number; warning: number; blocked: number };
+  timelineQaItems?: TimelineQaItem[];
   exportMediaId?: string;
   exportedAt?: string;
   exportClipCount?: number;
@@ -342,6 +348,10 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       timelineCaptions: dto.data["timelineCaptions"] as Record<string, string> | undefined,
       timelineClipEdits: dto.data["timelineClipEdits"] as Record<string, { trimStartSec?: number; trimEndSec?: number }> | undefined,
       timelineTransitions: dto.data["timelineTransitions"] as Record<string, { type?: "cut" | "fade"; durationSec?: number }> | undefined,
+      timelineQaStatus: dto.data["timelineQaStatus"] as TimelineQaStatus | undefined,
+      timelineQaCheckedAt: dto.data["timelineQaCheckedAt"] as string | undefined,
+      timelineQaSummary: dto.data["timelineQaSummary"] as { ok: number; warning: number; blocked: number } | undefined,
+      timelineQaItems: dto.data["timelineQaItems"] as TimelineQaItem[] | undefined,
       exportMediaId: dto.data["exportMediaId"] as string | undefined,
       exportedAt: dto.data["exportedAt"] as string | undefined,
       exportClipCount: dto.data["exportClipCount"] as number | undefined,

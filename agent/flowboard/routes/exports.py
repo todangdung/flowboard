@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from flowboard.services.video_export import VideoExportError, export_timeline
+from flowboard.services.video_export import VideoExportError, analyze_timeline_qa, export_timeline
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -19,6 +19,11 @@ class TimelineExportBody(BaseModel):
     music_volume: float = Field(default=0.25, ge=0, le=2)
     clip_edits: list[dict] = Field(default_factory=list)
     transitions: list[dict] = Field(default_factory=list)
+
+
+class TimelineQaBody(BaseModel):
+    width: int | None = Field(default=None, ge=64, le=4096)
+    height: int | None = Field(default=None, ge=64, le=4096)
 
 
 @router.post("/timelines/{timeline_node_id}")
@@ -40,6 +45,26 @@ async def export_timeline_route(
             music_volume=body.music_volume,
             clip_edits=body.clip_edits,
             transitions=body.transitions,
+        )
+    except VideoExportError as exc:
+        msg = str(exc)
+        status = 404 if msg in {"timeline_not_found"} else 400
+        if msg == "ffmpeg_not_found":
+            status = 503
+        raise HTTPException(status_code=status, detail=msg)
+
+
+@router.post("/timelines/{timeline_node_id}/qa")
+async def analyze_timeline_qa_route(
+    timeline_node_id: int,
+    body: TimelineQaBody | None = None,
+) -> dict:
+    body = body or TimelineQaBody()
+    try:
+        return await analyze_timeline_qa(
+            timeline_node_id,
+            expected_width=body.width,
+            expected_height=body.height,
         )
     except VideoExportError as exc:
         msg = str(exc)

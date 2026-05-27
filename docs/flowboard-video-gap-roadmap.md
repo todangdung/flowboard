@@ -65,6 +65,10 @@ Additional gap closure in this pass:
 - Timeline transitions phase 1: timeline rows can set cut/fade between shots,
   export applies local ffmpeg `xfade`/`acrossfade`, and metadata stamps
   `exportTransitions`.
+- Timeline QA phase 1: timeline rows can run local ffprobe/ffmpeg checks for
+  missing media, redo blockers, duration drift, aspect mismatch, expected audio
+  gaps, black frames, and frozen frames; QA status/reasons are stamped on the
+  timeline and shown in rows plus export preflight.
 - Video source modes: Generate Video supports Auto, Text-to-video,
   First frame, First+last frame, and Omni Ingredients paths.
 - First+last frame dispatch: `last_frame` edge role now drives Flow's
@@ -197,7 +201,8 @@ Remaining limitations:
 - Real Flow validation is partial because the current free account hit quota,
   model access, reCAPTCHA, and edit-video/V2V gates.
 - Native video extend is not yet validated as a first-class Flow endpoint.
-- Advanced/generated transitions and auto-review scoring are still future work.
+- Advanced/generated transitions and AI/semantic auto-review scoring are still
+  future work.
 
 ## Original Gap Map (Historical)
 
@@ -208,8 +213,8 @@ Use this status overlay for current planning:
 | Status | Areas |
 | --- | --- |
 | Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata/export burn-in, timeline/export/review/refine, asset library profiles, accepted-output references. |
-| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, advanced/generated transitions. |
-| Open | Auto-review scoring, multi-provider media abstraction beyond Flow. |
+| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, advanced/generated transitions, local timeline QA heuristics. |
+| Open | AI/semantic auto-review scoring, multi-provider media abstraction beyond Flow. |
 
 | Area | Original gap | Why it mattered |
 | --- | --- | --- |

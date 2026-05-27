@@ -21,7 +21,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
   >();
   let nextRequestId = 5000;
   let exportCount = 0;
+  let qaCount = 0;
   const exportPayloads: Array<Record<string, unknown>> = [];
+  const qaPayloads: Array<Record<string, unknown>> = [];
 
   try {
     await page.route("**/api/auth/me", async (route) => {
@@ -104,7 +106,46 @@ test("builds storyboard sequence shot workflow from palette", async ({
         }),
       });
     });
-    await page.route("**/api/exports/timelines/*", async (route) => {
+    await page.route(/\/api\/exports\/timelines\/\d+\/qa$/, async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      qaCount += 1;
+      const payload = JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>;
+      qaPayloads.push(payload);
+      const timelineId = Number(route.request().url().split("/").at(-2));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          timeline_node_id: timelineId,
+          status: "warning",
+          checked_at: "2026-05-25T00:08:00.000Z",
+          summary: { ok: 3, warning: 1, blocked: 0 },
+          items: [
+            {
+              shotId: "shot_02",
+              nodeId: 202,
+              mediaId: "media-202",
+              status: "warning",
+              issues: [
+                {
+                  severity: "warning",
+                  code: "duration_mismatch",
+                  message: "Clip duration 7.2s differs from planned 9s.",
+                },
+              ],
+              metrics: { durationSec: 7.2, width: 1080, height: 1920, hasAudio: false },
+            },
+            { shotId: "shot_01", nodeId: 201, mediaId: "media-201", status: "ok", issues: [], metrics: {} },
+            { shotId: "shot_03", nodeId: 203, mediaId: "media-203", status: "ok", issues: [], metrics: {} },
+            { shotId: "shot_04", nodeId: 204, mediaId: "media-204", status: "ok", issues: [], metrics: {} },
+          ],
+        }),
+      });
+    });
+    await page.route(/\/api\/exports\/timelines\/\d+$/, async (route) => {
       if (route.request().method() !== "POST") {
         await route.continue();
         return;
@@ -290,6 +331,15 @@ test("builds storyboard sequence shot workflow from palette", async ({
       page.getByText("4/4 frames / ảnh · 4/4 clips / video"),
     ).toBeVisible({ timeout: 7000 });
 
+    const qaRunner = page.getByRole("button", { name: "Run QA / Kiểm QA" });
+    await expect(qaRunner).toBeEnabled();
+    await qaRunner.click();
+    await expect.poll(() => qaCount).toBe(1);
+    expect(qaPayloads[0]).toEqual({ width: 1080, height: 1920 });
+    await expect(page.getByRole("button", { name: "Shot 2 QA warning", exact: true })).toBeVisible();
+    await expect(page.getByText("duration_mismatch: Clip duration 7.2s differs from planned 9s.")).toBeVisible();
+    await expect(page.getByText(/QA warn 3\/1\/0/)).toBeVisible();
+
     const exportRunner = page.getByRole("button", { name: "Export short / Xuất video" });
     await expect(exportRunner).toBeEnabled();
     await exportRunner.click();
@@ -300,7 +350,9 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await expect(preflight.getByText("Second shot caption")).toBeVisible();
     await expect(preflight.getByText(/Trim \/ Cắt: in 0\.5s/)).toBeVisible();
     await expect(preflight.getByText(/Transition \/ Chuyển: fade 0\.5s/)).toBeVisible();
-    await expect(preflight.getByText(/9s/)).toBeVisible();
+    await expect(preflight.getByText(/QA \/ Kiểm tra: QA warn/)).toBeVisible();
+    await expect(preflight.getByText(/Clip duration 7\.2s differs from planned 9s/)).toBeVisible();
+    await expect(preflight.locator(".timeline-preflight__clip").first().locator("strong")).toContainText("8.25s");
     await preflight.getByLabel("Burn captions / Gắn caption").check();
     await preflight.getByLabel("Mix audio / Ghép âm thanh").check();
     await preflight
