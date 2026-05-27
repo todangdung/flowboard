@@ -11,6 +11,7 @@ import subprocess
 import textwrap
 import uuid
 
+import pysubs2
 from sqlmodel import select
 
 from flowboard.config import STORAGE_DIR
@@ -60,6 +61,8 @@ class TimelineTransition:
 
 _BLACK_DURATION_RE = re.compile(r"black_duration:(?P<duration>[0-9.]+)")
 _FREEZE_DURATION_RE = re.compile(r"freeze_duration:\s*(?P<duration>[0-9.]+)")
+CAPTION_SUBTITLE_FORMAT = "ass"
+CAPTION_STYLE_NAME = "FlowboardCaption"
 
 
 def _run_ffmpeg(cmd: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -1021,19 +1024,84 @@ def _render_timeline_sequence(
     _concat_clips(paths, target, concat_file)
 
 
-def _caption_file_text(caption: str) -> str:
-    text = " ".join(caption.split())
-    if not text:
+def _caption_style_metadata(width: int, height: int) -> dict[str, int | str]:
+    return {
+        "name": CAPTION_STYLE_NAME,
+        "font": "Arial",
+        "fontSize": max(18, round(height * 0.045)),
+        "alignment": "bottom_center",
+        "marginL": max(12, round(width * 0.06)),
+        "marginR": max(12, round(width * 0.06)),
+        "marginV": max(24, round(height * 0.08)),
+        "boxColor": "black@0.58",
+    }
+
+
+def _caption_ass_style(width: int, height: int) -> pysubs2.SSAStyle:
+    meta = _caption_style_metadata(width, height)
+    return pysubs2.SSAStyle(
+        fontname=str(meta["font"]),
+        fontsize=float(meta["fontSize"]),
+        primarycolor=pysubs2.Color(255, 255, 255, 0),
+        outlinecolor=pysubs2.Color(0, 0, 0, 0),
+        backcolor=pysubs2.Color(0, 0, 0, 108),
+        borderstyle=3,
+        outline=0,
+        shadow=0,
+        alignment=pysubs2.Alignment.BOTTOM_CENTER,
+        marginl=int(meta["marginL"]),
+        marginr=int(meta["marginR"]),
+        marginv=int(meta["marginV"]),
+    )
+
+
+def _caption_ass_text(caption: str) -> str:
+    chunks = [" ".join(line.split()) for line in caption.splitlines()]
+    chunks = [line for line in chunks if line]
+    if not chunks:
         return ""
-    lines = textwrap.wrap(text, width=36, max_lines=3, placeholder="...")
-    return "\n".join(lines)
+    lines: list[str] = []
+    for chunk in chunks:
+        lines.extend(textwrap.wrap(chunk, width=36) or [chunk])
+    if len(lines) > 3:
+        text = " ".join(" ".join(chunks).split())
+        lines = textwrap.wrap(text, width=36, max_lines=3, placeholder="...")
+    return r"\N".join(lines[:3])
+
+
+def _write_caption_ass(
+    caption: str,
+    subtitle_file: Path,
+    *,
+    width: int,
+    height: int,
+    duration_sec: float,
+) -> Path | None:
+    text = _caption_ass_text(caption)
+    if not text:
+        return None
+    subs = pysubs2.SSAFile()
+    subs.info["PlayResX"] = str(width)
+    subs.info["PlayResY"] = str(height)
+    subs.info["WrapStyle"] = "2"
+    subs.styles[CAPTION_STYLE_NAME] = _caption_ass_style(width, height)
+    subs.events.append(
+        pysubs2.SSAEvent(
+            start=0,
+            end=max(100, round(duration_sec * 1000)),
+            style=CAPTION_STYLE_NAME,
+            text=text,
+        )
+    )
+    subs.save(subtitle_file, encoding="utf-8", format_=CAPTION_SUBTITLE_FORMAT)
+    return subtitle_file
 
 
 def _video_filter(
     *,
     width: int,
     height: int,
-    caption_file: Path | None = None,
+    subtitle_file: Path | None = None,
 ) -> str:
     filters = [
         f"scale={width}:{height}:force_original_aspect_ratio=decrease",
@@ -1041,20 +1109,8 @@ def _video_filter(
         "setsar=1",
         "fps=30",
     ]
-    if caption_file is not None:
-        fontsize = max(18, round(height * 0.045))
-        filters.append(
-            "drawtext="
-            f"textfile={_filter_arg(caption_file)}:"
-            f"fontsize={fontsize}:"
-            "fontcolor=white:"
-            "line_spacing=8:"
-            "box=1:"
-            "boxcolor=black@0.58:"
-            "boxborderw=18:"
-            "x=(w-text_w)/2:"
-            "y=h-text_h-(h*0.08)"
-        )
+    if subtitle_file is not None:
+        filters.append(f"subtitles={_filter_arg(subtitle_file)}")
     filters.append("format=yuv420p")
     return ",".join(filters)
 
@@ -1068,13 +1124,17 @@ def _normalise_clip(
     caption: str | None = None,
     edit: TimelineClipEdit | None = None,
 ) -> None:
-    caption_file: Path | None = None
-    caption_text = _caption_file_text(caption or "")
-    if caption_text:
-        caption_file = target.with_suffix(".caption.txt")
-        caption_file.write_text(caption_text, encoding="utf-8")
-    vf = _video_filter(width=width, height=height, caption_file=caption_file)
     effective_duration = _effective_clip_duration(source, edit)
+    subtitle_file: Path | None = None
+    if caption:
+        subtitle_file = _write_caption_ass(
+            caption,
+            target.with_suffix(".caption.ass"),
+            width=width,
+            height=height,
+            duration_sec=effective_duration,
+        )
+    vf = _video_filter(width=width, height=height, subtitle_file=subtitle_file)
     base = [
         "ffmpeg",
         "-y",
@@ -1135,8 +1195,8 @@ def _normalise_clip(
     try:
         _run_ffmpeg(cmd)
     finally:
-        if caption_file is not None:
-            caption_file.unlink(missing_ok=True)
+        if subtitle_file is not None:
+            subtitle_file.unlink(missing_ok=True)
 
 
 def _register_export(media_id: str, path: Path) -> None:
@@ -1170,6 +1230,8 @@ def _export_snapshot(data: dict) -> dict | None:
         "transitions": data.get("exportTransitions"),
         "captions": data.get("exportCaptions"),
         "captionMode": data.get("exportCaptionMode"),
+        "captionFormat": data.get("exportCaptionFormat"),
+        "captionStyle": data.get("exportCaptionStyle"),
         "audioMode": data.get("exportAudioMode"),
         "audioMediaIds": data.get("exportAudioMediaIds"),
         "audioMix": data.get("exportAudioMix"),
@@ -1234,6 +1296,12 @@ def _stamp_timeline(
         exported_at = datetime.now(timezone.utc).isoformat()
         export_version = _next_export_version(data)
         export_history = _export_history_with_prior(data)
+        caption_format = (
+            CAPTION_SUBTITLE_FORMAT
+            if caption_mode == "burn_in" and any(clip_captions)
+            else None
+        )
+        caption_style = _caption_style_metadata(width, height) if caption_format else None
         data.update(
             {
                 "exportMediaId": media_id,
@@ -1256,18 +1324,28 @@ def _stamp_timeline(
                 "exportHistory": export_history,
             }
         )
+        if caption_format:
+            data["exportCaptionFormat"] = caption_format
+            data["exportCaptionStyle"] = caption_style
+        else:
+            data.pop("exportCaptionFormat", None)
+            data.pop("exportCaptionStyle", None)
         data.pop("exportStaleAt", None)
         data.pop("exportStaleReason", None)
         node.data = data
         node.status = "done"
         s.add(node)
         s.commit()
-        return {
+        result = {
             "exported_at": exported_at,
             "export_status": "fresh",
             "export_version": export_version,
             "export_history": export_history,
         }
+        if caption_format:
+            result["export_caption_format"] = caption_format
+            result["export_caption_style"] = caption_style
+        return result
 
 
 async def analyze_timeline_qa(

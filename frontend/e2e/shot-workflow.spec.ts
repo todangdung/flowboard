@@ -202,6 +202,7 @@ test("builds storyboard sequence shot workflow from palette", async ({
     await page.goto("/");
 
     await expect(page.getByRole("button", { name: "Rename board" })).toContainText(boardName);
+    await expect(page.getByRole("button", { name: "Auto arrange nodes" })).toBeVisible();
     await page
       .getByLabel("Sequence brief / Ý tưởng chuỗi cảnh")
       .fill("skincare serum launch");

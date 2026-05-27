@@ -189,3 +189,60 @@ test("surfaces malformed recipe API responses", async ({ page, request }) => {
     await request.delete(`/api/boards/${board.id}`);
   }
 });
+
+test("surfaces malformed reference row profile responses", async ({ page, request }) => {
+  const boardName = `Reference validation e2e ${Date.now()}`;
+  const boardRes = await request.post("/api/boards", {
+    data: { name: boardName },
+  });
+  expect(boardRes.ok()).toBeTruthy();
+  const board = await boardRes.json() as { id: number; name: string };
+
+  try {
+    await stubAccount(page);
+    await page.route("**/api/references**", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: 1,
+            media_id: "broken-profile-media",
+            url: null,
+            label: "Broken product",
+            kind: "product",
+            ai_brief: null,
+            aspect_ratio: null,
+            tags: [],
+            profile: {
+              kind: "product",
+              productName: 42,
+            },
+            pinned: false,
+            position: 0,
+            source_board_id: null,
+            source_node_short_id: null,
+            created_at: "2026-05-27T00:00:00",
+          },
+        ]),
+      });
+    });
+
+    await page.addInitScript((boardId) => {
+      localStorage.setItem("flowboard.activeBoardId", String(boardId));
+      localStorage.setItem("flowboard.references.panel.v1", "true");
+    }, board.id);
+    await page.goto("/");
+
+    await expect(page.getByRole("button", { name: "Rename board" })).toContainText(boardName);
+    await expect(
+      page.getByText(/listReferences: invalid response \(0.profile.productName:/),
+    ).toBeVisible();
+  } finally {
+    await request.delete(`/api/boards/${board.id}`);
+  }
+});

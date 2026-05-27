@@ -54,7 +54,7 @@ Do not use a library when:
 
 ### 1. `zod` - Adopted
 
-Status: **adopted for first frontend API-validation slice**
+Status: **adopted for frontend API-validation hardening**
 
 Source: https://zod.dev/
 
@@ -84,10 +84,16 @@ Second slice shipped:
 - Recipe/shot-plan malformed responses now surface labeled API boundary errors
   instead of silently casting dynamic JSON.
 
-Next useful slices:
+Final zod hardening slice shipped:
 
-- Add schemas for node `profile` and key `FlowboardNodeData` slices.
-- Validate reference library wire rows and saved profile payloads.
+- Added schemas for reference library wire rows, reference create/from-node/patch
+  payloads, reference kind values, and saved product/location/brand/campaign/
+  script/audio profile payloads.
+- Reference library responses now fail loudly on malformed `kind` or profile
+  fields instead of falling back to `image` or `{}`.
+- Added Playwright coverage for malformed reference profile rows.
+
+Pause further zod hardening until a new dynamic API surface appears.
 
 Do not use it for:
 
@@ -106,9 +112,9 @@ Expected tests:
 - `rtk npm run build`
 - `rtk npm run test:e2e`
 
-### 2. `pysubs2` - Adopt For Caption Phase 2
+### 2. `pysubs2` - Adopted For Caption Phase 2
 
-Status: **recommended when captions advance**
+Status: **adopted for backend caption burn-in**
 
 Source: https://pysubs2.readthedocs.io/
 
@@ -120,12 +126,14 @@ Why:
 - `pysubs2` supports ASS/SSA, SRT, WebVTT, TTML, and other formats, and can
   generate subtitle files that FFmpeg burns with the subtitles filter.
 
-Good slice:
+Caption phase 2 shipped:
 
 - Convert timeline captions to temporary `.ass` via `pysubs2`.
 - Burn captions with FFmpeg `subtitles=...`.
 - Keep existing `caption_mode: none | burn_in`.
 - Stamp subtitle format/style metadata.
+- Added backend export tests for ASS generation, FFmpeg subtitle burn-in, and
+  multiline/special-character captions.
 
 Do not use it for:
 

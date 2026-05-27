@@ -18,6 +18,7 @@ import {
   type NodeType,
   type RefRole,
   type ShotPlanItem,
+  type TimelineCaptionStyle,
   type TimelineQaItem,
   type TimelineQaStatus,
   type VideoRecipeId,
@@ -44,6 +45,8 @@ export interface ExportHistoryItem {
   transitions?: Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }>;
   captions?: (string | null)[];
   captionMode?: "none" | "burn_in";
+  captionFormat?: "ass";
+  captionStyle?: TimelineCaptionStyle;
   audioMode?: "none" | "mix";
   audioMediaIds?: { voiceover?: string; music?: string };
   audioMix?: {
@@ -202,6 +205,8 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportTransitions?: Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }>;
   exportCaptions?: (string | null)[];
   exportCaptionMode?: "none" | "burn_in";
+  exportCaptionFormat?: "ass";
+  exportCaptionStyle?: TimelineCaptionStyle;
   exportAudioMode?: "none" | "mix";
   exportAudioMediaIds?: { voiceover?: string; music?: string };
   exportAudioMix?: {
@@ -275,6 +280,378 @@ const TYPE_TITLE: Record<NodeType, string> = {
   audio: "Audio",
   Storyboard: "Storyboard",
 };
+
+const AUTO_LAYOUT_NODE_WIDTH = 240;
+const AUTO_LAYOUT_TIMELINE_WIDTH = 360;
+const AUTO_LAYOUT_DEFAULT_HEIGHT = 220;
+const AUTO_LAYOUT_COMPACT_HEIGHT = 150;
+const AUTO_LAYOUT_TIMELINE_HEIGHT = 340;
+const AUTO_LAYOUT_COLUMN_GAP = 160;
+const AUTO_LAYOUT_ROW_GAP = 64;
+const AUTO_LAYOUT_COMPONENT_GAP_X = 360;
+const AUTO_LAYOUT_COMPONENT_GAP_Y = 260;
+const AUTO_LAYOUT_COMPONENT_ROW_MAX_WIDTH = 2200;
+const AUTO_LAYOUT_GRID = 20;
+
+interface AutoLayoutSize {
+  width: number;
+  height: number;
+}
+
+interface AutoLayoutComponent {
+  ids: string[];
+  positions: Map<string, { x: number; y: number }>;
+  width: number;
+  height: number;
+  originalX: number;
+  originalY: number;
+}
+
+function snapLayoutValue(value: number): number {
+  return Math.round(value / AUTO_LAYOUT_GRID) * AUTO_LAYOUT_GRID;
+}
+
+function ceilLayoutValue(value: number): number {
+  return Math.ceil(value / AUTO_LAYOUT_GRID) * AUTO_LAYOUT_GRID;
+}
+
+function positiveLayoutValue(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function defaultLayoutHeight(node: FlowNode): number {
+  if (node.data.workflowKind === "timeline") return AUTO_LAYOUT_TIMELINE_HEIGHT;
+  if (node.data.type === "note" || node.data.type === "prompt") {
+    return AUTO_LAYOUT_COMPACT_HEIGHT;
+  }
+  return AUTO_LAYOUT_DEFAULT_HEIGHT;
+}
+
+function getLayoutSize(node: FlowNode): AutoLayoutSize {
+  const fallbackWidth =
+    node.data.workflowKind === "timeline"
+      ? AUTO_LAYOUT_TIMELINE_WIDTH
+      : AUTO_LAYOUT_NODE_WIDTH;
+  return {
+    width: positiveLayoutValue(
+      node.measured?.width ?? node.width ?? node.initialWidth,
+      fallbackWidth,
+    ),
+    height: positiveLayoutValue(
+      node.measured?.height ?? node.height ?? node.initialHeight,
+      defaultLayoutHeight(node),
+    ),
+  };
+}
+
+function compareNodeId(a: string, b: string): number {
+  const aNum = Number(a);
+  const bNum = Number(b);
+  if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+    return aNum - bNum;
+  }
+  return a.localeCompare(b);
+}
+
+function nodePriority(node: FlowNode): number {
+  switch (node.data.workflowKind) {
+    case "storyboard_plan":
+      return 55;
+    case "shot_frame":
+      return 70;
+    case "shot_clip":
+      return 80;
+    case "timeline":
+      return 100;
+    default:
+      break;
+  }
+  switch (node.data.type) {
+    case "campaign":
+      return 10;
+    case "brand":
+      return 20;
+    case "product":
+      return 30;
+    case "character":
+      return 40;
+    case "location":
+      return 50;
+    case "visual_asset":
+    case "image":
+    case "Storyboard":
+      return 60;
+    case "prompt":
+      return 65;
+    case "script":
+      return 75;
+    case "audio":
+      return 85;
+    case "video":
+      return 90;
+    case "note":
+      return 110;
+    default:
+      return 999;
+  }
+}
+
+function shotSortValue(node: FlowNode): number {
+  return typeof node.data.shotIndex === "number"
+    ? node.data.shotIndex
+    : Number.POSITIVE_INFINITY;
+}
+
+function sortLayoutIds(ids: string[], nodeById: Map<string, FlowNode>): string[] {
+  return [...ids].sort((a, b) => {
+    const aNode = nodeById.get(a);
+    const bNode = nodeById.get(b);
+    if (!aNode || !bNode) return compareNodeId(a, b);
+    const aShot = shotSortValue(aNode);
+    const bShot = shotSortValue(bNode);
+    if (aShot !== bShot) return aShot - bShot;
+    const priorityDelta = nodePriority(aNode) - nodePriority(bNode);
+    if (priorityDelta !== 0) return priorityDelta;
+    const yDelta = aNode.position.y - bNode.position.y;
+    if (yDelta !== 0) return yDelta;
+    const xDelta = aNode.position.x - bNode.position.x;
+    if (xDelta !== 0) return xDelta;
+    return compareNodeId(a, b);
+  });
+}
+
+function averageKnownOrder(ids: string[], orderById: Map<string, number>): number {
+  const known = ids
+    .map((id) => orderById.get(id))
+    .filter((value): value is number => typeof value === "number");
+  if (known.length === 0) return Number.POSITIVE_INFINITY;
+  return known.reduce((sum, value) => sum + value, 0) / known.length;
+}
+
+function findLayoutComponents(
+  nodes: FlowNode[],
+  edges: Edge[],
+  nodeById: Map<string, FlowNode>,
+): string[][] {
+  const links = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    links.set(node.id, new Set());
+  }
+  for (const edge of edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue;
+    if (edge.source === edge.target) continue;
+    links.get(edge.source)?.add(edge.target);
+    links.get(edge.target)?.add(edge.source);
+  }
+
+  const visited = new Set<string>();
+  const components: string[][] = [];
+  for (const startId of sortLayoutIds(nodes.map((node) => node.id), nodeById)) {
+    if (visited.has(startId)) continue;
+    const queue = [startId];
+    const ids: string[] = [];
+    visited.add(startId);
+    while (queue.length > 0) {
+      const id = queue.shift();
+      if (!id) continue;
+      ids.push(id);
+      for (const next of links.get(id) ?? []) {
+        if (visited.has(next)) continue;
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+    components.push(ids);
+  }
+  return components;
+}
+
+function layoutComponent(
+  ids: string[],
+  edges: Edge[],
+  nodeById: Map<string, FlowNode>,
+): AutoLayoutComponent {
+  const idSet = new Set(ids);
+  const incoming = new Map<string, string[]>();
+  for (const id of ids) {
+    incoming.set(id, []);
+  }
+  for (const edge of edges) {
+    if (!idSet.has(edge.source) || !idSet.has(edge.target)) continue;
+    if (edge.source === edge.target) continue;
+    incoming.get(edge.target)?.push(edge.source);
+  }
+
+  const depthMemo = new Map<string, number>();
+  function depthFor(id: string, visiting: Set<string>): number {
+    const memo = depthMemo.get(id);
+    if (memo !== undefined) return memo;
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    const depth = (incoming.get(id) ?? []).reduce(
+      (maxDepth, sourceId) => Math.max(maxDepth, depthFor(sourceId, visiting) + 1),
+      0,
+    );
+    visiting.delete(id);
+    depthMemo.set(id, depth);
+    return depth;
+  }
+
+  const rawLayers = new Map<number, string[]>();
+  for (const id of ids) {
+    const depth = depthFor(id, new Set());
+    rawLayers.set(depth, [...(rawLayers.get(depth) ?? []), id]);
+  }
+  const columns = [...rawLayers.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, layerIds]) => sortLayoutIds(layerIds, nodeById));
+
+  const orderById = new Map<string, number>();
+  for (const column of columns) {
+    column.sort((a, b) => {
+      const aNode = nodeById.get(a);
+      const bNode = nodeById.get(b);
+      if (!aNode || !bNode) return compareNodeId(a, b);
+      const aShot = shotSortValue(aNode);
+      const bShot = shotSortValue(bNode);
+      if (aShot !== bShot) return aShot - bShot;
+      const upstreamDelta =
+        averageKnownOrder(incoming.get(a) ?? [], orderById)
+        - averageKnownOrder(incoming.get(b) ?? [], orderById);
+      if (Number.isFinite(upstreamDelta) && upstreamDelta !== 0) {
+        return upstreamDelta;
+      }
+      return sortLayoutIds([a, b], nodeById)[0] === a ? -1 : 1;
+    });
+    column.forEach((id, index) => orderById.set(id, index));
+  }
+
+  const positions = new Map<string, { x: number; y: number }>();
+  let x = 0;
+  for (const column of columns) {
+    const columnSizes = column.map((id) => getLayoutSize(nodeById.get(id)!));
+    const columnWidth = columnSizes.reduce(
+      (maxWidth, size) => Math.max(maxWidth, size.width),
+      AUTO_LAYOUT_NODE_WIDTH,
+    );
+    const columnHeight = columnSizes.reduce(
+      (sum, size, index) => sum + size.height + (index === 0 ? 0 : AUTO_LAYOUT_ROW_GAP),
+      0,
+    );
+    let y = -columnHeight / 2;
+    column.forEach((id, index) => {
+      const size = columnSizes[index];
+      positions.set(id, { x, y });
+      y += size.height + AUTO_LAYOUT_ROW_GAP;
+    });
+    x += columnWidth + AUTO_LAYOUT_COLUMN_GAP;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let originalX = Number.POSITIVE_INFINITY;
+  let originalY = Number.POSITIVE_INFINITY;
+  for (const id of ids) {
+    const node = nodeById.get(id);
+    const position = positions.get(id);
+    if (!node || !position) continue;
+    const size = getLayoutSize(node);
+    minX = Math.min(minX, position.x);
+    minY = Math.min(minY, position.y);
+    maxX = Math.max(maxX, position.x + size.width);
+    maxY = Math.max(maxY, position.y + size.height);
+    originalX = Math.min(originalX, node.position.x);
+    originalY = Math.min(originalY, node.position.y);
+  }
+
+  const normalised = new Map<string, { x: number; y: number }>();
+  for (const [id, position] of positions) {
+    normalised.set(id, {
+      x: snapLayoutValue(position.x - minX),
+      y: snapLayoutValue(position.y - minY),
+    });
+  }
+
+  return {
+    ids,
+    positions: normalised,
+    width: ceilLayoutValue(maxX - minX),
+    height: ceilLayoutValue(maxY - minY),
+    originalX,
+    originalY,
+  };
+}
+
+function graphBounds(nodes: FlowNode[]): { x: number; y: number; width: number; height: number } {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const node of nodes) {
+    const size = getLayoutSize(node);
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + size.width);
+    maxY = Math.max(maxY, node.position.y + size.height);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function computeAutoLayoutPositions(
+  nodes: FlowNode[],
+  edges: Edge[],
+): Map<string, { x: number; y: number }> {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const components = findLayoutComponents(nodes, edges, nodeById)
+    .map((ids) => layoutComponent(ids, edges, nodeById))
+    .sort((a, b) => {
+      const yDelta = a.originalY - b.originalY;
+      if (yDelta !== 0) return yDelta;
+      const xDelta = a.originalX - b.originalX;
+      if (xDelta !== 0) return xDelta;
+      return b.ids.length - a.ids.length;
+    });
+
+  const placements: Array<{ component: AutoLayoutComponent; x: number; y: number }> = [];
+  let cursorX = 0;
+  let cursorY = 0;
+  let rowHeight = 0;
+  let totalWidth = 0;
+  let totalHeight = 0;
+  for (const component of components) {
+    if (
+      cursorX > 0
+      && cursorX + component.width > AUTO_LAYOUT_COMPONENT_ROW_MAX_WIDTH
+    ) {
+      cursorX = 0;
+      cursorY += rowHeight + AUTO_LAYOUT_COMPONENT_GAP_Y;
+      rowHeight = 0;
+    }
+    placements.push({ component, x: cursorX, y: cursorY });
+    totalWidth = Math.max(totalWidth, cursorX + component.width);
+    rowHeight = Math.max(rowHeight, component.height);
+    totalHeight = Math.max(totalHeight, cursorY + rowHeight);
+    cursorX += component.width + AUTO_LAYOUT_COMPONENT_GAP_X;
+  }
+
+  const currentBounds = graphBounds(nodes);
+  const originX = snapLayoutValue(currentBounds.x + currentBounds.width / 2 - totalWidth / 2);
+  const originY = snapLayoutValue(currentBounds.y + currentBounds.height / 2 - totalHeight / 2);
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const placement of placements) {
+    for (const [id, position] of placement.component.positions) {
+      positions.set(id, {
+        x: originX + placement.x + position.x,
+        y: originY + placement.y + position.y,
+      });
+    }
+  }
+  return positions;
+}
 
 function nodeFromDto(dto: NodeDTO): FlowNode {
   return {
@@ -370,6 +747,8 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportTransitions: dto.data["exportTransitions"] as Array<{ fromShotId: string; toShotId: string; type: "cut" | "fade"; durationSec: number }> | undefined,
       exportCaptions: dto.data["exportCaptions"] as (string | null)[] | undefined,
       exportCaptionMode: dto.data["exportCaptionMode"] as "none" | "burn_in" | undefined,
+      exportCaptionFormat: dto.data["exportCaptionFormat"] as "ass" | undefined,
+      exportCaptionStyle: dto.data["exportCaptionStyle"] as TimelineCaptionStyle | undefined,
       exportAudioMode: dto.data["exportAudioMode"] as "none" | "mix" | undefined,
       exportAudioMediaIds: dto.data["exportAudioMediaIds"] as { voiceover?: string; music?: string } | undefined,
       exportAudioMix: dto.data["exportAudioMix"] as {
@@ -476,6 +855,7 @@ interface BoardState {
     },
     position: { x: number; y: number },
   ): Promise<string | null>;
+  autoLayoutBoard(): Promise<boolean>;
   persistNodePosition(rfId: string, position: { x: number; y: number }): Promise<void>;
   deleteNodeByRfId(rfId: string): Promise<void>;
   addEdgeFromConnection(source: string, target: string): Promise<void>;
@@ -827,6 +1207,44 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       // surface silently for now
     }
     return null;
+  },
+
+  async autoLayoutBoard() {
+    const { nodes, edges } = get();
+    if (nodes.length <= 1) return false;
+    const positions = computeAutoLayoutPositions(nodes, edges);
+    if (positions.size === 0) return false;
+
+    for (const rfId of positions.keys()) {
+      const pending = positionTimers.get(rfId);
+      if (pending !== undefined) {
+        clearTimeout(pending);
+        positionTimers.delete(rfId);
+      }
+    }
+
+    set((s) => ({
+      nodes: s.nodes.map((node) => {
+        const position = positions.get(node.id);
+        return position ? { ...node, position } : node;
+      }),
+    }));
+
+    const results = await Promise.allSettled(
+      [...positions.entries()].map(async ([rfId, position]) => {
+        const dbId = parseInt(rfId, 10);
+        if (isNaN(dbId)) return;
+        await patchNode(dbId, {
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+        });
+      }),
+    );
+    const failed = results.filter((result) => result.status === "rejected").length;
+    if (failed > 0) {
+      set({ error: `Auto layout saved locally, but ${failed} node positions failed to persist.` });
+    }
+    return true;
   },
 
   async persistNodePosition(rfId, position) {

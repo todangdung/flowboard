@@ -1154,6 +1154,64 @@ button:disabled {
   color: var(--text);
 }
 
+.toolbar-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar-auto-layout-icon {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.toolbar-auto-layout-icon::before,
+.toolbar-auto-layout-icon::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.toolbar-auto-layout-icon::before {
+  left: 4px;
+  right: 4px;
+  top: 8px;
+  height: 1px;
+}
+
+.toolbar-auto-layout-icon::after {
+  left: 8px;
+  top: 5px;
+  bottom: 4px;
+  width: 1px;
+}
+
+.toolbar-auto-layout-icon span {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  background: var(--panel);
+}
+
+.toolbar-auto-layout-icon span:nth-child(1) {
+  left: 1px;
+  top: 1px;
+}
+
+.toolbar-auto-layout-icon span:nth-child(2) {
+  right: 1px;
+  top: 1px;
+}
+
+.toolbar-auto-layout-icon span:nth-child(3) {
+  left: 6px;
+  bottom: 1px;
+}
+
 /* ── Add-Node Palette ────────────────────────────────────────────────────── */
 
 .add-node-palette {

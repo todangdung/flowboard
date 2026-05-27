@@ -1,6 +1,12 @@
 import type { z } from "zod";
 import {
   recipeWorkflowBuildResponseSchema,
+  referenceCreateInputSchema,
+  referenceFromNodeCreateInputSchema,
+  referenceListParamsSchema,
+  referenceListResponseSchema,
+  referencePatchInputSchema,
+  referenceRowWireSchema,
   roleClassifyResponseSchema,
   shotPlanResponseSchema,
   timelineExportRequestSchema,
@@ -12,6 +18,11 @@ import {
 } from "./schemas";
 import type {
   RecipeWorkflowBuildResponse,
+  ReferenceCreateInput,
+  ReferenceFromNodeCreateInput,
+  ReferenceKind,
+  ReferencePatchInput,
+  ReferenceRowWire,
   RoleClassifyResponse,
   ShotPlanItem,
   ShotPlanResponse,
@@ -25,10 +36,15 @@ import type {
 
 export type {
   RecipeWorkflowBuildResponse,
+  ReferenceCreateInput,
+  ReferenceFromNodeCreateInput,
+  ReferenceKind,
+  ReferencePatchInput,
   RoleClassifyResponse,
   RoleSuggestion,
   ShotPlanItem,
   ShotPlanResponse,
+  TimelineCaptionStyle,
   TimelineExportRequest,
   TimelineExportResponse,
   TimelineQaIssue,
@@ -1058,22 +1074,6 @@ export async function cancelActivity(id: number): Promise<void> {
 // camelCase is reserved for the TS surface, so each helper maps the
 // rows on the way back.
 
-export type ReferenceKind =
-  | "image"
-  | "video"
-  | "character"
-  | "visual_asset"
-  | "storyboard_shot"
-  | "product"
-  | "package"
-  | "location"
-  | "style"
-  | "brand"
-  | "campaign"
-  | "script"
-  | "audio"
-  | "first_frame";
-
 export interface ReferenceItem {
   id: number;
   mediaId: string;
@@ -1096,83 +1096,17 @@ export interface ReferenceItem {
   createdAt: string;
 }
 
-// Wire-shape POST body — snake_case to match the FastAPI schema 1:1.
-export interface ReferenceCreateInput {
-  media_id: string;
-  kind: ReferenceKind;
-  label?: string;
-  ai_brief?: string | null;
-  aspect_ratio?: string | null;
-  url?: string | null;
-  source_board_id?: number | null;
-  source_node_short_id?: string | null;
-  tags?: string[];
-  profile?: Record<string, unknown>;
-}
-
-// Wire-shape PATCH body. Same snake_case convention.
-export interface ReferencePatchInput {
-  label?: string;
-  pinned?: boolean;
-  position?: number;
-  tags?: string[];
-  profile?: Record<string, unknown>;
-}
-
-interface ReferenceRowWire {
-  id: number;
-  media_id: string;
-  url: string | null;
-  label: string;
-  kind: string;
-  ai_brief: string | null;
-  aspect_ratio: string | null;
-  tags: string[] | null;
-  profile: Record<string, unknown> | null;
-  pinned: boolean;
-  position: number;
-  source_board_id: number | null;
-  source_node_short_id: string | null;
-  created_at: string;
-}
-
 function mapReferenceRow(row: ReferenceRowWire): ReferenceItem {
-  // Coerce the kind string into the typed union — the backend already
-  // validates against _ALLOWED_KINDS so any unknown value here would
-  // mean a backend bug. Fall back to "image" defensively rather than
-  // throwing, so a single bad row doesn't break the whole list render.
-  const allowed: ReferenceKind[] = [
-    "image",
-    "video",
-    "character",
-    "visual_asset",
-    "storyboard_shot",
-    "product",
-    "package",
-    "location",
-    "style",
-    "brand",
-    "campaign",
-    "script",
-    "audio",
-    "first_frame",
-  ];
-  const kind: ReferenceKind = (allowed as string[]).includes(row.kind)
-    ? (row.kind as ReferenceKind)
-    : "image";
   return {
     id: row.id,
     mediaId: row.media_id,
     url: row.url,
     label: row.label,
-    kind,
+    kind: row.kind,
     aiBrief: row.ai_brief,
     aspectRatio: row.aspect_ratio,
-    tags: Array.isArray(row.tags) ? row.tags : [],
-    profile:
-      row.profile && typeof row.profile === "object" && !Array.isArray(row.profile)
-        ? row.profile
-        : {},
+    tags: row.tags,
+    profile: row.profile,
     pinned: row.pinned,
     position: row.position,
     sourceBoardId: row.source_board_id,
@@ -1186,15 +1120,28 @@ export async function listReferences(params?: {
   pinned_first?: boolean;
   limit?: number;
 }): Promise<ReferenceItem[]> {
+  const parsedParams = parseApiRequest(
+    referenceListParamsSchema,
+    params ?? {},
+    "listReferences",
+  );
   const search = new URLSearchParams();
-  if (params?.q) search.set("q", params.q);
-  if (params?.pinned_first !== undefined) {
-    search.set("pinned_first", String(params.pinned_first));
+  if (parsedParams.q) search.set("q", parsedParams.q);
+  if (parsedParams.pinned_first !== undefined) {
+    search.set("pinned_first", String(parsedParams.pinned_first));
   }
-  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  if (parsedParams.limit !== undefined) {
+    search.set("limit", String(parsedParams.limit));
+  }
   const qs = search.toString();
-  const rows = await api<ReferenceRowWire[]>(
-    `/api/references${qs ? `?${qs}` : ""}`,
+  const res = await fetch(`/api/references${qs ? `?${qs}` : ""}`);
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  const rows = parseApiResponse(
+    referenceListResponseSchema,
+    await readJsonResponse(res, "listReferences"),
+    "listReferences",
   );
   return rows.map(mapReferenceRow);
 }
@@ -1202,24 +1149,48 @@ export async function listReferences(params?: {
 export async function createReference(
   input: ReferenceCreateInput,
 ): Promise<ReferenceItem> {
-  const row = await api<ReferenceRowWire>("/api/references", {
+  const body = parseApiRequest(
+    referenceCreateInputSchema,
+    input,
+    "createReference",
+  );
+  const res = await fetch("/api/references", {
     method: "POST",
-    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  const row = parseApiResponse(
+    referenceRowWireSchema,
+    await readJsonResponse(res, "createReference"),
+    "createReference",
+  );
   return mapReferenceRow(row);
 }
 
-export async function createReferenceFromNode(input: {
-  node_id: number;
-  media_id?: string;
-  kind?: ReferenceKind;
-  label?: string;
-  tags?: string[];
-}): Promise<ReferenceItem> {
-  const row = await api<ReferenceRowWire>("/api/references/from-node", {
+export async function createReferenceFromNode(
+  input: ReferenceFromNodeCreateInput,
+): Promise<ReferenceItem> {
+  const body = parseApiRequest(
+    referenceFromNodeCreateInputSchema,
+    input,
+    "createReferenceFromNode",
+  );
+  const res = await fetch("/api/references/from-node", {
     method: "POST",
-    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  const row = parseApiResponse(
+    referenceRowWireSchema,
+    await readJsonResponse(res, "createReferenceFromNode"),
+    "createReferenceFromNode",
+  );
   return mapReferenceRow(row);
 }
 
@@ -1227,10 +1198,24 @@ export async function patchReference(
   id: number,
   patch: ReferencePatchInput,
 ): Promise<ReferenceItem> {
-  const row = await api<ReferenceRowWire>(`/api/references/${id}`, {
+  const body = parseApiRequest(
+    referencePatchInputSchema,
+    patch,
+    "patchReference",
+  );
+  const res = await fetch(`/api/references/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(patch),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res));
+  }
+  const row = parseApiResponse(
+    referenceRowWireSchema,
+    await readJsonResponse(res, "patchReference"),
+    "patchReference",
+  );
   return mapReferenceRow(row);
 }
 

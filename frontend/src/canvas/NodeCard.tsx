@@ -2526,6 +2526,8 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
         exportTransitions: result.export_transitions,
         exportCaptions: result.clip_captions,
         exportCaptionMode: result.export_caption_mode ?? exportCaptionMode,
+        exportCaptionFormat: result.export_caption_format,
+        exportCaptionStyle: result.export_caption_style,
         exportAudioMode: storedAudioMode,
         exportAudioMediaIds: storedAudioMediaIds,
         exportAudioMix: storedAudioMix,

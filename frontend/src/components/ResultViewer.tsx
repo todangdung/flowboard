@@ -71,13 +71,38 @@ const VIDEO_ITERATION_METADATA_KEYS: (keyof FlowboardNodeData)[] = [
   "aspectRatio",
 ];
 
+function referenceKindForResult(data: FlowboardNodeData): ReferenceKind {
+  return data.type === "Storyboard"
+    ? "storyboard_shot"
+    : data.type === "video"
+      ? "video"
+      : data.type === "character"
+        ? "character"
+        : data.type === "product"
+          ? "product"
+          : data.type === "location"
+            ? "location"
+            : data.type === "brand"
+              ? "brand"
+              : data.type === "campaign"
+                ? "campaign"
+                : data.type === "script"
+                  ? "script"
+                  : data.type === "audio"
+                    ? "audio"
+                    : data.type === "visual_asset"
+                      ? "visual_asset"
+                      : "image";
+}
+
 function profileFromResult(
   mediaId: string,
+  kind: ReferenceKind,
   data: FlowboardNodeData,
 ): Record<string, unknown> {
   const profile: Record<string, unknown> = {
     mediaId,
-    kind: data.type,
+    kind,
     sourceNodeShortId: data.shortId,
     name: data.title,
   };
@@ -616,28 +641,7 @@ export function ResultViewer() {
     if (!rfId || !data || !currentMediaId || saving) return;
     setSaving(true);
     try {
-      const kind: ReferenceKind =
-        data.type === "Storyboard"
-          ? "storyboard_shot"
-          : data.type === "video"
-            ? "video"
-          : data.type === "character"
-            ? "character"
-            : data.type === "product"
-              ? "product"
-            : data.type === "location"
-              ? "location"
-            : data.type === "brand"
-              ? "brand"
-            : data.type === "campaign"
-              ? "campaign"
-            : data.type === "script"
-              ? "script"
-            : data.type === "audio"
-              ? "audio"
-            : data.type === "visual_asset"
-              ? "visual_asset"
-              : "image";
+      const kind = referenceKindForResult(data);
       await useReferencesStore.getState().save({
         media_id: currentMediaId,
         kind,
@@ -651,7 +655,7 @@ export function ResultViewer() {
         source_board_id: useBoardStore.getState().boardId,
         source_node_short_id:
           typeof data.shortId === "string" ? data.shortId : null,
-        profile: profileFromResult(currentMediaId, data),
+        profile: profileFromResult(currentMediaId, kind, data),
       });
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);

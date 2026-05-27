@@ -1,6 +1,6 @@
 # Flowboard Video Gap And Roadmap
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 
 ## 2026-05-25 Implementation Checkpoint
 
@@ -56,6 +56,10 @@ Additional gap closure in this pass:
   burning subtitles into the video.
 - Timeline caption export: export preflight can burn timeline captions into
   the stitched MP4 and stamps `exportCaptionMode` in export metadata/history.
+- Timeline caption export phase 2: caption burn-in now writes temporary ASS
+  subtitle files with `pysubs2` and burns them through FFmpeg's `subtitles`
+  filter, including caption format/style metadata and regression coverage for
+  multiline/special-character captions.
 - Timeline audio mix: timeline export can mux the stitched clip audio with
   voiceover and BGM media via local ffmpeg, using simple volume controls and
   stamping `exportAudioMode`, `exportAudioMediaIds`, and `exportAudioMix`.
@@ -218,7 +222,7 @@ Use this status overlay for current planning:
 
 | Status | Areas |
 | --- | --- |
-| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata/export burn-in, timeline/export/review/refine, asset library profiles, accepted-output references. |
+| Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata/export burn-in with ASS subtitles, timeline/export/review/refine, asset library profiles, accepted-output references. |
 | Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, native video extend, advanced/generated transitions, local timeline QA heuristics. |
 | Open | AI/semantic auto-review scoring, multi-provider media abstraction beyond Flow. |
 

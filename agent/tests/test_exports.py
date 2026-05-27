@@ -6,6 +6,7 @@ import pytest
 from flowboard.db import get_session
 from flowboard.db.models import Board, Edge, Node
 from flowboard.services import media as media_service
+from flowboard.services import video_export
 
 
 def _write_clip(media_id: str, color: str, *, duration: float = 0.25) -> None:
@@ -72,6 +73,27 @@ def _write_audio(media_id: str, frequency: int) -> None:
         timeout=30,
     )
     assert result.returncode == 0, result.stderr[-500:]
+
+
+def test_caption_ass_writer_preserves_multiline_special_chars(tmp_path):
+    subtitle_file = tmp_path / "caption.ass"
+    written = video_export._write_caption_ass(
+        'Line one\n"Sale": 50% / Đẹp',
+        subtitle_file,
+        width=180,
+        height=320,
+        duration_sec=1.25,
+    )
+
+    assert written == subtitle_file
+    raw = subtitle_file.read_text(encoding="utf-8")
+    assert "Style: FlowboardCaption" in raw
+    assert 'Line one\\N"Sale": 50% / Đẹp' in raw
+    assert "0:00:01.25" in raw
+
+    vf = video_export._video_filter(width=180, height=320, subtitle_file=subtitle_file)
+    assert "subtitles=" in vf
+    assert "drawtext" not in vf
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
@@ -274,6 +296,82 @@ def test_export_timeline_uses_timeline_shot_order_and_metadata(client):
         assert timeline.data["exportDurationsSec"] == [7, 4]
         assert timeline.data["exportCaptions"] == ["Second caption", "First caption"]
         assert timeline.data["exportCaptionMode"] == "burn_in"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_export_timeline_burns_ass_caption_with_multiline_special_chars(client):
+    media_a = "aaaaaaaa-0000-4000-8000-000000000151"
+    _write_clip(media_a, "red", duration=0.6)
+
+    caption = 'Line one\n"Sale": 50% / Đẹp'
+    with get_session() as s:
+        board = Board(name="export-caption-ass")
+        s.add(board)
+        s.commit()
+        s.refresh(board)
+        clip = Node(
+            board_id=board.id,
+            short_id="cap1",
+            type="video",
+            data={
+                "title": "Shot 1",
+                "workflowKind": "shot_clip",
+                "shotId": "shot-1",
+                "shotIndex": 1,
+                "shotDurationSec": 1,
+                "mediaId": media_a,
+                "mediaIds": [media_a],
+            },
+            status="done",
+        )
+        timeline = Node(
+            board_id=board.id,
+            short_id="time",
+            type="note",
+            data={
+                "title": "Timeline",
+                "workflowKind": "timeline",
+                "timelineCaptions": {"shot-1": caption},
+            },
+            status="idle",
+        )
+        s.add_all([clip, timeline])
+        s.commit()
+        s.refresh(clip)
+        s.refresh(timeline)
+        s.add(
+            Edge(
+                board_id=board.id,
+                source_id=clip.id,
+                target_id=timeline.id,
+                ref_role="storyboard_panel",
+            )
+        )
+        s.commit()
+        timeline_id = timeline.id
+
+    response = client.post(
+        f"/api/exports/timelines/{timeline_id}",
+        json={"width": 180, "height": 320, "caption_mode": "burn_in"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["clip_captions"] == [caption]
+    assert body["export_caption_mode"] == "burn_in"
+    assert body["export_caption_format"] == "ass"
+    assert body["export_caption_style"]["name"] == "FlowboardCaption"
+    exported = media_service.cached_path(body["media_id"])
+    assert exported is not None
+    assert exported.is_file()
+    assert not list(video_export.EXPORT_DIR.glob("timeline-*/*.caption.ass"))
+
+    with get_session() as s:
+        timeline = s.get(Node, timeline_id)
+        assert timeline is not None
+        assert timeline.data["exportCaptions"] == [caption]
+        assert timeline.data["exportCaptionMode"] == "burn_in"
+        assert timeline.data["exportCaptionFormat"] == "ass"
+        assert timeline.data["exportCaptionStyle"]["name"] == "FlowboardCaption"
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
