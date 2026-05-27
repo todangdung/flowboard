@@ -791,6 +791,85 @@ async def _handle_edit_image(params: dict) -> tuple[dict, Optional[str]]:
     return resp, None
 
 
+# ── ChatGPT generation ────────────────────────────────────────────────────
+# Prompts ChatGPT Plus (chatgpt.com) through the extension's MAIN-world
+# content script. The extension intercepts the SSE stream of
+# `/backend-api/conversation`, accumulates text + (M2) image asset pointers,
+# and posts the result back via the HMAC callback channel. Agent's role is
+# pure orchestration — no Flow SDK, no tier resolution, no captcha.
+#
+# Response shape from extension (success):
+#   {"status": 200, "data": {"text": str, "asset_pointers": [str], "conversation_id": str | None}}
+# Failure: {"error": "RATE_LIMITED" | "CONTENT_TIMEOUT" | "AUTH_SESSION_401" | ...}
+
+async def _handle_gen_chatgpt(params: dict) -> tuple[dict, Optional[str]]:
+    import base64
+
+    prompt = params.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {}, "missing_prompt"
+    model = params.get("model")
+    if not isinstance(model, str) or not model.strip():
+        model = None
+
+    resp = await flow_client.chatgpt_request(prompt=prompt.strip(), model=model)
+    if resp.get("error"):
+        return resp, str(resp["error"])[:200]
+
+    data = resp.get("data") if isinstance(resp.get("data"), dict) else {}
+    text = data.get("text") if isinstance(data.get("text"), str) else ""
+    asset_pointers = data.get("asset_pointers") if isinstance(data.get("asset_pointers"), list) else []
+    conversation_id = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else None
+    images = data.get("images") if isinstance(data.get("images"), list) else []
+
+    # Ingest any inline image bytes the extension downloaded. Each image
+    # arrives as `{media_id, bytes_b64, mime, asset_pointer}`. The
+    # extension already minted a stable UUID for each, so the agent just
+    # base64-decodes and plants the bytes via the existing inline-ingest
+    # path (same one Low-Priority video uses for base64 MP4 frames).
+    # Per-image failures are tolerated — a single expired CDN URL must
+    # not drop the rest of the batch.
+    media_ids: list[str] = []
+    ingest_errors: list[str] = []
+    for img in images:
+        if not isinstance(img, dict):
+            continue
+        if img.get("error"):
+            ingest_errors.append(str(img["error"])[:200])
+            continue
+        media_id = img.get("media_id")
+        bytes_b64 = img.get("bytes_b64")
+        mime = img.get("mime") or "image/webp"
+        if not isinstance(media_id, str) or not isinstance(bytes_b64, str):
+            ingest_errors.append("malformed_image_record")
+            continue
+        try:
+            raw = base64.b64decode(bytes_b64)
+        except Exception as exc:  # noqa: BLE001
+            ingest_errors.append(f"b64_decode: {exc}"[:200])
+            continue
+        ok = media_service.ingest_inline_bytes(
+            media_id=media_id,
+            data=raw,
+            kind="image",
+            mime=mime if isinstance(mime, str) else "image/webp",
+        )
+        if ok:
+            media_ids.append(media_id)
+        else:
+            ingest_errors.append("ingest_failed")
+
+    return (
+        {
+            "text": text,
+            "asset_pointers": asset_pointers,
+            "conversation_id": conversation_id,
+            "media_ids": media_ids,
+            "image_errors": ingest_errors or None,
+        },
+        None,
+    )
+
 
 # ── Omni Flash r2v ────────────────────────────────────────────────────────
 # Variable-duration video model with a distinct endpoint + body shape from
@@ -1009,6 +1088,7 @@ _DEFAULT_HANDLERS: dict[str, Handler] = {
     "gen_video_omni": _handle_gen_video_omni,
     "edit_video_omni": _handle_edit_video_omni,
     "edit_image": _handle_edit_image,
+    "gen_chatgpt": _handle_gen_chatgpt,
 }
 
 

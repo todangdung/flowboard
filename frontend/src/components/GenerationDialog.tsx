@@ -68,6 +68,8 @@ const REF_SOURCE_TYPES = new Set([
   // Storyboard outputs are first-class refs — they're composite images
   // that can feed downstream image / Omni-video / character nodes.
   "Storyboard",
+  // ChatGPT M2 image outputs are normal media refs downstream.
+  "chatgpt",
 ]);
 
 function buildCharacterPrompt(
@@ -448,6 +450,11 @@ export function GenerationDialog() {
   // synthesis from upstream context and writes the result back to
   // node.data.prompt. No image dispatch, no aspect/variants.
   const isPrompt = targetType === "prompt";
+  // ChatGPT nodes dispatch via extension MAIN-world bridge on chatgpt.com.
+  // Like Prompt nodes, there's no aspect / variant / refs picker — just
+  // the prompt text — but unlike Prompt nodes the click actually triggers
+  // a generation request (gen_chatgpt) instead of saving text.
+  const isChatGPT = targetType === "chatgpt";
 
   // Find upstream source image for video nodes. When the upstream has
   // multiple variants, we batch-i2v one video per variant — `sourceMediaIds`
@@ -1019,6 +1026,20 @@ export function GenerationDialog() {
       closeGenerationDialog();
       return;
     }
+    if (isChatGPT) {
+      // ChatGPT path: simple prompt → extension → text + (M2) images.
+      // No aspect, no variants, no refs. Caller-typed prompt only.
+      if (!prompt.trim()) {
+        closeGenerationDialog();
+        return;
+      }
+      dispatchGeneration(rfId, {
+        prompt,
+        kind: "chatgpt",
+      });
+      closeGenerationDialog();
+      return;
+    }
     if (isCharacter) {
       const built = buildCharacterPrompt(charGender, charCountry, charVibe, charExtras);
       // Stamp the picker selections directly onto the node so the detail
@@ -1334,6 +1355,8 @@ export function GenerationDialog() {
           : hasSelectedStartFrame;
   const canGenerate = isCharacter
     ? charGender !== null || charCountry !== null || charExtras.trim().length > 0
+    : isChatGPT
+    ? prompt.trim().length > 0
     : isOmniVideo
     ? refSourceNodes.length > 0 && !isWorking && !recipeValidationBlocked
     : isVideo
@@ -1383,6 +1406,8 @@ export function GenerationDialog() {
                 ? "Generate storyboard"
                 : isPrompt
                 ? "Edit prompt"
+                : isChatGPT
+                ? "Generate ChatGPT"
                 : "Generate image"}
             </h2>
             <span className="gen-dialog__subtitle">
@@ -1427,6 +1452,8 @@ export function GenerationDialog() {
                   ? "Bỏ trống để tự sinh motion prompt từ source image ✨"
                   : isPrompt
                   ? "Nhập prompt mồi để feed cho downstream image / video…"
+                  : isChatGPT
+                  ? "Nhập prompt cho ChatGPT (ví dụ: 'Mô tả con mèo cute và vẽ ảnh nó')…"
                   : "Bỏ trống để tự generate prompt từ upstream nodes ✨"
               }
               disabled={isWorking}
@@ -1883,8 +1910,11 @@ export function GenerationDialog() {
         {/* Source references — image refs (character/image/visual_asset/
             Storyboard) AND prompt-text refs. Prompt nodes don't have
             media but their text feeds the auto-prompt synth, so we
-            surface them as text chips next to the thumbnails. */}
+            surface them as text chips next to the thumbnails. Hidden
+            for ChatGPT (M1: no upstream-ref ingestion; the prompt the
+            user types is the full input). */}
         {showIngredientRefChips
+          && !isChatGPT
           && (refSourceNodes.length > 0 || promptSourceNodes.length > 0)
           && (
           <div className="gen-dialog__field">
@@ -2030,8 +2060,8 @@ export function GenerationDialog() {
           </div>
         )}
 
-        {/* Aspect ratio — irrelevant for prompt nodes (text-only). */}
-        {!isPrompt && (
+        {/* Aspect ratio — irrelevant for text-only nodes (prompt, chatgpt). */}
+        {!isPrompt && !isChatGPT && (
           <div className="gen-dialog__field">
             <span className="gen-dialog__label">Aspect ratio</span>
             <div className="aspect-chip-row">
@@ -2204,8 +2234,8 @@ export function GenerationDialog() {
         {/* Variants stepper — image + storyboard (storyboard reuses the
             image dispatch path; up to 4 composite variants per request).
             Hidden for video (its own one-clip-per-source-variant flow
-            above) and prompt nodes. */}
-        {!isVideo && !isPrompt && (
+            above), prompt, and chatgpt (single text reply) nodes. */}
+        {!isVideo && !isPrompt && !isChatGPT && (
           <div className="gen-dialog__field">
             <span className="gen-dialog__label">Variants</span>
             <div className="variants-stepper">

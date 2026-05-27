@@ -133,7 +133,22 @@ def _normalise_endpoint(raw: Any) -> Optional[str]:
 # ── Materialisation ────────────────────────────────────────────────────────
 
 
-_VALID_NODE_TYPES = {"character", "image", "video", "prompt", "note", "Storyboard"}
+_VALID_NODE_TYPES = {
+    "character",
+    "image",
+    "video",
+    "prompt",
+    "note",
+    "visual_asset",
+    "product",
+    "location",
+    "brand",
+    "campaign",
+    "script",
+    "audio",
+    "Storyboard",
+    "chatgpt",
+}
 
 
 # ── Rerun helpers ─────────────────────────────────────────────────────────
@@ -523,16 +538,26 @@ async def run_pipeline(
             _stamp_node_status(nid, "error", error="no_project")
             continue
 
-        # Image: collect upstream character mediaIds.
-        # Video: pick the first upstream image's mediaId as start.
+        # Image: collect upstream media-bearing reference node mediaIds.
+        # Video: pick the first upstream media-bearing node's mediaId as start.
         upstream_node_ids = incoming.get(nid, ())
         upstream_nodes = [node_by_id[u] for u in upstream_node_ids if u in node_by_id]
 
         if node.type == "image":
+            ref_source_types = {
+                "character",
+                "image",
+                "visual_asset",
+                "product",
+                "location",
+                "brand",
+                "Storyboard",
+                "chatgpt",
+            }
             ref_media_ids = [
                 (u.data or {}).get("mediaId")
                 for u in upstream_nodes
-                if u.type in ("character", "image", "visual_asset")
+                if u.type in ref_source_types
                 and isinstance((u.data or {}).get("mediaId"), str)
             ]
             ref_media_ids = [m for m in ref_media_ids if m]
@@ -544,9 +569,19 @@ async def run_pipeline(
                 params["ref_media_ids"] = ref_media_ids
             req_type = "gen_image"
         else:  # video
+            start_source_types = {
+                "character",
+                "image",
+                "visual_asset",
+                "product",
+                "location",
+                "brand",
+                "Storyboard",
+                "chatgpt",
+            }
             start_media_id = None
             for u in upstream_nodes:
-                if u.type == "image":
+                if u.type in start_source_types:
                     mid = (u.data or {}).get("mediaId")
                     if isinstance(mid, str) and mid:
                         start_media_id = mid

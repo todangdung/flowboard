@@ -220,6 +220,15 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   exportPreset?: string;
   exportWidth?: number;
   exportHeight?: number;
+  // ChatGPT-only fields. `responseText` is the assistant's text body
+  // streamed back from `/backend-api/conversation`. `assetPointers` are
+  // raw `file-service://file-XXXX` ids surfaced from the SSE deltas;
+  // M2 resolves them into `mediaIds[]`. `conversationId` is OpenAI's
+  // conversation id for the ChatGPT chat — surfaced for debugging only;
+  // we always start fresh chats so this is informational.
+  responseText?: string;
+  assetPointers?: string[];
+  conversationId?: string;
 }
 
 export type FlowNode = Node<FlowboardNodeData>;
@@ -279,6 +288,7 @@ const TYPE_TITLE: Record<NodeType, string> = {
   script: "Script / voiceover",
   audio: "Audio",
   Storyboard: "Storyboard",
+  chatgpt: "ChatGPT",
 };
 
 const AUTO_LAYOUT_NODE_WIDTH = 240;
@@ -762,6 +772,9 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       exportPreset: dto.data["exportPreset"] as string | undefined,
       exportWidth: dto.data["exportWidth"] as number | undefined,
       exportHeight: dto.data["exportHeight"] as number | undefined,
+      responseText: dto.data["responseText"] as string | undefined,
+      assetPointers: dto.data["assetPointers"] as string[] | undefined,
+      conversationId: dto.data["conversationId"] as string | undefined,
       error: dto.data["error"] as string | undefined,
     },
   };

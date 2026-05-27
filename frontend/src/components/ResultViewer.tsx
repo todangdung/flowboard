@@ -20,6 +20,7 @@ const ICON: Record<string, string> = {
   campaign: "◉",
   script: "☷",
   audio: "♪",
+  chatgpt: "✨",
 };
 
 // Friendly labels for the metadata grid's `model` row. Keys match what

@@ -21,6 +21,7 @@ export const nodeTypeSchema = z.enum([
   "script",
   "audio",
   "Storyboard",
+  "chatgpt",
 ]);
 
 export const nodeStatusSchema = z.enum(["idle", "queued", "running", "done", "error"]);

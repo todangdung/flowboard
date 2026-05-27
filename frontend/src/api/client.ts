@@ -226,7 +226,8 @@ export type NodeType =
   | "campaign"
   | "script"
   | "audio"
-  | "Storyboard";
+  | "Storyboard"
+  | "chatgpt";
 export type NodeStatus = "idle" | "queued" | "running" | "done" | "error";
 
 export interface Board {

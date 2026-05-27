@@ -261,7 +261,16 @@ class PromptSynthError(RuntimeError):
 # frontend's ``REF_SOURCE_TYPES`` set in ``store/generation.ts`` so the
 # ``ref_image_N`` numbering we hand the LLM aligns with the actual
 # positional slot Flow sees on the wire.
-_REF_SOURCE_TYPES = {"character", "image", "visual_asset", "Storyboard"}
+_REF_SOURCE_TYPES = {
+    "character",
+    "image",
+    "visual_asset",
+    "product",
+    "location",
+    "brand",
+    "Storyboard",
+    "chatgpt",
+}
 
 _ROLE_LABELS = {
     "first_frame": "First frame",

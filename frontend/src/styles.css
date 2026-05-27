@@ -2938,6 +2938,62 @@ body:has(.timeline-shot-inspector) .react-flow__minimap {
   line-height: 1.6;
 }
 
+/* chatgpt */
+
+.node-body--chatgpt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chatgpt-response {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--fg);
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  line-height: 1.5;
+}
+
+.chatgpt-error {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: #ef4444;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chatgpt-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 4px;
+}
+
+.chatgpt-image-tile {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 120ms ease;
+}
+
+.chatgpt-image-tile:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.chatgpt-image-tile--active {
+  border-color: var(--accent);
+}
+
 /* note */
 
 .node-card--note .node-body {

@@ -27,6 +27,9 @@ NodeType = Literal[
     # `image` for storage / dispatch — see frontend/src/lib/storyboardPrompt.ts
     # for the template that drives gen_image.
     "Storyboard",
+    # ChatGPT node — prompt → text + (M2) image via extension MAIN-world
+    # bridge on chatgpt.com. Dispatches `gen_chatgpt` worker handler.
+    "chatgpt",
 ]
 NodeStatus = Literal["idle", "queued", "running", "done", "error"]
 

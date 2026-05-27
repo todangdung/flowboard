@@ -1,0 +1,7 @@
+data: {"conversation_id": "conv-text-only-001", "message": {"id": "msg-1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["Một"]}}}
+
+data: {"conversation_id": "conv-text-only-001", "message": {"id": "msg-1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["Một con"]}}}
+
+data: {"conversation_id": "conv-text-only-001", "message": {"id": "msg-1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["Một con mèo dễ thương đang ngồi trên thảm xanh."]}}}
+
+data: [DONE]

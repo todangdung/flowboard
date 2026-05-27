@@ -35,6 +35,7 @@ const nodeTypes = {
   script: NodeCard,
   audio: NodeCard,
   Storyboard: NodeCard,
+  chatgpt: NodeCard,
 };
 
 // Single edge type used for everything — VariantEdge renders the
@@ -43,6 +44,22 @@ const nodeTypes = {
 const edgeTypes = {
   default: VariantEdge,
 };
+
+const GENERABLE_NODE_TYPES = new Set<NodeType>([
+  "image",
+  "prompt",
+  "video",
+  "visual_asset",
+  "product",
+  "location",
+  "brand",
+  "campaign",
+  "script",
+  "audio",
+  "character",
+  "Storyboard",
+  "chatgpt",
+]);
 
 const defaultEdgeOptions = {
   // Bump the visible stroke + a wider transparent hit area so the edge is
@@ -298,15 +315,7 @@ export function Board() {
 
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: FlowNode) => {
-      const isGenerable = [
-        "image",
-        "prompt",
-        "video",
-        "visual_asset",
-        "character",
-        "Storyboard",
-      ].includes(node.data.type);
-      if (!isGenerable) return;
+      if (!GENERABLE_NODE_TYPES.has(node.data.type)) return;
       const s = useGenerationStore.getState();
       if (node.data.mediaId) {
         s.openResultViewer(node.id);
@@ -342,9 +351,7 @@ export function Board() {
         .nodes.filter(
           (n) =>
             n.selected &&
-            ["image", "prompt", "video", "character", "Storyboard"].includes(
-              n.data.type,
-            ),
+            GENERABLE_NODE_TYPES.has(n.data.type),
         );
       if (selectedNodes.length === 0) return;
       e.preventDefault();
