@@ -61,17 +61,27 @@ if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
     composer: '#prompt-textarea',
     sendBtn: 'button[data-testid=send-button]',
     stopBtn: 'button[data-testid=stop-button]',
-    asstMsg: '[data-message-author-role=assistant]',
+    // ChatGPT (May 2026 build) no longer stamps
+    // data-message-author-role="assistant" on assistant turns — only
+    // the user turn carries that attribute. Match assistant by exclusion:
+    // a [data-testid^="conversation-turn"] block that does NOT contain
+    // a user-role descendant. Keeps the legacy author-role selector
+    // first in the list so older accounts still hit a direct match.
+    // (Falls back to [data-turn-id-container] for builds that drop the
+    // testid attribute entirely.)
+    asstMsg: '[data-message-author-role=assistant], [data-testid^="conversation-turn"]:not(:has([data-message-author-role=user])), [data-turn-id-container]:not(:has([data-message-author-role=user]))',
     // ChatGPT renames this chip frequently. Cover the historical
     // data-testid plus newer variants (preview card, preview img,
     // attach-button image, blob/data URL preview inside composer).
     attachThumb: '[data-testid="attachment-thumbnail"], [data-testid="attachments-preview-card"], [data-testid="attachments-preview-img"], [data-testid*="attachment"], button[aria-label*="ttach" i] img, [class*="composer"] img[src^="blob:"], [class*="composer"] img[src^="data:"]',
     newChat: 'a[href="/"]:has(svg), nav a[href="/"]',
-    // Match every oaiusercontent regional CDN variant (sdmntpr*, files,
-    // dalle), plus cdn.openai.com (older path) and chatgpt.com-served
-    // /files/* relative URLs. Lazy-load placeholders (data:, blob:) are
-    // filtered downstream in extractResponseDOM, not here.
-    cdnImg: 'img[src*="oaiusercontent"], img[src*="cdn.openai.com"], img[src*="/files/file-"]',
+    // Match every CDN ChatGPT serves DALL-E from. Confirmed live (May
+    // 2026): backend-api/estuary/content is the new primary host —
+    // image bytes are proxied through the auth'd ChatGPT origin rather
+    // than oaiusercontent.com. The older hosts stay in the list for
+    // back-compat with older accounts/regions. Lazy-load placeholders
+    // (data:, blob:) are filtered downstream in extractResponseDOM.
+    cdnImg: 'img[src*="/backend-api/estuary/content"], img[src*="oaiusercontent"], img[src*="cdn.openai.com"], img[src*="/files/file-"]',
     paragenRoot: '[data-paragen-root]',
     turnContainer: '[data-turn-id-container],[data-turn-id]',
   };
@@ -200,15 +210,40 @@ if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
   }
 
   async function typePromptDOM(composer, text) {
+    // Re-query the composer reference. Slate re-mounts the
+    // contenteditable between startNewChatDOM and the moment we type;
+    // the original ref ends up document-detached and addRange() fails
+    // with "The given range isn't in document.", which leaves the
+    // selection unset → the first execCommand('insertText') lands at
+    // an undefined caret and Slate drops the leading character
+    // (observed: "Cho tôi" arrived as "ho tôi").
+    const live = document.querySelector(SEL.composer);
+    if (live && live.isConnected) composer = live;
     composer.focus();
-    // Clear any prior selection / stale composer text first so we
-    // never append to leftover content.
+    // Wait one microtask for focus() to commit before manipulating
+    // selection, otherwise Chrome can race the focus event with the
+    // addRange call on slow renders.
+    await sleep(0);
     const sel = window.getSelection();
     sel.removeAllRanges();
-    const range = document.createRange();
-    range.selectNodeContents(composer);
-    sel.addRange(range);
-    try { document.execCommand('delete', false); } catch (_) { /* tolerate */ }
+    if (composer.isConnected) {
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(composer);
+        sel.addRange(range);
+      } catch (_) { /* tolerate stale node */ }
+    }
+    // Only run select-all + delete when the composer actually has
+    // content. After startNewChatDOM the composer is empty, and
+    // running an unnecessary `delete` immediately before the first
+    // `insertText` made Slate's pending deletion swallow the first
+    // typed character.
+    const composerText = (composer.innerText || composer.textContent || '').trim();
+    if (composerText.length > 0) {
+      try { document.execCommand('delete', false); } catch (_) { /* tolerate */ }
+      // Give Slate a tick to flush the deletion before we start typing.
+      await sleep(60);
+    }
 
     // Per-character typing. Each insertText fires a single beforeinput
     // Slate intercepts and accepts. Inter-key delay 35-110 ms with
@@ -356,51 +391,268 @@ if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
     return true;
   }
 
-  /** DALL-E renders in the assistant message AFTER the text stream
-   *  finishes — usually 1-4 s after stop-button disappears. Poll the
-   *  last assistant block until the CDN-image count is stable for
-   *  `stableMs` so extractResponseDOM doesn't snapshot mid-render. */
-  async function waitForImagesStableDOM({ stableMs = 1500, timeout = 30000 } = {}) {
-    const target = (() => {
-      const msgs = document.querySelectorAll(SEL.asstMsg);
-      return msgs[msgs.length - 1];
-    })();
-    if (!target) return;
+  /** Wrap window.fetch to capture DALL-E image download URLs directly
+   *  from ChatGPT's own API traffic. Returns:
+   *    - `dalleStarted`: SSE conversation stream contains a DALL-E tool
+   *      marker (early signal, fires within seconds of submit).
+   *    - `imageReady`: ChatGPT called /files/download/{file_id} (late
+   *      signal, fires when the image bytes are ready server-side).
+   *    - `downloadInfos`: array of {file_id, download_url, mime_type,
+   *      file_name} extracted from the cloned /files/download/ JSON
+   *      responses — used by extractResponseDOM to bypass DOM image
+   *      scraping entirely.
+   *    - `teardown()`: restore original window.fetch.
+   *
+   *  ChatGPT's frontend pipeline (verified via Network tab curls):
+   *    1. POST /backend-api/f/conversation → SSE stream containing tool
+   *       calls ("dalle.text2im" / "image_gen_async") and content
+   *       patches ("image_asset_pointer"). Markers appear within the
+   *       first 1-3 s of the stream.
+   *    2. GET /backend-api/files/download/{file_id}?conversation_id=...
+   *       → JSON { status, download_url, mime_type, file_name, ... }.
+   *       Fires after DALL-E completes (T = 30-60 s after submit).
+   *       download_url is a same-origin signed estuary link, fetch with
+   *       credentials: 'include' to get the bytes. */
+  function installDalleDetector() {
+    let dalleStarted = false;
+    let imageReady = false;
+    let conversationId = null;
+    const downloadInfos = [];
+    const origFetch = window.fetch;
+
+    // SSE markers indicating DALL-E (vs. pure-text) response. Pinned to
+    // ChatGPT 2026 backend payload shape — audit if false-positives
+    // (text-only flagged as DALL-E) or false-negatives (DALL-E missed).
+    const DALLE_MARKERS = [
+      '"dalle.text2im"',
+      '"image_gen_async"',
+      '"image_asset_pointer"',
+    ];
+
+    window.fetch = function (input, init) {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof Request
+          ? input.url
+          : '';
+      const fetchPromise = origFetch.apply(this, arguments);
+
+      // (1) /backend-api/files/download/{file_id} — capture download_url.
+      const dlMatch = url.match(/\/backend-api\/files\/download\/(file_[a-f0-9]+)/i);
+      if (dlMatch) {
+        const fileId = dlMatch[1];
+        imageReady = true;
+        // The query string carries the real conversation_id (UUID) — far
+        // more reliable than scraping a transient turn-id from the DOM.
+        try {
+          const cid = new URL(url, location.origin).searchParams.get('conversation_id');
+          if (cid && !conversationId) conversationId = cid;
+        } catch {}
+        return fetchPromise.then((response) => {
+          try {
+            if (response && response.ok) {
+              response
+                .clone()
+                .json()
+                .then((data) => {
+                  if (data && typeof data.download_url === 'string') {
+                    downloadInfos.push({
+                      file_id: fileId,
+                      download_url: data.download_url,
+                      mime_type: data.mime_type || null,
+                      file_name: data.file_name || null,
+                    });
+                    console.log('[Flowboard] DALL-E download captured', fileId);
+                  }
+                })
+                .catch(() => {});
+            }
+          } catch {}
+          return response;
+        });
+      }
+
+      // (2) /backend-api/f/conversation (May 2026) or /backend-api/conversation
+      //     — scan SSE for DALL-E tool markers (early-detection signal).
+      const isConv =
+        url.includes('/backend-api/f/conversation') ||
+        url.includes('/backend-api/conversation');
+      if (!isConv) return fetchPromise;
+
+      return fetchPromise.then((response) => {
+        try {
+          if (!response || !response.body || dalleStarted) return response;
+          const reader = response.clone().body.getReader();
+          const decoder = new TextDecoder('utf-8', { fatal: false });
+          let buffer = '';
+          (async () => {
+            try {
+              while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                for (const m of DALLE_MARKERS) {
+                  if (buffer.includes(m)) {
+                    dalleStarted = true;
+                    break;
+                  }
+                }
+                if (dalleStarted) {
+                  console.log('[Flowboard] DALL-E SSE marker detected');
+                  try { reader.cancel(); } catch {}
+                  break;
+                }
+                // Trim buffer to avoid unbounded growth on long streams.
+                // Keep tail so markers straddling chunk boundaries match.
+                if (buffer.length > 8000) buffer = buffer.slice(-400);
+              }
+            } catch {}
+          })();
+        } catch {}
+        return response;
+      });
+    };
+
+    return {
+      get dalleStarted() { return dalleStarted; },
+      get imageReady() { return imageReady; },
+      get fired() { return dalleStarted || imageReady; },
+      get downloadInfos() { return downloadInfos.slice(); },
+      get conversationId() { return conversationId; },
+      teardown() { window.fetch = origFetch; },
+    };
+  }
+
+  /** Block until DALL-E output is ready, so extractResponseDOM doesn't
+   *  snapshot a half-rendered turn. Completion is driven by ChatGPT's
+   *  own API traffic (captured by the detector) rather than by the DOM:
+   *
+   *  Primary success signal — `detector.downloadInfos.length > 0`:
+   *    ChatGPT fetched /files/download/{file_id} and we captured the
+   *    signed estuary download_url. The image bytes are now reachable
+   *    regardless of whether the <img> has painted, so we wait a short
+   *    grace period for the DOM text to swap past "Creating image" and
+   *    return.
+   *
+   *  DALL-E in-progress signals (keep the loop alive, no early exit):
+   *    1. `detector.dalleStarted` — SSE stream carried a DALL-E tool
+   *       marker (fires within seconds of submit).
+   *    2. `detector.imageReady` — /files/download/ fired (bytes ready).
+   *    3. `[id^="image-"]` container present in the assistant turn.
+   *    4. A fully-loaded CDN <img> (naturalWidth > 0) — DOM fallback if
+   *       the download interception missed.
+   *
+   *  Text matching was removed: ChatGPT rotates through many localised
+   *  placeholder strings ("Creating image", "Đang tạo ảnh", "Drawing…")
+   *  and finishes on a completion sentence matching no fixed list.
+   *
+   *  Exit conditions:
+   *    - downloadInfos captured → grace period, return (image path).
+   *    - CDN <img> loaded and stable for stableMs (DOM fallback path).
+   *    - No DALL-E signal at all for stableMs → text-only reply. */
+  async function waitForImagesStableDOM({ stableMs = 1500, timeout = 120000, detector } = {}) {
     const isReal = (src) =>
       typeof src === 'string' && src && !src.startsWith('data:') && !src.startsWith('blob:');
-    const countReal = () =>
-      Array.from(target.querySelectorAll(SEL.cdnImg)).filter((i) => isReal(i.src)).length;
+    const pollTarget = () => {
+      const msgs = document.querySelectorAll(SEL.asstMsg);
+      return msgs[msgs.length - 1] || null;
+    };
+    const countLoaded = (t) => {
+      if (!t) return 0;
+      const srcs = new Set();
+      for (const img of t.querySelectorAll(SEL.cdnImg)) {
+        if (isReal(img.src) && img.naturalWidth > 0 && img.naturalHeight > 0)
+          srcs.add(img.src);
+      }
+      return srcs.size;
+    };
+    const isDallePending = (t) =>
+      (detector && detector.fired) ||
+      (t != null && t.querySelector('[id^="image-"]') !== null);
+
     const deadline = Date.now() + timeout;
-    let lastCount = -1;
+    let lastLoaded = -1;
     let stableSince = null;
+    let noImgSince = null;
+
     while (Date.now() < deadline) {
-      const c = countReal();
-      if (c !== lastCount) {
-        lastCount = c;
-        stableSince = null;
-      } else if (c === 0) {
-        // No image arrived — give it a brief chance to start, then exit.
-        if (stableSince === null) stableSince = Date.now();
-        if (Date.now() - stableSince >= stableMs) return;
-      } else if (stableSince === null) {
-        stableSince = Date.now();
-      } else if (Date.now() - stableSince >= stableMs) {
+      // Primary: download_url captured from ChatGPT's /files/download/
+      // response → image bytes are reachable now. Give the DOM a beat to
+      // swap the placeholder text for the final message, then return.
+      if (detector && detector.downloadInfos.length > 0) {
+        await sleep(2000);
         return;
       }
-      await sleep(200);
+
+      const t = pollTarget();
+      const loaded = countLoaded(t);
+
+      if (loaded !== lastLoaded) {
+        lastLoaded = loaded;
+        stableSince = null;
+      }
+
+      if (loaded > 0) {
+        // DOM fallback: a CDN image painted even though we never saw the
+        // download fetch. Treat a stable count as completion.
+        noImgSince = null;
+        if (stableSince === null) stableSince = Date.now();
+        else if (Date.now() - stableSince >= stableMs) return;
+      } else if (isDallePending(t)) {
+        // DALL-E in progress — reset timers and keep polling.
+        noImgSince = null;
+        stableSince = null;
+      } else {
+        // No loaded images, no DALL-E signal → probably a text-only reply.
+        // Wait stableMs before giving up to avoid a false-positive on the
+        // 0-frame gap between assistant turn creation and image-container mount.
+        if (noImgSince === null) noImgSince = Date.now();
+        if (Date.now() - noImgSince >= stableMs) return;
+      }
+
+      await sleep(300);
+    }
+  }
+
+  /** Fetch an image URL same-origin (Cloudflare cookies attach) and pack
+   *  it into the `{media_id, bytes_b64, mime, asset_pointer}` record shape
+   *  `_handle_gen_chatgpt` understands. Returns the record (with an
+   *  `error` field instead of bytes on failure). */
+  async function fetchImageRecord(url, { mimeHint, fileId } = {}) {
+    try {
+      const resp = await fetch(url, { credentials: 'include' });
+      if (!resp.ok) {
+        return { media_id: crypto.randomUUID(), error: `CDN_${resp.status}`, asset_pointer: url };
+      }
+      const buf = await resp.arrayBuffer();
+      let mime =
+        mimeHint ||
+        (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (!mime || !mime.startsWith('image/')) mime = 'image/png';
+      const rec = {
+        media_id: crypto.randomUUID(),
+        bytes_b64: arrayBufferToBase64(buf),
+        mime,
+        asset_pointer: url,
+      };
+      if (fileId) rec.file_id = fileId;
+      return rec;
+    } catch (err) {
+      return { media_id: crypto.randomUUID(), error: err?.message || String(err), asset_pointer: url };
     }
   }
 
   /** Read the last assistant message: text from innerText, images from
-   *  CDN-hosted `<img>` tags. Each CDN image is fetched same-origin so
-   *  Cloudflare cookies attach; the bytes are base64-encoded and packed
-   *  into the same `{media_id, bytes_b64, mime, asset_pointer}` record
-   *  shape `_handle_gen_chatgpt` already understands.
+   *  the detector's captured download URLs (preferred) or CDN-hosted
+   *  `<img>` tags (fallback). Bytes are base64-encoded and packed into
+   *  the `{media_id, bytes_b64, mime, asset_pointer}` record shape
+   *  `_handle_gen_chatgpt` already understands.
    *
    *  The conversation_id is recovered from `location.pathname` when
    *  ChatGPT has redirected to `/c/<id>` — chatgpt.com always rewrites
    *  the URL once the first turn lands, so this is reliable. */
-  async function extractResponseDOM() {
+  async function extractResponseDOM(detector, { trustDownloads = true } = {}) {
     // waitForIdleDOM already verified that an assistant message
     // appeared and stabilised, so we can read straight away. Bail
     // loudly if it somehow disappeared between idle and extract.
@@ -417,72 +669,96 @@ if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
     const paragenActive = !!document.querySelector(SEL.paragenRoot);
     const target = paragenActive ? msgs[0] : msgs[msgs.length - 1];
 
-    // Snapshot text BEFORE we touch any images — innerText excludes the
-    // image alt-text on most browsers, which is what we want.
-    const text = (target.innerText || target.textContent || '').trim();
+    // Read prose from the markdown/prose container, NOT the whole turn.
+    // The turn block also contains action-button labels (Edit, Download,
+    // Share) that mount over a DALL-E image — reading target.innerText
+    // directly grabbed "Edit" as the message text. Decision (made at
+    // return, once we know whether images were found):
+    //   - prose container present → use its text (text reply, or a
+    //     DALL-E reply with a caption).
+    //   - no prose + image present → image-only reply, text is ''.
+    //   - no prose + no image → rare text reply without a markdown
+    //     wrapper; fall back to the raw turn text so we don't drop it.
+    const proseEl = target.querySelector(
+      '.markdown, .prose, [class*="markdown"], [class*="prose"]',
+    );
+    const proseText = proseEl ? (proseEl.innerText || proseEl.textContent || '').trim() : null;
+    const rawTurnText = (target.innerText || target.textContent || '').trim();
 
-    const cdnImgs = target.querySelectorAll(SEL.cdnImg);
     const images = [];
-    for (const img of cdnImgs) {
-      const src = img.src;
-      if (!src) continue;
-      // Skip placeholders / inline data URIs / blob previews. The CDN
-      // selector is broad enough that lazy-load placeholders sneak in
-      // before the real DALL-E URL swaps in.
-      if (src.startsWith('data:') || src.startsWith('blob:')) continue;
-      // Skip avatars/icons (≤ 64 px on either side). DALL-E outputs are
-      // ≥ 512 px and the assistant block sometimes nests a profile
-      // glyph that would otherwise be ingested as a stray image.
-      const w = img.naturalWidth || img.width || 0;
-      const h = img.naturalHeight || img.height || 0;
-      if (w && h && (w < 96 || h < 96)) continue;
-      try {
-        const resp = await fetch(src, { credentials: 'include' });
-        if (!resp.ok) {
-          images.push({
-            media_id: crypto.randomUUID(),
-            error: `CDN_${resp.status}`,
-            asset_pointer: src,
-          });
-          continue;
-        }
-        const buf = await resp.arrayBuffer();
-        let mime = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-        if (!mime.startsWith('image/')) mime = 'image/webp';
-        images.push({
-          media_id: crypto.randomUUID(),
-          bytes_b64: arrayBufferToBase64(buf),
-          mime,
-          asset_pointer: src,
-        });
-      } catch (err) {
-        images.push({
-          media_id: crypto.randomUUID(),
-          error: err?.message || String(err),
-          asset_pointer: src,
-        });
+    const seenSrc = new Set();
+
+    // Path 1 (preferred): use download URLs captured from ChatGPT's own
+    // /files/download/ responses. Robust against DOM image-swap races —
+    // the bytes are reachable the instant ChatGPT resolves the signed
+    // URL, no waiting for the <img> to paint or guessing CDN selectors.
+    //
+    // Gated by `trustDownloads`: when the prompt carried an INPUT image,
+    // ChatGPT may also call /files/download/ to re-render the user's
+    // upload, which would otherwise be ingested as a spurious OUTPUT
+    // image. The caller only trusts the captured downloads when no input
+    // image was attached, or when the SSE stream confirmed a DALL-E tool
+    // call (dalleStarted) — i.e. an image was genuinely generated.
+    const infos = trustDownloads && detector ? detector.downloadInfos : [];
+    for (const info of infos) {
+      if (!info || !info.download_url || seenSrc.has(info.download_url)) continue;
+      seenSrc.add(info.download_url);
+      images.push(
+        await fetchImageRecord(info.download_url, {
+          mimeHint: info.mime_type,
+          fileId: info.file_id,
+        }),
+      );
+    }
+
+    // Path 2 (fallback): scrape CDN <img> tags from the assistant turn.
+    // Only runs when the download interception captured nothing (e.g.
+    // ChatGPT served the image inline without a /files/download/ call).
+    // Dedup by src — DALL-E renders 3 layered <img> per image.
+    if (images.length === 0) {
+      const cdnImgs = target.querySelectorAll(SEL.cdnImg);
+      for (const img of cdnImgs) {
+        const src = img.src;
+        if (!src) continue;
+        if (src.startsWith('data:') || src.startsWith('blob:')) continue;
+        if (seenSrc.has(src)) continue;
+        seenSrc.add(src);
+        // Skip avatars/icons (≤ 64 px). Only filter on a positive
+        // measurement — lazy-loaded imgs report naturalWidth=0 pre-decode.
+        const w = img.naturalWidth || 0;
+        const h = img.naturalHeight || 0;
+        if (w > 0 && h > 0 && (w < 96 || h < 96)) continue;
+        images.push(await fetchImageRecord(src));
       }
     }
 
     // conversation_id sources, in priority order:
-    //   1. data-turn-id-container / data-turn-id on the assistant block
-    //      (chatgpt 2026 stamps these on every turn — works even when
-    //      the URL stays at `/` instead of redirecting to `/c/<id>`).
-    //   2. URL `/c/<id>` (older chats that did redirect).
-    //   3. null (we still return text + images; the agent tolerates
-    //      a missing conversation_id).
-    let conversation_id = null;
-    const turnEl = target.closest(SEL.turnContainer);
-    if (turnEl) {
-      conversation_id =
-        turnEl.getAttribute('data-turn-id-container') ||
-        turnEl.getAttribute('data-turn-id') ||
-        null;
-    }
+    //   1. detector.conversationId — parsed from the /files/download/
+    //      query string; the canonical conversation UUID.
+    //   2. URL `/c/<uuid>` (chat that redirected after the first turn).
+    //   3. data-turn-id-container / data-turn-id on the assistant block,
+    //      but ONLY if it looks like a UUID. ChatGPT 2026 sometimes
+    //      stamps a transient "request-WEB:..." id here that is NOT the
+    //      conversation id (observed: "request-WEB:fd71...-0").
+    //   4. null (the agent tolerates a missing conversation_id).
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    let conversation_id = (detector && detector.conversationId) || null;
     if (!conversation_id) {
-      const m = location.pathname.match(/^\/c\/([0-9a-f-]{8,})/i);
+      const m = location.pathname.match(/\/c\/([0-9a-f-]{8,})/i);
       if (m) conversation_id = m[1];
     }
+    if (!conversation_id) {
+      const turnEl = target.closest(SEL.turnContainer);
+      if (turnEl) {
+        const cand =
+          turnEl.getAttribute('data-turn-id-container') ||
+          turnEl.getAttribute('data-turn-id') ||
+          '';
+        if (UUID_RE.test(cand)) conversation_id = cand;
+      }
+    }
+
+    const text = proseText !== null ? proseText : images.length ? '' : rawTurnText;
 
     return {
       text,
@@ -514,34 +790,49 @@ if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
     // the composer (mimics a user reading the empty page).
     await sleep(rand(250, 600));
     const beforeCount = document.querySelectorAll(SEL.asstMsg).length;
-    await typePromptDOM(composer, prompt.trim());
-    if (imageBlob) {
-      // Brief pause between finishing the prompt and attaching the
-      // image — matches the natural beat where a user reaches for
-      // their clipboard / file picker.
-      await sleep(rand(400, 900));
-      await attachImageDOM(composer, imageBlob, imageName);
+
+    // Install the DALL-E detector BEFORE submitting the prompt so it
+    // can catch the /files/download/ fetch that fires when DALL-E
+    // completes server-side (potentially 30-60 s later). Teardown runs
+    // in the finally block whether or not generation succeeds.
+    const detector = installDalleDetector();
+    try {
+      await typePromptDOM(composer, prompt.trim());
+      if (imageBlob) {
+        // Brief pause between finishing the prompt and attaching the
+        // image — matches the natural beat where a user reaches for
+        // their clipboard / file picker.
+        await sleep(rand(400, 900));
+        await attachImageDOM(composer, imageBlob, imageName);
+      }
+      // Final "review before send" pause. Real users almost never send
+      // 0 ms after the last keystroke.
+      await sleep(rand(500, 1200));
+      await clickSendDOM(composer);
+      await waitForIdleDOM(beforeCount);
+      // DALL-E mode: ChatGPT's stop-button disappears early (the text
+      // "tool" turn completes in seconds) while the actual assistant
+      // message containing the generated image arrives 20-60 s later.
+      // Wait for at least one assistant block past `beforeCount` to
+      // exist before extracting, otherwise extractResponseDOM throws
+      // DOM_NO_ASSISTANT_MESSAGE the moment the placeholder disappears.
+      await waitFor(
+        () => document.querySelectorAll(SEL.asstMsg).length > beforeCount,
+        { timeout: 180000, interval: 250 },
+      );
+      // DALL-E images render AFTER the text stream finishes. Block until
+      // the assistant message's image count settles (detector provides the
+      // DALL-E-in-progress signal; no-op for text-only replies).
+      await waitForImagesStableDOM({ detector });
+      // Trust captured download URLs as OUTPUT images only when no INPUT
+      // image was attached, or when the SSE stream confirmed a DALL-E
+      // tool call. Prevents a re-rendered user upload from being ingested
+      // as a generated image in the multimodal (image + prompt) path.
+      const trustDownloads = !imageBlob || detector.dalleStarted;
+      return await extractResponseDOM(detector, { trustDownloads });
+    } finally {
+      detector.teardown();
     }
-    // Final "review before send" pause. Real users almost never send
-    // 0 ms after the last keystroke.
-    await sleep(rand(500, 1200));
-    await clickSendDOM(composer);
-    await waitForIdleDOM(beforeCount);
-    // DALL-E mode: ChatGPT's stop-button disappears early (the text
-    // "tool" turn completes in seconds) while the actual assistant
-    // message containing the generated image arrives 20-60 s later.
-    // Wait for at least one assistant block past `beforeCount` to
-    // exist before extracting, otherwise extractResponseDOM throws
-    // DOM_NO_ASSISTANT_MESSAGE the moment the placeholder disappears.
-    await waitFor(
-      () => document.querySelectorAll(SEL.asstMsg).length > beforeCount,
-      { timeout: 90000, interval: 250 },
-    );
-    // DALL-E images render AFTER the text stream finishes. Block until
-    // the assistant message's image count settles so we don't snapshot
-    // a half-rendered turn (no-op when ChatGPT replies text-only).
-    await waitForImagesStableDOM();
-    return await extractResponseDOM();
   }
 
   // Expose for the fallback ladder in injected_chatgpt.js AND for a
@@ -555,6 +846,7 @@ if (window.__FLOWBOARD_CHATGPT_DOM_INJECTED__) {
     clickSendDOM,
     waitForIdleDOM,
     extractResponseDOM,
+    installDalleDetector,
     _SEL: SEL,
     _loadedAt: new Date().toISOString(),
   };
