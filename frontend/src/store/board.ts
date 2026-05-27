@@ -176,6 +176,8 @@ export interface FlowboardNodeData extends Record<string, unknown> {
   shotId?: string;
   shotIndex?: number;
   shotDurationSec?: number;
+  sourceFrameId?: string;
+  sourceFrameChangedAt?: string;
   timelineRecipeId?: string;
   timelineShotIds?: string[];
   timelineDurationsSec?: number[];
@@ -342,6 +344,8 @@ function nodeFromDto(dto: NodeDTO): FlowNode {
       shotId: dto.data["shotId"] as string | undefined,
       shotIndex: dto.data["shotIndex"] as number | undefined,
       shotDurationSec: dto.data["shotDurationSec"] as number | undefined,
+      sourceFrameId: dto.data["sourceFrameId"] as string | undefined,
+      sourceFrameChangedAt: dto.data["sourceFrameChangedAt"] as string | undefined,
       timelineRecipeId: dto.data["timelineRecipeId"] as string | undefined,
       timelineShotIds: dto.data["timelineShotIds"] as string[] | undefined,
       timelineDurationsSec: dto.data["timelineDurationsSec"] as number[] | undefined,
@@ -490,6 +494,7 @@ interface BoardState {
   // edges so the old redo-marked source no longer blocks export.
   rewireTimelineStoryboardPanels(sourceRfId: string, replacementRfId: string): Promise<void>;
   setTimelineActiveClip(timelineRfId: string, shotId: string, clipRfId: string): Promise<void>;
+  setShotSourceFrame(timelineRfId: string, shotId: string, clipRfId: string, frameRfId: string): Promise<void>;
 
   updateNodeData(rfId: string, partial: Partial<FlowboardNodeData>): void;
   /** Merge `partial` into edge.data — used to refresh the local cache
@@ -1087,6 +1092,104 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         ],
       }));
       await get().markTimelineExportsStale([timelineRfId], "timeline_active_clip_changed");
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+
+  async setShotSourceFrame(timelineRfId, shotId, clipRfId, frameRfId) {
+    const { boardId, nodes, edges } = get();
+    if (boardId === null) return;
+    const timeline = nodes.find((n) => n.id === timelineRfId);
+    const clip = nodes.find((n) => n.id === clipRfId);
+    const frame = nodes.find((n) => n.id === frameRfId);
+    if (timeline?.data.workflowKind !== "timeline") return;
+    if (clip?.data.workflowKind !== "shot_clip" || clip.data.shotId !== shotId) return;
+    if (frame?.data.workflowKind !== "shot_frame" || frame.data.shotId !== shotId) return;
+    const clipId = parseInt(clipRfId, 10);
+    const frameId = parseInt(frameRfId, 10);
+    const timelineId = parseInt(timelineRfId, 10);
+    if (isNaN(clipId) || isNaN(frameId)) return;
+
+    const firstFrameEdges = edges.filter(
+      (edge) => edge.target === clipRfId && edge.data?.refRole === "first_frame",
+    );
+    const keepEdge = firstFrameEdges.find((edge) => edge.source === frameRfId);
+    if (keepEdge && firstFrameEdges.length === 1) return;
+
+    try {
+      const created = keepEdge
+        ? null
+        : await createEdge({
+          board_id: boardId,
+          source_id: frameId,
+          target_id: clipId,
+          ref_role: "first_frame",
+        });
+      const removeEdges = firstFrameEdges.filter((edge) => edge.id !== keepEdge?.id);
+      for (const edge of removeEdges) {
+        const edgeId = parseInt(edge.id, 10);
+        if (!isNaN(edgeId)) {
+          await deleteEdge(edgeId);
+        }
+      }
+      set((s) => ({
+        edges: [
+          ...s.edges.filter((edge) => !removeEdges.some((old) => old.id === edge.id)),
+          ...(created ? [edgeFromDto(created)] : []),
+        ],
+      }));
+
+      const changedAt = new Date().toISOString();
+      get().updateNodeData(clipRfId, {
+        status: "idle",
+        mediaId: undefined,
+        mediaIds: undefined,
+        bestMediaId: undefined,
+        bestVariantIdx: undefined,
+        reviewVerdict: undefined,
+        reviewNote: undefined,
+        reviewedAt: undefined,
+        renderedAt: undefined,
+        error: undefined,
+        slotErrors: undefined,
+        sourceFrameId: frameRfId,
+        sourceFrameChangedAt: changedAt,
+      });
+      await patchNode(clipId, {
+        status: "idle",
+        data: {
+          mediaId: null,
+          mediaIds: null,
+          bestMediaId: null,
+          bestVariantIdx: null,
+          reviewVerdict: null,
+          reviewNote: null,
+          reviewedAt: null,
+          renderedAt: null,
+          error: null,
+          slotErrors: null,
+          sourceFrameId: frameRfId,
+          sourceFrameChangedAt: changedAt,
+        },
+      });
+      get().updateNodeData(timelineRfId, {
+        timelineQaStatus: undefined,
+        timelineQaCheckedAt: undefined,
+        timelineQaSummary: undefined,
+        timelineQaItems: undefined,
+      });
+      if (!isNaN(timelineId)) {
+        await patchNode(timelineId, {
+          data: {
+            timelineQaStatus: null,
+            timelineQaCheckedAt: null,
+            timelineQaSummary: null,
+            timelineQaItems: null,
+          },
+        });
+      }
+      await get().markTimelineExportsStale([timelineRfId], "timeline_source_frame_changed");
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }

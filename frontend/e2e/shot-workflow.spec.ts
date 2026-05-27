@@ -1226,6 +1226,26 @@ test("timeline clip runner uses best-selected frame variant", async ({
         bestVariantIdx: 1,
         variantCount: 2,
         workflowKind: "shot_frame",
+        shotId: "shot-1",
+        shotIndex: 1,
+      },
+    },
+  });
+  const replacementFrameRes = await request.post("/api/nodes", {
+    data: {
+      board_id: board.id,
+      type: "image",
+      x: 80,
+      y: 260,
+      status: "done",
+      data: {
+        title: "Shot 1 replacement frame",
+        prompt: "replacement first frame",
+        mediaId: "frame-replacement",
+        mediaIds: ["frame-replacement"],
+        variantCount: 1,
+        workflowKind: "shot_frame",
+        shotId: "shot-1",
         shotIndex: 1,
       },
     },
@@ -1236,11 +1256,14 @@ test("timeline clip runner uses best-selected frame variant", async ({
       type: "video",
       x: 360,
       y: 80,
-      status: "idle",
+      status: "done",
       data: {
         title: "Shot 1 clip",
         prompt: "make clip",
+        mediaId: "old-clip",
+        mediaIds: ["old-clip"],
         workflowKind: "shot_clip",
+        shotId: "shot-1",
         shotIndex: 1,
       },
     },
@@ -1256,13 +1279,18 @@ test("timeline clip runner uses best-selected frame variant", async ({
         title: "Timeline",
         workflowKind: "timeline",
         timelineShotIds: ["shot-1"],
+        exportMediaId: "old-export",
+        exportStatus: "fresh",
+        exportVersion: 1,
       },
     },
   });
   expect(frameRes.ok()).toBeTruthy();
+  expect(replacementFrameRes.ok()).toBeTruthy();
   expect(clipRes.ok()).toBeTruthy();
   expect(timelineRes.ok()).toBeTruthy();
   const frame = (await frameRes.json()) as { id: number };
+  const replacementFrame = (await replacementFrameRes.json()) as { id: number };
   const clip = (await clipRes.json()) as { id: number };
   const timeline = (await timelineRes.json()) as { id: number };
   const requestRows = new Map<
@@ -1374,6 +1402,32 @@ test("timeline clip runner uses best-selected frame variant", async ({
     await page.goto("/");
 
     const clipRunner = page.getByRole("button", { name: "Generate clips / Tạo video" });
+    await expect(clipRunner).toBeDisabled();
+    await page.getByLabel("Shot 1 source frame").selectOption(String(replacementFrame.id));
+    await expect.poll(async () => {
+      const detailRes = await request.get(`/api/boards/${board.id}`);
+      const detail = await detailRes.json() as {
+        nodes: Array<{ id: number; data: Record<string, unknown> }>;
+        edges: Array<{ source_id: number; target_id: number; ref_role: string | null }>;
+      };
+      const clipNode = detail.nodes.find((node) => node.id === clip.id);
+      const timelineNode = detail.nodes.find((node) => node.id === timeline.id);
+      return {
+        firstFrameSources: detail.edges
+          .filter((edge) => edge.target_id === clip.id && edge.ref_role === "first_frame")
+          .map((edge) => edge.source_id),
+        clipMediaId: clipNode?.data.mediaId ?? null,
+        sourceFrameId: clipNode?.data.sourceFrameId,
+        timelineExportStatus: timelineNode?.data.exportStatus,
+        timelineStaleReason: timelineNode?.data.exportStaleReason,
+      };
+    }).toEqual({
+      firstFrameSources: [replacementFrame.id],
+      clipMediaId: null,
+      sourceFrameId: String(replacementFrame.id),
+      timelineExportStatus: "stale",
+      timelineStaleReason: "timeline_source_frame_changed",
+    });
     await expect(clipRunner).toBeEnabled();
     await clipRunner.click();
 
@@ -1383,7 +1437,7 @@ test("timeline clip runner uses best-selected frame variant", async ({
     const [videoRequest] = Array.from(requestRows.values()).filter(
       (row) => row.type === "gen_video",
     );
-    expect(videoRequest.params.start_media_id).toBe("frame-b");
+    expect(videoRequest.params.start_media_id).toBe("frame-replacement");
     expect(videoRequest.params.start_media_ids).toBeUndefined();
   } finally {
     await request.delete(`/api/boards/${board.id}`);

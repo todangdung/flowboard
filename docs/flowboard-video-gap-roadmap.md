@@ -69,6 +69,9 @@ Additional gap closure in this pass:
   missing media, redo blockers, duration drift, aspect mismatch, expected audio
   gaps, black frames, and frozen frames; QA status/reasons are stamped on the
   timeline and shown in rows plus export preflight.
+- Storyboard panel/source editing phase 1: timeline rows can open the linked
+  first-frame panel, switch a shot clip to a different same-shot frame source,
+  clear stale clip media, and mark timeline exports/QA stale.
 - Video source modes: Generate Video supports Auto, Text-to-video,
   First frame, First+last frame, and Omni Ingredients paths.
 - First+last frame dispatch: `last_frame` edge role now drives Flow's
@@ -213,7 +216,7 @@ Use this status overlay for current planning:
 | Status | Areas |
 | --- | --- |
 | Closed | Product/location/brand/audio nodes, edge roles, recipe catalog/router, product/character/claim prompt contracts, source modes, duration planning, audio guidance, reference role picker, shot workflow, timeline reorder/duration/caption metadata/export burn-in, timeline/export/review/refine, asset library profiles, accepted-output references. |
-| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, storyboard panel/source editing, native video extend, advanced/generated transitions, local timeline QA heuristics. |
+| Partial | Real Flow QA across all recipes, edit-video real validation, character profile depth, brand kit depth, advanced storyboard panel editing, native video extend, advanced/generated transitions, local timeline QA heuristics. |
 | Open | AI/semantic auto-review scoring, multi-provider media abstraction beyond Flow. |
 
 | Area | Original gap | Why it mattered |

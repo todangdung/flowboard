@@ -1950,6 +1950,7 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
   const paygateTier = useGenerationStore((s) => s.paygateTier);
   const dispatchGeneration = useGenerationStore((s) => s.dispatchGeneration);
   const setTimelineActiveClip = useBoardStore((s) => s.setTimelineActiveClip);
+  const setShotSourceFrame = useBoardStore((s) => s.setShotSourceFrame);
   const [runnerBusy, setRunnerBusy] = useState<"frames" | "clips" | null>(null);
   const [qaBusy, setQaBusy] = useState(false);
   const [qaError, setQaError] = useState<string | null>(null);
@@ -2805,6 +2806,25 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
           const caption = captionForTimelineRow(clip);
           const orderIndex = typeof shotId === "string" ? orderedShotIds.indexOf(shotId) : -1;
           const hasNextTransition = orderIndex >= 0 && orderIndex < orderedShotIds.length - 1;
+          const frameEdge = edges.find((e) => e.target === clip.id && e.data?.refRole === "first_frame");
+          const activeFrame = frameEdge
+            ? nodes.find((node) => node.id === frameEdge.source && node.data.workflowKind === "shot_frame")
+            : undefined;
+          const frameCandidatesBase = typeof shotId === "string" && shotId
+            ? nodes
+              .filter((candidate) =>
+                candidate.data.workflowKind === "shot_frame"
+                && candidate.data.shotId === shotId,
+              )
+              .sort((a, b) => {
+                const at = a.data.renderedAt ?? "";
+                const bt = b.data.renderedAt ?? "";
+                return at.localeCompare(bt) || a.id.localeCompare(b.id);
+              })
+            : [];
+          const frameCandidates = activeFrame && !frameCandidatesBase.some((candidate) => candidate.id === activeFrame.id)
+            ? [activeFrame, ...frameCandidatesBase]
+            : frameCandidatesBase;
           const candidates = typeof shotId === "string" && shotId
             ? nodes
               .filter((candidate) =>
@@ -2824,6 +2844,17 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
               useGenerationStore
                 .getState()
                 .openGenerationDialog(clip.id, clip.data.prompt ?? "");
+            }
+          };
+          const openFrame = () => {
+            if (!activeFrame) return;
+            const frameBestIdx = bestVariantIndex(activeFrame.data);
+            if (nodeMediaIds(activeFrame.data).length > 0) {
+              useGenerationStore.getState().openResultViewer(activeFrame.id, frameBestIdx ?? 0);
+            } else if (/^\d+$/.test(activeFrame.id)) {
+              useGenerationStore
+                .getState()
+                .openGenerationDialog(activeFrame.id, activeFrame.data.prompt ?? "");
             }
           };
           return (
@@ -2952,6 +2983,47 @@ function TimelineBody({ rfId, data }: { rfId: string; data: FlowboardNodeData })
                         void saveShotCaption(shotId, event.target.value);
                       }}
                     />
+                  </div>
+                )}
+                {shotId && (
+                  <div
+                    className="timeline-shot-row__source-controls nodrag"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="timeline-shot-row__source-open"
+                      aria-label={`Open shot ${index || "?"} frame`}
+                      disabled={!activeFrame}
+                      onClick={openFrame}
+                    >
+                      frame
+                    </button>
+                    <label className="timeline-shot-row__source">
+                      <span>src</span>
+                      <select
+                        aria-label={`Shot ${index || "?"} source frame`}
+                        value={activeFrame?.id ?? ""}
+                        disabled={frameCandidates.length < 2}
+                        onChange={(event) => {
+                          if (event.target.value) {
+                            void setShotSourceFrame(rfId, shotId, clip.id, event.target.value);
+                          }
+                        }}
+                      >
+                        {!activeFrame && <option value="">none</option>}
+                        {frameCandidates.map((candidate) => {
+                          const candidateBest = bestVariantIndex(candidate.data);
+                          const ready = nodeMediaIds(candidate.data).length > 0 ? "ready" : candidate.data.status ?? "idle";
+                          const active = candidate.id === activeFrame?.id ? "active" : ready;
+                          return (
+                            <option key={candidate.id} value={candidate.id}>
+                              #{candidate.data.shortId} {candidateBest !== null ? `v${candidateBest + 1}` : ready} · {active}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
                   </div>
                 )}
                 {shotId && hasNextTransition && (
