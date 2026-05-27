@@ -75,10 +75,19 @@ First slice shipped:
 - Timeline export/QA now surface labeled errors for malformed JSON or missing
   required fields instead of accepting unchecked payloads.
 
+Second slice shipped:
+
+- Added schemas for recipe catalog and recipe plan responses.
+- Added schemas for shot-plan and workflow-build responses, including node and
+  edge DTOs returned by scaffold creation.
+- Added schemas for reference-role classification responses.
+- Recipe/shot-plan malformed responses now surface labeled API boundary errors
+  instead of silently casting dynamic JSON.
+
 Next useful slices:
 
 - Add schemas for node `profile` and key `FlowboardNodeData` slices.
-- Validate recipe catalog/shot-plan responses at the API boundary.
+- Validate reference library wire rows and saved profile payloads.
 
 Do not use it for:
 

@@ -1,24 +1,45 @@
 import type { z } from "zod";
 import {
+  recipeWorkflowBuildResponseSchema,
+  roleClassifyResponseSchema,
+  shotPlanResponseSchema,
   timelineExportRequestSchema,
   timelineExportResponseSchema,
   timelineQaRequestSchema,
   timelineQaResponseSchema,
+  videoRecipeCatalogResponseSchema,
+  videoRecipePlanResponseSchema,
 } from "./schemas";
 import type {
+  RecipeWorkflowBuildResponse,
+  RoleClassifyResponse,
+  ShotPlanItem,
+  ShotPlanResponse,
   TimelineExportRequest,
   TimelineExportResponse,
   TimelineQaRequest,
   TimelineQaResponse,
+  VideoRecipeCatalogResponse,
+  VideoRecipePlanResponse,
 } from "./schemas";
 
 export type {
+  RecipeWorkflowBuildResponse,
+  RoleClassifyResponse,
+  RoleSuggestion,
+  ShotPlanItem,
+  ShotPlanResponse,
   TimelineExportRequest,
   TimelineExportResponse,
   TimelineQaIssue,
   TimelineQaItem,
   TimelineQaResponse,
   TimelineQaStatus,
+  VideoRecipeCatalogResponse,
+  VideoRecipeDTO,
+  VideoRecipePlan,
+  VideoRecipePlanResponse,
+  VideoRecipePromptSections,
 } from "./schemas";
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -654,101 +675,6 @@ export interface AutoPromptBatchResponse {
   prompts: string[];
 }
 
-export interface VideoRecipeDTO {
-  id: VideoRecipeId;
-  label: string;
-  required_roles: RefRole[];
-  optional_roles: RefRole[];
-  recommended_generation_path: string;
-  default_camera: "static" | "dynamic";
-  default_aspect_ratio: string;
-  default_source_mode?: string;
-  required_node_kinds?: string[];
-  allowed_source_modes?: string[];
-  duration_range_sec?: number[];
-  default_duration_sec?: number;
-  export_preset?: string;
-  timeline_shots?: string[];
-  scaffold?: boolean;
-  ui_placement?: "generation_dialog" | "project_sidebar" | string;
-  qa_status?: string;
-  action_hint: string;
-  audio_hint: string;
-  preserve_hint: string;
-  avoid_hint: string;
-  prompt_contract: string;
-}
-
-export interface VideoRecipeCatalogResponse {
-  recipes: VideoRecipeDTO[];
-}
-
-export interface VideoRecipePromptSections {
-  brief: string;
-  refs: string;
-  action: string;
-  camera: string;
-  audio: string;
-  preserve: string;
-  safety: string;
-  avoid: string;
-}
-
-export interface VideoRecipePlan {
-  recipe_id: VideoRecipeId | null;
-  label: string;
-  ready: boolean;
-  required_roles: RefRole[];
-  optional_roles: RefRole[];
-  present_roles: RefRole[];
-  missing_roles: RefRole[];
-  recommended_generation_path: string;
-  prompt_sections: VideoRecipePromptSections;
-}
-
-export interface VideoRecipePlanResponse {
-  node_id: number;
-  plan: VideoRecipePlan;
-}
-
-export interface ShotPlanItem {
-  shot_index: number;
-  title_en: string;
-  title_vi: string;
-  frame_prompt: string;
-  video_prompt: string;
-  duration_sec: number;
-  action: string;
-  camera: string;
-  audio: string;
-  continuity: string;
-  avoid: string;
-}
-
-export interface ShotPlanResponse {
-  recipe_id: VideoRecipeId;
-  label: string;
-  brief: string;
-  shot_count: number;
-  shot_duration_sec: number;
-  source: "llm" | "fallback" | "custom" | string;
-  source_context: Array<Record<string, unknown>>;
-  shots: ShotPlanItem[];
-}
-
-export interface RecipeWorkflowBuildResponse {
-  recipe_id: VideoRecipeId;
-  nodes: NodeDTO[];
-  edges: EdgeDTO[];
-  video_node_id: number | null;
-  frame_node_id: number | null;
-  timeline_node_id?: number | null;
-  shot_node_ids?: number[];
-  shot_count?: number;
-  open_node_id?: number | null;
-  open_generation: boolean;
-}
-
 export async function buildRecipeWorkflow(input: {
   board_id: number;
   recipe_id: VideoRecipeId;
@@ -770,7 +696,11 @@ export async function buildRecipeWorkflow(input: {
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<RecipeWorkflowBuildResponse>;
+  return parseApiResponse(
+    recipeWorkflowBuildResponseSchema,
+    await readJsonResponse(res, "buildRecipeWorkflow"),
+    "buildRecipeWorkflow",
+  );
 }
 
 export async function exportTimeline(
@@ -838,28 +768,11 @@ export async function buildShotPlan(input: {
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<ShotPlanResponse>;
-}
-
-export interface RoleSuggestion {
-  edge_id: number;
-  source_node_id: number;
-  source_short_id: string;
-  source_type: NodeType;
-  title: string | null;
-  current_role: RefRole | null;
-  suggested_role: RefRole;
-  confidence: number;
-  reason: string;
-  source: "heuristic" | "llm" | string;
-  needs_change: boolean;
-}
-
-export interface RoleClassifyResponse {
-  node_id: number;
-  recipe_id: VideoRecipeId | null;
-  source: "heuristic" | "llm" | string;
-  suggestions: RoleSuggestion[];
+  return parseApiResponse(
+    shotPlanResponseSchema,
+    await readJsonResponse(res, "buildShotPlan"),
+    "buildShotPlan",
+  );
 }
 
 export async function classifyReferenceRoles(input: {
@@ -875,7 +788,11 @@ export async function classifyReferenceRoles(input: {
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<RoleClassifyResponse>;
+  return parseApiResponse(
+    roleClassifyResponseSchema,
+    await readJsonResponse(res, "classifyReferenceRoles"),
+    "classifyReferenceRoles",
+  );
 }
 
 export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
@@ -883,7 +800,11 @@ export async function listVideoRecipes(): Promise<VideoRecipeCatalogResponse> {
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<VideoRecipeCatalogResponse>;
+  return parseApiResponse(
+    videoRecipeCatalogResponseSchema,
+    await readJsonResponse(res, "listVideoRecipes"),
+    "listVideoRecipes",
+  );
 }
 
 export async function getVideoRecipePlan(
@@ -897,7 +818,11 @@ export async function getVideoRecipePlan(
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
-  return res.json() as Promise<VideoRecipePlanResponse>;
+  return parseApiResponse(
+    videoRecipePlanResponseSchema,
+    await readJsonResponse(res, "getVideoRecipePlan"),
+    "getVideoRecipePlan",
+  );
 }
 
 export async function autoPromptBatch(

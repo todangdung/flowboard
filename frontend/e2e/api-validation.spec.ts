@@ -139,3 +139,53 @@ test("surfaces malformed timeline API responses", async ({ page, request }) => {
     await request.delete(`/api/boards/${board.id}`);
   }
 });
+
+test("surfaces malformed recipe API responses", async ({ page, request }) => {
+  const boardName = `Recipe validation e2e ${Date.now()}`;
+  const boardRes = await request.post("/api/boards", {
+    data: { name: boardName },
+  });
+  expect(boardRes.ok()).toBeTruthy();
+  const board = await boardRes.json() as { id: number; name: string };
+
+  try {
+    await stubAccount(page);
+    await page.route("**/api/recipes/build-shot-plan", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          recipe_id: "storyboard_sequence",
+          label: "Storyboard sequence / Chuỗi cảnh",
+          brief: "malformed plan",
+          shot_count: 3,
+          shot_duration_sec: 4,
+          source: "fallback",
+          source_context: [],
+        }),
+      });
+    });
+
+    await page.addInitScript((boardId) => {
+      localStorage.setItem("flowboard.activeBoardId", String(boardId));
+    }, board.id);
+    await page.goto("/");
+
+    await expect(page.getByRole("button", { name: "Rename board" })).toContainText(boardName);
+    await page
+      .getByLabel("Sequence brief / Ý tưởng chuỗi cảnh")
+      .fill("malformed plan");
+    await page
+      .getByRole("button", { name: "Plan storyboard sequence / Lập cảnh chuỗi" })
+      .click();
+    await expect(
+      page.getByText(/buildShotPlan: invalid response \(shots:/),
+    ).toBeVisible();
+  } finally {
+    await request.delete(`/api/boards/${board.id}`);
+  }
+});
